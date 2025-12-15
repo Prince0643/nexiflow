@@ -1,0 +1,127 @@
+{
+  "rules": {
+    "companies": {
+      "$companyId": {
+        ".read": "auth != null",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (root.child('users').child(auth.uid).child('companyId').val() === $companyId || !data.exists())))"
+      },
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'super_admin')",
+      ".indexOn": ["name", "isActive"]
+    },
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && root.child('users').child($uid).child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val()) || root.child('users').child(auth.uid).child('role').val() === 'hr' || (root.child('users').child(auth.uid).child('role').val() === 'employee' && root.child('users').child($uid).child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val()) || (root.child('users').child(auth.uid).child('role').val() === 'employee' && (root.child('users').child($uid).child('role').val() === 'admin' || root.child('users').child($uid).child('role').val() === 'super_admin' || root.child('users').child($uid).child('role').val() === 'root') && root.child('users').child($uid).child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())",
+        ".write": "$uid === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && ((!root.child('users').child($uid).exists() && newData.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val()) || (root.child('users').child($uid).exists() && root.child('users').child($uid).child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val()))) || (root.child('users').child(auth.uid).child('role').val() === 'hr' && ((!root.child('users').child($uid).exists() && newData.child('role').val() === 'employee') || root.child('users').child($uid).child('role').val() === 'employee'))"
+      },
+      ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'super_admin' || root.child('users').child(auth.uid).child('role').val() === 'hr' || root.child('users').child(auth.uid).child('teamRole').val() === 'leader' || (root.child('users').child(auth.uid).child('role').val() === 'employee' && root.child('users').child(auth.uid).child('companyId').val() !== null))",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'super_admin' || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+      ".indexOn": ["companyId", "role", "teamId", "isActive"]
+    },
+    "projects": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())))"
+    },
+    "tasks": {
+      "$taskId": {
+        ".read": "auth != null && (data.child('createdBy').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+        ".write": "auth != null && (data.child('createdBy').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')"
+      },
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["createdBy", "projectId", "status", "priority"]
+    },
+    "timeEntries": {
+      "$entryId": {
+        ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+        ".write": "auth != null && (data.child('userId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')"
+      },
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["userId", "projectId", "startTime"]
+    },
+    "clients": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())))"
+    },
+    "tags": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+    },
+    "teams": {
+      "$teamId": {
+        ".read": "auth != null && (data.child('leaderId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+        ".write": "auth != null && (data.child('leaderId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')"
+      },
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'super_admin' || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+      ".indexOn": ["leaderId", "isActive"]
+    },
+    "teamMembers": {
+      "$memberId": {
+        ".read": "auth != null && (data.child('userId').val() === auth.uid || root.child('teams').child(data.child('teamId').val()).child('leaderId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+        ".write": "auth != null && (root.child('teams').child(data.child('teamId').val()).child('leaderId').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'super_admin' && (!data.child('companyId').exists() || data.child('companyId').val() === root.child('users').child(auth.uid).child('companyId').val())) || root.child('users').child(auth.uid).child('role').val() === 'hr')"
+      },
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'super_admin' || root.child('users').child(auth.uid).child('role').val() === 'hr')",
+      ".indexOn": ["teamId", "userId", "isActive"]
+    },
+    "systemLogs": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp", "level", "userId", "action"]
+    },
+    "settings": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'root' || root.child('users').child(auth.uid).child('role').val() === 'super_admin')"
+    },
+    "messages": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["teamId", "senderId", "timestamp"]
+    },
+    "feedbacks": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["authorId", "category", "priority", "status", "createdAt"]
+    },
+    "feedbackComments": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["feedbackId", "authorId", "createdAt"]
+    },
+    "feedbackVotes": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["feedbackId", "userId"]
+    },
+    "mentionNotifications": {
+      "$userId": {
+        "$notificationId": {
+          ".read": "auth != null && $userId === auth.uid",
+          ".write": "auth != null && $userId === auth.uid"
+        }
+      },
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["mentionedUserId", "isRead", "createdAt"]
+    },
+    "messageNotifications": {
+      "$notificationId": {
+        ".read": "auth != null && data.child('userId').val() === auth.uid",
+        ".write": "auth != null && data.child('userId').val() === auth.uid"
+      },
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["userId", "isRead", "createdAt"]
+    },
+    "userReadTimestamps": {
+      "$userId": {
+        "$teamId": {
+          ".read": "auth != null && $userId === auth.uid",
+          ".write": "auth != null && $userId === auth.uid"
+        }
+      }
+    }
+  }
+}
