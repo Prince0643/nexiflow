@@ -1,0 +1,30 @@
+{
+  "name": "clockistry-api",
+  "version": "1.0.0",
+  "description": "Clockistry Time Tracking API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "firebase-admin": "^12.0.0",
+    "joi": "^17.11.0",
+    "moment": "^2.29.4",
+    "uuid": "^9.0.1",
+    "dotenv": "^16.3.1",
+    "compression": "^1.7.4",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": "18"
+  }
+}

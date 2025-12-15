@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "default": "time-tracker-system-d5cca"
+  },
+  "targets": {
+    "time-tracker-system-d5cca": {
+      "hosting": {
+        "main": [
+          "time-tracker-system-d5cca"
+        ],
+        "taskflowpro": [
+          "taskflowpro-nexistrydigitalsolutions"
+        ]
+      }
+    }
+  }
+}
