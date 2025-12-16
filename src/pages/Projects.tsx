@@ -14,6 +14,7 @@ import {
   Info
 } from 'lucide-react'
 import { Project, Client } from '../types'
+import { projectApiService } from '../services/projectApiService'
 import { projectService } from '../services/projectService'
 import ProjectModal from '../components/projects/ProjectModal'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
@@ -59,18 +60,18 @@ export default function Projects() {
       let projectsData: Project[] = [];
       const [clientsData] = await Promise.all([
         currentUser?.companyId 
-          ? projectService.getClientsForCompany(currentUser.companyId)
-          : projectService.getClients()
+          ? projectApiService.getClientsForCompany(currentUser.companyId)
+          : projectApiService.getClients()
       ])
       
       if (showArchived) {
         projectsData = currentUser?.companyId 
-          ? await projectService.getArchivedProjectsForCompany(currentUser.companyId)
-          : await projectService.getArchivedProjects()
+          ? await projectApiService.getProjectsForCompany(currentUser.companyId)
+          : await projectApiService.getProjects()
       } else {
         projectsData = currentUser?.companyId 
-          ? await projectService.getProjectsForCompany(currentUser.companyId)
-          : await projectService.getProjects()
+          ? await projectApiService.getProjectsForCompany(currentUser.companyId)
+          : await projectApiService.getProjects()
       }
       
       setProjects(projectsData)

@@ -1,7 +1,5 @@
 import { TimeEntry, CalendarEvent, CalendarDay, CalendarView, CalendarFilters, Project } from '../types'
-import { timeEntryService } from './timeEntryService'
-import { projectService } from './projectService'
-import { taskService } from './taskService'
+import { timeEntryApiService } from './timeEntryApiService'
 
 export const calendarService = {
   // Convert time entries to calendar events
@@ -171,14 +169,14 @@ export const calendarService = {
 
   // Get events for a specific date range
   async getEventsForDateRange(
-    userId: string, 
+    userId: string,
     startDate: Date, 
     endDate: Date,
     filters: CalendarFilters = {}
   ): Promise<CalendarEvent[]> {
     try {
-      // Get time entries for the date range
-      const timeEntries = await timeEntryService.getTimeEntriesByDateRange(userId, startDate, endDate)
+      // Get time entries for the date range from API service
+      const timeEntries = await timeEntryApiService.getTimeEntriesByDateRange(userId, startDate, endDate);
       
       // Convert to calendar events
       let events = this.convertTimeEntriesToEvents(timeEntries)
