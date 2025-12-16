@@ -23,7 +23,9 @@ import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, isS
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { projectService } from '../services/projectService'
 import { timeEntryService } from '../services/timeEntryService'
-import { pdfSettingsService } from '../services/pdfSettingsService'
+import { clientApiService } from '../services/clientApiService'
+import { projectApiService } from '../services/projectApiService'
+import { timeEntryApiService } from '../services/timeEntryApiService'
 import { Client, Project, TimeEntry, PDFSettings } from '../types'
 import ClientModal from '../components/projects/ClientModal'
 import ExportModal from '../components/projects/ExportModal'
@@ -105,7 +107,7 @@ export default function Clients() {
   useEffect(() => {
     loadClients()
     loadPDFSettings() // Load PDF settings when component mounts
-  }, [])
+  }, [currentCompany])
 
   useEffect(() => {
     if (clients.length > 0) {
@@ -113,15 +115,10 @@ export default function Clients() {
     }
   }, [clients, timeFilter, customStartDate, customEndDate])
 
-  // Load PDF settings for the current company
-  const loadPDFSettings = async () => {
-    if (currentUser?.companyId) {
-      try {
-        const settings = await pdfSettingsService.getPDFSettings(currentUser.companyId)
-        setPdfSettings(settings)
-      } catch (error) {
-        console.error('Error loading PDF settings:', error)
-      }
+  // Load PDF settings from current company data
+  const loadPDFSettings = () => {
+    if (currentCompany?.pdfSettings) {
+      setPdfSettings(currentCompany.pdfSettings)
     }
   }
 
@@ -131,11 +128,11 @@ export default function Clients() {
       // Use company-scoped data loading for multi-tenant isolation
       const [clientsData, projectsData] = await Promise.all([
         currentUser?.companyId 
-          ? projectService.getClientsForCompany(currentUser.companyId)
-          : projectService.getClients(),
+          ? clientApiService.getClientsForCompany(currentUser.companyId)
+          : clientApiService.getClients(),
         currentUser?.companyId 
-          ? projectService.getProjectsForCompany(currentUser.companyId)
-          : projectService.getProjects()
+          ? projectApiService.getProjectsForCompany(currentUser.companyId)
+          : projectApiService.getProjects()
       ])
       setClients(clientsData)
       setProjects(projectsData)
@@ -148,9 +145,11 @@ export default function Clients() {
   }
 
   const loadTimeData = async () => {
+    if (!currentUser?.uid) return;
+    
     try {
       const { startDate, endDate } = getDateRange()
-      const timeEntriesData = await timeEntryService.getAllTimeEntriesByDateRange(startDate, endDate)
+      const timeEntriesData = await timeEntryApiService.getTimeEntriesByDateRange(currentUser.uid, startDate, endDate)
       setTimeEntries(timeEntriesData)
     } catch (error) {
       console.error('Error loading time data:', error)
@@ -1184,7 +1183,7 @@ export default function Clients() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Hourly Rate</span>
                       {currentUser && canViewHourlyRates(currentUser.role) ? (
-                        <span className="font-semibold text-gray-900 dark:text-gray-100 text-xs sm:text-sm">{formatCurrency(client.hourlyRate || 0, client.currency)}</span>
+                        <span className="font-semibold text-gray-900 dark:text-gray-100 text-xs sm:text-sm">{formatCurrency(client.hourlyRate || 0, client.currency || 'USD')}</span>
                       ) : (
                         <span className="font-semibold text-gray-900 dark:text-gray-100 text-xs sm:text-sm">--</span>
                       )}
@@ -1202,7 +1201,7 @@ export default function Clients() {
                           <div className="flex items-center justify-between">
                             <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Billable Amount</span>
                             {currentUser && canViewHourlyRates(currentUser.role) ? (
-                              <span className="font-semibold text-green-600 dark:text-green-400 text-xs sm:text-sm">{formatCurrency(timeData.billableAmount, client.currency)}</span>
+                              <span className="font-semibold text-green-600 dark:text-green-400 text-xs sm:text-sm">{formatCurrency(timeData.billableAmount, client.currency || 'USD')}</span>
                             ) : (
                               <span className="font-semibold text-green-600 dark:text-green-400 text-xs sm:text-sm">--</span>
                             )}

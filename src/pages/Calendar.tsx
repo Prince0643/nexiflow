@@ -16,7 +16,8 @@ import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { useTimeEntries } from '../contexts/TimeEntryContext'
 import { CalendarDay, CalendarEvent, CalendarFilters, Project } from '../types'
 import { calendarService } from '../services/calendarService'
-import { projectService } from '../services/projectService'
+import { projectApiService } from '../services/projectApiService'
+import { timeEntryApiService } from '../services/timeEntryApiService'
 import { formatTimeFromSeconds, formatDate } from '../utils'
 
 export default function Calendar() {
@@ -48,10 +49,18 @@ export default function Calendar() {
     if (!currentUser) return
     
     try {
-      const projectsData = await projectService.getProjects()
-      setProjects(projectsData)
+      // Fetch projects using the authenticated API service
+      let projectsData: Project[] = [];
+      
+      if (currentUser.companyId) {
+        projectsData = await projectApiService.getProjectsForCompany(currentUser.companyId);
+      } else {
+        projectsData = await projectApiService.getProjects();
+      }
+      
+      setProjects(projectsData);
     } catch (error) {
-      console.error('Error loading projects:', error)
+      console.error('Error loading projects:', error);
     }
   }
 
@@ -63,18 +72,26 @@ export default function Calendar() {
       const year = currentDate.getFullYear()
       const month = currentDate.getMonth()
       
-      const days = await calendarService.getCalendarData(
-        currentUser.uid,
-        year,
-        month,
-        filters
-      )
+      // Calculate date range for the month
+      const startDate = new Date(year, month, 1);
+      const endDate = new Date(year, month + 1, 0);
       
-      setCalendarDays(days)
+      // Fetch events using the calendar service
+      const calendarEvents = await calendarService.getEventsForDateRange(
+        currentUser.uid,
+        startDate,
+        endDate,
+        filters
+      );
+      
+      // Generate calendar days
+      const days = calendarService.generateCalendarDays(year, month, calendarEvents);
+      
+      setCalendarDays(days);
     } catch (error) {
-      console.error('Error loading calendar data:', error)
+      console.error('Error loading calendar data:', error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { X, AlertCircle } from 'lucide-react'
 import { Project, Client, CreateProjectData } from '../../types'
 import { projectService } from '../../services/projectService'
+import { projectApiService } from '../../services/projectApiService'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { canAccessFeature } from '../../utils/permissions'
@@ -79,8 +80,8 @@ export default function ProjectModal({ isOpen, onClose, project, onSuccess }: Pr
     try {
       // Use company-scoped client loading to respect multi-tenancy
       const clientsData = currentUser?.companyId 
-        ? await projectService.getClientsForCompany(currentUser.companyId)
-        : await projectService.getClients()
+        ? await projectApiService.getClientsForCompany(currentUser.companyId)
+        : await projectApiService.getClients()
       setClients(clientsData)
     } catch (error) {
       console.error('Error loading clients:', error)
