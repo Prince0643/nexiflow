@@ -1575,6 +1575,513 @@ app.get('/api/projects/company/:companyId', async (req, res) => {
   }
 });
 
+// Task Management API endpoints
+// Get all tasks
+app.get('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, userId } = req.query;
+    
+    const connection = await pool.getConnection();
+    try {
+      let query = `
+        SELECT * FROM tasks 
+        WHERE 1=1
+      `;
+      const params = [];
+      
+      // Filter by project
+      if (projectId) {
+        query += ` AND project_id = ?`;
+        params.push(projectId);
+      }
+      
+      // Filter by user
+      if (userId) {
+        query += ` AND assignee_id = ?`;
+        params.push(userId);
+      }
+      
+      query += ` ORDER BY created_at DESC`;
+      
+      const [rows] = await connection.execute(query, params);
+      const tasks = rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        notes: row.notes,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        status: {
+          id: row.status_id,
+          name: row.status_name,
+          color: row.status_color,
+          order: row.status_order,
+          isCompleted: row.status_is_completed === 1
+        },
+        priority: {
+          id: row.priority_id,
+          name: row.priority_name,
+          color: row.priority_color,
+          level: row.priority_level
+        },
+        assigneeId: row.assignee_id,
+        assigneeName: row.assignee_name,
+        assigneeEmail: row.assignee_email,
+        dueDate: row.due_date ? new Date(row.due_date) : undefined,
+        estimatedHours: row.estimated_hours,
+        actualHours: row.actual_hours,
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        isCompleted: row.is_completed === 1,
+        completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+        createdBy: row.created_by,
+        createdByName: row.created_by_name,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+        parentTaskId: row.parent_task_id,
+        teamId: row.team_id,
+        companyId: row.company_id,
+        attachments: row.attachments ? JSON.parse(row.attachments) : [],
+        comments: row.comments ? JSON.parse(row.comments) : [],
+        timeEntries: row.time_entries ? JSON.parse(row.time_entries) : []
+      }));
+      
+      res.json({ 
+        success: true, 
+        data: tasks,
+        count: tasks.length
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Get tasks error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get tasks' 
+    });
+  }
+});
+
+// Create a new task
+app.post('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const taskData = req.body;
+    
+    const connection = await pool.getConnection();
+    try {
+      const now = new Date().toISOString();
+      const taskId = uuidv4(); // Generate a unique ID for the task
+      
+      const query = `
+        INSERT INTO tasks (
+          id, title, description, notes, project_id, project_name, status_id, status_name,
+          status_color, status_order, status_is_completed, priority_id, priority_name,
+          priority_color, priority_level, assignee_id, assignee_name, assignee_email,
+          due_date, estimated_hours, actual_hours, is_completed, completed_at, created_by,
+          created_by_name, created_at, updated_at, parent_task_id, team_id, company_id,
+          tags, attachments, comments, time_entries
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      await connection.execute(query, [
+        taskId,
+        taskData.title,
+        taskData.description || null,
+        taskData.notes || null,
+        taskData.projectId || null,
+        taskData.projectName || null,
+        taskData.status?.id || null,
+        taskData.status?.name || null,
+        taskData.status?.color || null,
+        taskData.status?.order || null,
+        taskData.status?.isCompleted ? 1 : 0,
+        taskData.priority?.id || null,
+        taskData.priority?.name || null,
+        taskData.priority?.color || null,
+        taskData.priority?.level || null,
+        taskData.assigneeId || null,
+        taskData.assigneeName || null,
+        taskData.assigneeEmail || null,
+        taskData.dueDate ? new Date(taskData.dueDate).toISOString().split('T')[0] : null,
+        taskData.estimatedHours || null,
+        taskData.actualHours || null,
+        taskData.isCompleted ? 1 : 0,
+        taskData.completedAt ? new Date(taskData.completedAt).toISOString() : null,
+        taskData.createdBy || null,
+        taskData.createdByName || null,
+        now,
+        now,
+        taskData.parentTaskId || null,
+        taskData.teamId || null,
+        taskData.companyId || null,
+        taskData.tags ? JSON.stringify(taskData.tags) : JSON.stringify([]),
+        taskData.attachments ? JSON.stringify(taskData.attachments) : JSON.stringify([]),
+        taskData.comments ? JSON.stringify(taskData.comments) : JSON.stringify([]),
+        taskData.timeEntries ? JSON.stringify(taskData.timeEntries) : JSON.stringify([])
+      ]);
+      
+      const newTask = {
+        id: taskId,
+        title: taskData.title,
+        description: taskData.description,
+        notes: taskData.notes,
+        projectId: taskData.projectId,
+        projectName: taskData.projectName,
+        status: taskData.status,
+        priority: taskData.priority,
+        assigneeId: taskData.assigneeId,
+        assigneeName: taskData.assigneeName,
+        assigneeEmail: taskData.assigneeEmail,
+        dueDate: taskData.dueDate,
+        estimatedHours: taskData.estimatedHours,
+        actualHours: taskData.actualHours,
+        tags: taskData.tags || [],
+        isCompleted: taskData.isCompleted || false,
+        completedAt: taskData.completedAt,
+        createdBy: taskData.createdBy,
+        createdByName: taskData.createdByName,
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+        parentTaskId: taskData.parentTaskId,
+        teamId: taskData.teamId,
+        companyId: taskData.companyId,
+        attachments: taskData.attachments || [],
+        comments: taskData.comments || [],
+        timeEntries: taskData.timeEntries || []
+      };
+      
+      res.status(201).json({ 
+        success: true, 
+        data: newTask,
+        message: 'Task created successfully'
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Create task error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to create task' 
+    });
+  }
+});
+
+// Update a task
+app.put('/api/tasks/:taskId', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const updates = req.body;
+    
+    // Validate taskId
+    if (!taskId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Task ID is required' 
+      });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      const fields = [];
+      const values = [];
+      
+      if (updates.title !== undefined) {
+        fields.push('title = ?');
+        values.push(updates.title);
+      }
+      if (updates.description !== undefined) {
+        fields.push('description = ?');
+        values.push(updates.description);
+      }
+      if (updates.notes !== undefined) {
+        fields.push('notes = ?');
+        values.push(updates.notes);
+      }
+      if (updates.projectId !== undefined) {
+        fields.push('project_id = ?');
+        values.push(updates.projectId);
+      }
+      if (updates.projectName !== undefined) {
+        fields.push('project_name = ?');
+        values.push(updates.projectName);
+      }
+      if (updates.status !== undefined) {
+        fields.push('status_id = ?', 'status_name = ?', 'status_color = ?', 'status_order = ?', 'status_is_completed = ?');
+        values.push(
+          updates.status.id,
+          updates.status.name,
+          updates.status.color,
+          updates.status.order,
+          updates.status.isCompleted ? 1 : 0
+        );
+      }
+      if (updates.priority !== undefined) {
+        fields.push('priority_id = ?', 'priority_name = ?', 'priority_color = ?', 'priority_level = ?');
+        values.push(
+          updates.priority.id,
+          updates.priority.name,
+          updates.priority.color,
+          updates.priority.level
+        );
+      }
+      if (updates.assigneeId !== undefined) {
+        fields.push('assignee_id = ?');
+        values.push(updates.assigneeId);
+      }
+      if (updates.assigneeName !== undefined) {
+        fields.push('assignee_name = ?');
+        values.push(updates.assigneeName);
+      }
+      if (updates.assigneeEmail !== undefined) {
+        fields.push('assignee_email = ?');
+        values.push(updates.assigneeEmail);
+      }
+      if (updates.dueDate !== undefined) {
+        fields.push('due_date = ?');
+        values.push(updates.dueDate ? new Date(updates.dueDate).toISOString().split('T')[0] : null);
+      }
+      if (updates.estimatedHours !== undefined) {
+        fields.push('estimated_hours = ?');
+        values.push(updates.estimatedHours);
+      }
+      if (updates.actualHours !== undefined) {
+        fields.push('actual_hours = ?');
+        values.push(updates.actualHours);
+      }
+      if (updates.isCompleted !== undefined) {
+        fields.push('is_completed = ?');
+        values.push(updates.isCompleted ? 1 : 0);
+        
+        if (updates.isCompleted) {
+          fields.push('completed_at = ?');
+          values.push(new Date().toISOString());
+        }
+      }
+      if (updates.completedAt !== undefined) {
+        fields.push('completed_at = ?');
+        values.push(updates.completedAt ? new Date(updates.completedAt).toISOString() : null);
+      }
+      if (updates.createdBy !== undefined) {
+        fields.push('created_by = ?');
+        values.push(updates.createdBy);
+      }
+      if (updates.createdByName !== undefined) {
+        fields.push('created_by_name = ?');
+        values.push(updates.createdByName);
+      }
+      if (updates.parentTaskId !== undefined) {
+        fields.push('parent_task_id = ?');
+        values.push(updates.parentTaskId);
+      }
+      if (updates.teamId !== undefined) {
+        fields.push('team_id = ?');
+        values.push(updates.teamId);
+      }
+      if (updates.companyId !== undefined) {
+        fields.push('company_id = ?');
+        values.push(updates.companyId);
+      }
+      if (updates.tags !== undefined) {
+        fields.push('tags = ?');
+        values.push(JSON.stringify(updates.tags));
+      }
+      if (updates.attachments !== undefined) {
+        fields.push('attachments = ?');
+        values.push(JSON.stringify(updates.attachments));
+      }
+      if (updates.comments !== undefined) {
+        fields.push('comments = ?');
+        values.push(JSON.stringify(updates.comments));
+      }
+      if (updates.timeEntries !== undefined) {
+        fields.push('time_entries = ?');
+        values.push(JSON.stringify(updates.timeEntries));
+      }
+      
+      // Always update the timestamp
+      fields.push('updated_at = ?');
+      values.push(new Date().toISOString());
+      
+      if (fields.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'No updates provided' 
+        });
+      }
+      
+      values.push(taskId); // For the WHERE clause
+      
+      const query = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`;
+      const [result] = await connection.execute(query, values);
+      
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Task not found' 
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'Task updated successfully'
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Update task error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update task' 
+    });
+  }
+});
+
+// Delete a task
+app.delete('/api/tasks/:taskId', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    // Validate taskId
+    if (!taskId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Task ID is required' 
+      });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      const query = `DELETE FROM tasks WHERE id = ?`;
+      const [result] = await connection.execute(query, [taskId]);
+      
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Task not found' 
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'Task deleted successfully'
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Delete task error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete task' 
+    });
+  }
+});
+
+// Get task statuses
+app.get('/api/task-statuses', async (req, res) => {
+  console.log('Task statuses endpoint hit');
+  try {
+    // Return default statuses
+    const statuses = [
+      { id: 'status_0', name: 'To Do', color: '#6B7280', order: 0, isCompleted: false },
+      { id: 'status_1', name: 'In Progress', color: '#3B82F6', order: 1, isCompleted: false },
+      { id: 'status_2', name: 'Review', color: '#F59E0B', order: 2, isCompleted: false },
+      { id: 'status_3', name: 'Done', color: '#10B981', order: 3, isCompleted: true }
+    ];
+    
+    res.json({
+      success: true,
+      data: statuses
+    });
+  } catch (error) {
+    console.error('Error fetching task statuses:', error);
+    res.status(500).json({ error: 'Failed to fetch task statuses' });
+  }
+});
+
+// Get task priorities
+app.get('/api/task-priorities', async (req, res) => {
+  console.log('Task priorities endpoint hit');
+  try {
+    // Return default priorities
+    const priorities = [
+      { id: 'priority_0', name: 'Low', color: '#6B7280', level: 1 },
+      { id: 'priority_1', name: 'Medium', color: '#F59E0B', level: 2 },
+      { id: 'priority_2', name: 'High', color: '#EF4444', level: 3 },
+      { id: 'priority_3', name: 'Urgent', color: '#DC2626', level: 4 }
+    ];
+    
+    res.json({
+      success: true,
+      data: priorities
+    });
+  } catch (error) {
+    console.error('Error fetching task priorities:', error);
+    res.status(500).json({ error: 'Failed to fetch task priorities' });
+  }
+});
+
+// Get clients for company
+app.get('/api/projects/company/:companyId', async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        SELECT * FROM projects 
+        WHERE company_id = ? AND is_archived = 0
+        ORDER BY created_at DESC
+      `;
+
+      const [rows] = await connection.execute(query, [companyId]);
+      const projects = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        color: row.color,
+        status: row.status,
+        priority: row.priority,
+        startDate: row.start_date ? new Date(row.start_date) : undefined,
+        endDate: row.end_date ? new Date(row.end_date) : undefined,
+        budget: row.budget,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        isArchived: row.is_archived === 1,
+        createdBy: row.created_by,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }));
+      
+      res.json({ 
+        success: true, 
+        data: projects,
+        count: projects.length
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Get projects error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get projects' 
+    });
+  }
+});
+
 // Get clients for company
 app.get('/api/clients/company/:companyId', async (req, res) => {
   try {
@@ -1812,4 +2319,499 @@ app.listen(PORT, () => {
   console.log(`📝 API endpoints available at http://localhost:${PORT}/api/*`);
 });
 
-export default app;
+// Team endpoints
+// Get all teams (admin only)
+app.get('/api/admin/teams', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        SELECT * FROM teams 
+        WHERE is_active = 1
+        ORDER BY created_at DESC
+      `;
+      
+      const [rows] = await connection.execute(query);
+      const teams = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        leaderId: row.leader_id,
+        leaderName: row.leader_name,
+        leaderEmail: row.leader_email,
+        color: row.color,
+        companyId: row.company_id,
+        isActive: row.is_active === 1,
+        memberCount: row.member_count,
+        createdBy: row.created_by,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }));
+      
+      res.json({ 
+        success: true, 
+        data: teams,
+        count: teams.length
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Get all teams error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get teams' 
+    });
+  }
+});
+
+// Get teams for company (admin only)
+app.get('/api/admin/teams/company/:companyId', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        SELECT * FROM teams 
+        WHERE is_active = 1 AND company_id = ?
+        ORDER BY created_at DESC
+      `;
+      
+      const [rows] = await connection.execute(query, [companyId]);
+      const teams = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        leaderId: row.leader_id,
+        leaderName: row.leader_name,
+        leaderEmail: row.leader_email,
+        color: row.color,
+        companyId: row.company_id,
+        isActive: row.is_active === 1,
+        memberCount: row.member_count,
+        createdBy: row.created_by,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      }));
+      
+      res.json({ 
+        success: true, 
+        data: teams,
+        count: teams.length
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Get teams for company error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get teams for company' 
+    });
+  }
+});
+
+// Get team members
+app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const userId = req.user.id;
+    
+    const connection = await pool.getConnection();
+    try {
+      // Check if user is a member of the team or an admin
+      const memberQuery = `
+        SELECT * FROM team_members 
+        WHERE team_id = ? AND user_id = ? AND is_active = 1
+      `;
+      const [memberRows] = await connection.execute(memberQuery, [teamId, userId]);
+      
+      const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'root';
+      const isTeamMember = memberRows.length > 0;
+      
+      if (!isTeamMember && !isAdmin) {
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Access denied. You must be a team member or administrator to view team members.' 
+        });
+      }
+      
+      const query = `
+        SELECT * FROM team_members 
+        WHERE team_id = ? AND is_active = 1
+        ORDER BY team_role = 'leader' DESC, joined_at ASC
+      `;
+      
+      const [rows] = await connection.execute(query, [teamId]);
+      
+      const members = rows.map(row => ({
+        id: row.id,
+        teamId: row.team_id,
+        userId: row.user_id,
+        userName: row.user_name,
+        userEmail: row.user_email,
+        teamRole: row.team_role,
+        joinedAt: new Date(row.joined_at),
+        isActive: row.is_active === 1
+      }));
+      
+      res.json({ 
+        success: true, 
+        data: members,
+        count: members.length
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Get team members error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to get team members' 
+    });
+  }
+});
+
+// Add team member
+app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { userId: newUserId, role } = req.body;
+    const requestingUserId = req.user.id;
+    const requestingUserRole = req.user.role;
+    
+    // Validate required fields
+    if (!newUserId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'userId is required' 
+      });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      // Check if requesting user is the team leader or an admin
+      const teamQuery = `SELECT leader_id FROM teams WHERE id = ? AND is_active = 1`;
+      const [teamRows] = await connection.execute(teamQuery, [teamId]);
+      
+      if (teamRows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Team not found' 
+        });
+      }
+      
+      const team = teamRows[0];
+      const isAdmin = requestingUserRole === 'admin' || requestingUserRole === 'super_admin' || requestingUserRole === 'root';
+      const isTeamLeader = team.leader_id === requestingUserId;
+      
+      if (!isTeamLeader && !isAdmin) {
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Access denied. Only team leaders and administrators can add team members.' 
+        });
+      }
+      
+      // Check if user is already a member
+      const checkQuery = `
+        SELECT * FROM team_members 
+        WHERE team_id = ? AND user_id = ? AND is_active = 1
+      `;
+      const [checkRows] = await connection.execute(checkQuery, [teamId, newUserId]);
+      
+      if (checkRows.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'User is already a member of this team' 
+        });
+      }
+      
+      // Get user details
+      const userQuery = `SELECT name, email FROM users WHERE id = ?`;
+      const [userRows] = await connection.execute(userQuery, [newUserId]);
+      
+      if (userRows.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'User not found' 
+        });
+      }
+      
+      const user = userRows[0];
+      
+      const now = new Date().toISOString();
+      const query = `
+        INSERT INTO team_members (
+          team_id, user_id, user_name, user_email, team_role, joined_at, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      const result = await connection.execute(query, [
+        teamId,
+        newUserId,
+        user.name,
+        user.email,
+        role || 'member',
+        now,
+        1 // is_active
+      ]);
+      
+      const memberId = result[0].insertId.toString();
+      
+      // Update team member count
+      const countQuery = `
+        SELECT COUNT(*) as count FROM team_members 
+        WHERE team_id = ? AND is_active = 1
+      `;
+      const [countRows] = await connection.execute(countQuery, [teamId]);
+      const memberCount = countRows[0].count;
+      
+      const updateQuery = `
+        UPDATE teams 
+        SET member_count = ?, updated_at = ?
+        WHERE id = ?
+      `;
+      await connection.execute(updateQuery, [memberCount, now, teamId]);
+      
+      // Get the created member
+      const selectQuery = `SELECT * FROM team_members WHERE id = ?`;
+      const [memberRows] = await connection.execute(selectQuery, [memberId]);
+      
+      const row = memberRows[0];
+      const member = {
+        id: row.id,
+        teamId: row.team_id,
+        userId: row.user_id,
+        userName: row.user_name,
+        userEmail: row.user_email,
+        teamRole: row.team_role,
+        joinedAt: new Date(row.joined_at),
+        isActive: row.is_active === 1
+      };
+      
+      res.status(201).json({ 
+        success: true, 
+        data: member,
+        message: 'Team member added successfully'
+      });
+      
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('Add team member error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to add team member' 
+    });
+  }
+});    } 
+ } ) ; 
+ 
+ / /   U p d a t e   t e a m   m e m b e r   r o l e 
+ a p p . p u t ( ' / a p i / t e a m s / : t e a m I d / m e m b e r s / : m e m b e r I d ' ,   a u t h e n t i c a t e T o k e n ,   a s y n c   ( r e q ,   r e s )   = >   { 
+     t r y   { 
+         c o n s t   {   t e a m I d ,   m e m b e r I d   }   =   r e q . p a r a m s ; 
+         c o n s t   {   r o l e   }   =   r e q . b o d y ; 
+         c o n s t   u s e r I d   =   r e q . u s e r . i d ; 
+         c o n s t   u s e r R o l e   =   r e q . u s e r . r o l e ; 
+         
+         / /   V a l i d a t e   r e q u i r e d   f i e l d s 
+         i f   ( ! r o l e )   { 
+             r e t u r n   r e s . s t a t u s ( 4 0 0 ) . j s o n ( {   
+                 s u c c e s s :   f a l s e ,   
+                 e r r o r :   ' r o l e   i s   r e q u i r e d '   
+             } ) ; 
+         } 
+         
+         c o n s t   c o n n e c t i o n   =   a w a i t   p o o l . g e t C o n n e c t i o n ( ) ; 
+         t r y   { 
+             / /   C h e c k   i f   u s e r   i s   t h e   t e a m   l e a d e r   o r   a n   a d m i n 
+             c o n s t   t e a m Q u e r y   =   \ S E L E C T   l e a d e r _ i d   F R O M   t e a m s   W H E R E   i d   =   ?   A N D   i s _ a c t i v e   =   1 \ ; 
+             c o n s t   [ t e a m R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( t e a m Q u e r y ,   [ t e a m I d ] ) ; 
+             
+             i f   ( t e a m R o w s . l e n g t h   = = =   0 )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' T e a m   n o t   f o u n d '   
+                 } ) ; 
+             } 
+             
+             c o n s t   t e a m   =   t e a m R o w s [ 0 ] ; 
+             c o n s t   i s A d m i n   =   u s e r R o l e   = = =   ' a d m i n '   | |   u s e r R o l e   = = =   ' s u p e r _ a d m i n '   | |   u s e r R o l e   = = =   ' r o o t ' ; 
+             c o n s t   i s T e a m L e a d e r   =   t e a m . l e a d e r _ i d   = = =   u s e r I d ; 
+             
+             i f   ( ! i s T e a m L e a d e r   & &   ! i s A d m i n )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 3 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' A c c e s s   d e n i e d .   O n l y   t e a m   l e a d e r s   a n d   a d m i n i s t r a t o r s   c a n   u p d a t e   t e a m   m e m b e r s . '   
+                 } ) ; 
+             } 
+             
+             / /   C h e c k   i f   m e m b e r   e x i s t s   a n d   i s   a c t i v e 
+             c o n s t   m e m b e r Q u e r y   =   \ 
+                 S E L E C T   u s e r _ i d   F R O M   t e a m _ m e m b e r s   
+                 W H E R E   i d   =   ?   A N D   t e a m _ i d   =   ?   A N D   i s _ a c t i v e   =   1 
+             \ ; 
+             c o n s t   [ m e m b e r R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( m e m b e r Q u e r y ,   [ m e m b e r I d ,   t e a m I d ] ) ; 
+             
+             i f   ( m e m b e r R o w s . l e n g t h   = = =   0 )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' T e a m   m e m b e r   n o t   f o u n d '   
+                 } ) ; 
+             } 
+             
+             c o n s t   m e m b e r U s e r I d   =   m e m b e r R o w s [ 0 ] . u s e r _ i d ; 
+             
+             / /   I f   p r o m o t i n g   t o   l e a d e r ,   u p d a t e   t e a m   l e a d e r   i n f o 
+             i f   ( r o l e   = = =   ' l e a d e r ' )   { 
+                 / /   U p d a t e   t e a m   l e a d e r   i n f o 
+                 c o n s t   u p d a t e T e a m Q u e r y   =   \ 
+                     U P D A T E   t e a m s   
+                     S E T   l e a d e r _ i d   =   ? 
+                     W H E R E   i d   =   ? 
+                 \ ; 
+                 a w a i t   c o n n e c t i o n . e x e c u t e ( u p d a t e T e a m Q u e r y ,   [ m e m b e r U s e r I d ,   t e a m I d ] ) ; 
+                 
+                 / /   S e t   c u r r e n t   l e a d e r   t o   m e m b e r 
+                 c o n s t   u p d a t e O l d L e a d e r Q u e r y   =   \ 
+                     U P D A T E   t e a m _ m e m b e r s   
+                     S E T   t e a m _ r o l e   =   ' m e m b e r ' 
+                     W H E R E   t e a m _ i d   =   ?   A N D   t e a m _ r o l e   =   ' l e a d e r '   A N D   i s _ a c t i v e   =   1 
+                 \ ; 
+                 a w a i t   c o n n e c t i o n . e x e c u t e ( u p d a t e O l d L e a d e r Q u e r y ,   [ t e a m I d ] ) ; 
+             } 
+             
+             / /   U p d a t e   m e m b e r   r o l e 
+             c o n s t   q u e r y   =   \ 
+                 U P D A T E   t e a m _ m e m b e r s   
+                 S E T   t e a m _ r o l e   =   ? 
+                 W H E R E   i d   =   ? 
+             \ ; 
+             a w a i t   c o n n e c t i o n . e x e c u t e ( q u e r y ,   [ r o l e ,   m e m b e r I d ] ) ; 
+             
+             r e s . j s o n ( {   
+                 s u c c e s s :   t r u e ,   
+                 m e s s a g e :   ' T e a m   m e m b e r   u p d a t e d   s u c c e s s f u l l y ' 
+             } ) ; 
+             
+         }   f i n a l l y   { 
+             c o n n e c t i o n . r e l e a s e ( ) ; 
+         } 
+         
+     }   c a t c h   ( e r r o r )   { 
+         c o n s o l e . e r r o r ( ' U p d a t e   t e a m   m e m b e r   e r r o r : ' ,   e r r o r ) ; 
+         r e s . s t a t u s ( 5 0 0 ) . j s o n ( {   
+             s u c c e s s :   f a l s e ,   
+             e r r o r :   ' F a i l e d   t o   u p d a t e   t e a m   m e m b e r '   
+         } ) ; 
+     } 
+ } ) ; 
+ 
+ / /   R e m o v e   t e a m   m e m b e r 
+ a p p . d e l e t e ( ' / a p i / t e a m s / : t e a m I d / m e m b e r s / : m e m b e r I d ' ,   a u t h e n t i c a t e T o k e n ,   a s y n c   ( r e q ,   r e s )   = >   { 
+     t r y   { 
+         c o n s t   {   t e a m I d ,   m e m b e r I d   }   =   r e q . p a r a m s ; 
+         c o n s t   u s e r I d   =   r e q . u s e r . i d ; 
+         c o n s t   u s e r R o l e   =   r e q . u s e r . r o l e ; 
+         
+         c o n s t   c o n n e c t i o n   =   a w a i t   p o o l . g e t C o n n e c t i o n ( ) ; 
+         t r y   { 
+             / /   C h e c k   i f   u s e r   i s   t h e   t e a m   l e a d e r   o r   a n   a d m i n 
+             c o n s t   t e a m Q u e r y   =   \ S E L E C T   l e a d e r _ i d   F R O M   t e a m s   W H E R E   i d   =   ?   A N D   i s _ a c t i v e   =   1 \ ; 
+             c o n s t   [ t e a m R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( t e a m Q u e r y ,   [ t e a m I d ] ) ; 
+             
+             i f   ( t e a m R o w s . l e n g t h   = = =   0 )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' T e a m   n o t   f o u n d '   
+                 } ) ; 
+             } 
+             
+             c o n s t   t e a m   =   t e a m R o w s [ 0 ] ; 
+             c o n s t   i s A d m i n   =   u s e r R o l e   = = =   ' a d m i n '   | |   u s e r R o l e   = = =   ' s u p e r _ a d m i n '   | |   u s e r R o l e   = = =   ' r o o t ' ; 
+             c o n s t   i s T e a m L e a d e r   =   t e a m . l e a d e r _ i d   = = =   u s e r I d ; 
+             
+             i f   ( ! i s T e a m L e a d e r   & &   ! i s A d m i n )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 3 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' A c c e s s   d e n i e d .   O n l y   t e a m   l e a d e r s   a n d   a d m i n i s t r a t o r s   c a n   r e m o v e   t e a m   m e m b e r s . '   
+                 } ) ; 
+             } 
+             
+             / /   C h e c k   i f   m e m b e r   e x i s t s   a n d   i s   a c t i v e 
+             c o n s t   m e m b e r Q u e r y   =   \ 
+                 S E L E C T   u s e r _ i d   F R O M   t e a m _ m e m b e r s   
+                 W H E R E   i d   =   ?   A N D   t e a m _ i d   =   ?   A N D   i s _ a c t i v e   =   1 
+             \ ; 
+             c o n s t   [ m e m b e r R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( m e m b e r Q u e r y ,   [ m e m b e r I d ,   t e a m I d ] ) ; 
+             
+             i f   ( m e m b e r R o w s . l e n g t h   = = =   0 )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' T e a m   m e m b e r   n o t   f o u n d '   
+                 } ) ; 
+             } 
+             
+             c o n s t   m e m b e r U s e r I d   =   m e m b e r R o w s [ 0 ] . u s e r _ i d ; 
+             
+             / /   P r e v e n t   r e m o v i n g   t h e   t e a m   l e a d e r   ( t h e y   s h o u l d   b e   t r a n s f e r r e d   o r   t e a m   d e l e t e d ) 
+             i f   ( m e m b e r U s e r I d   = = =   t e a m . l e a d e r _ i d )   { 
+                 r e t u r n   r e s . s t a t u s ( 4 0 0 ) . j s o n ( {   
+                     s u c c e s s :   f a l s e ,   
+                     e r r o r :   ' C a n n o t   r e m o v e   t e a m   l e a d e r .   T r a n s f e r   l e a d e r s h i p   f i r s t   o r   d e l e t e   t h e   t e a m . '   
+                 } ) ; 
+             } 
+             
+             / /   S o f t   d e l e t e   t h e   m e m b e r 
+             c o n s t   q u e r y   =   \ 
+                 U P D A T E   t e a m _ m e m b e r s   
+                 S E T   i s _ a c t i v e   =   0 ,   l e f t _ a t   =   ? 
+                 W H E R E   i d   =   ? 
+             \ ; 
+             a w a i t   c o n n e c t i o n . e x e c u t e ( q u e r y ,   [ n e w   D a t e ( ) . t o I S O S t r i n g ( ) ,   m e m b e r I d ] ) ; 
+             
+             / /   U p d a t e   t e a m   m e m b e r   c o u n t 
+             c o n s t   c o u n t Q u e r y   =   \ 
+                 S E L E C T   C O U N T ( * )   a s   c o u n t   F R O M   t e a m _ m e m b e r s   
+                 W H E R E   t e a m _ i d   =   ?   A N D   i s _ a c t i v e   =   1 
+             \ ; 
+             c o n s t   [ c o u n t R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( c o u n t Q u e r y ,   [ t e a m I d ] ) ; 
+             c o n s t   m e m b e r C o u n t   =   c o u n t R o w s [ 0 ] . c o u n t ; 
+             
+             c o n s t   u p d a t e Q u e r y   =   \ 
+                 U P D A T E   t e a m s   
+                 S E T   m e m b e r _ c o u n t   =   ? ,   u p d a t e d _ a t   =   ? 
+                 W H E R E   i d   =   ? 
+             \ ; 
+             a w a i t   c o n n e c t i o n . e x e c u t e ( u p d a t e Q u e r y ,   [ m e m b e r C o u n t ,   n e w   D a t e ( ) . t o I S O S t r i n g ( ) ,   t e a m I d ] ) ; 
+             
+             r e s . j s o n ( {   
+                 s u c c e s s :   t r u e ,   
+                 m e s s a g e :   ' T e a m   m e m b e r   r e m o v e d   s u c c e s s f u l l y ' 
+             } ) ; 
+             
+         }   f i n a l l y   { 
+             c o n n e c t i o n . r e l e a s e ( ) ; 
+         } 
+         
+     }   c a t c h   ( e r r o r )   { 
+         c o n s o l e . e r r o r ( ' R e m o v e   t e a m   m e m b e r   e r r o r : ' ,   e r r o r ) ; 
+         r e s . s t a t u s ( 5 0 0 ) . j s o n ( {   
+             s u c c e s s :   f a l s e ,   
+             e r r o r :   ' F a i l e d   t o   r e m o v e   t e a m   m e m b e r '   
+         } ) ; 
+     } 
+ } ) ; 
+ 
+ e x p o r t   d e f a u l t   a p p ;  
+ 

@@ -244,7 +244,7 @@ export default function TaskModal({
         priority: taskData.priority.id
       }
       
-      // Remove undefined values to prevent Firebase errors
+      // Remove undefined values to ensure data consistency
       Object.keys(cleanTaskData).forEach(key => {
         if (cleanTaskData[key] === undefined) {
           delete cleanTaskData[key]

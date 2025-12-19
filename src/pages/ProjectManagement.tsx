@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { taskService } from '../services/taskService'
-import { userService } from '../services/userService'
-import { teamService } from '../services/teamService'
+import { taskApiService as taskService } from '../services/taskApiService'
+import { userApiService as userService } from '../services/userApiService'
+import { teamApiService as teamService } from '../services/teamApiService'
 import { Task, TaskStatus, TaskPriority, CreateTaskData, UpdateTaskData, User, Team } from '../types'
 import TaskBoard from '../components/taskManagement/TaskBoard'
 import TaskTable from '../components/taskManagement/TaskTable'
@@ -91,14 +91,21 @@ export default function TaskManagement() {
       
       if (currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'hr' || currentUser?.role === 'root') {
         // Use company-scoped data loading for multi-tenant isolation
-        [usersData, teamsData] = await Promise.all([
-          currentUser?.companyId 
-            ? userService.getUsersForCompany(currentUser.companyId)
-            : userService.getAllUsers(),
-          currentUser?.companyId 
-            ? teamService.getTeamsForCompany(currentUser.companyId)
-            : teamService.getTeams()
-        ])
+        try {
+          [usersData, teamsData] = await Promise.all([
+            currentUser?.companyId 
+              ? userService.getUsersForCompany(currentUser.companyId)
+              : userService.getAllUsers(),
+            currentUser?.companyId 
+              ? teamService.getTeamsForCompany(currentUser.companyId)
+              : teamService.getAllTeams()
+          ])
+        } catch (error) {
+          console.error('Error loading users or teams:', error)
+          // Set empty arrays as fallback
+          usersData = []
+          teamsData = []
+        }
       } else {
         // Regular employees - only load their own user data and teams they're part of
         try {
@@ -111,7 +118,7 @@ export default function TaskManagement() {
           try {
             teamsData = currentUser?.companyId 
               ? await teamService.getTeamsForCompany(currentUser.companyId)
-              : await teamService.getTeams()
+              : await teamService.getAllTeams()
           } catch (teamError) {
             console.warn('Could not load teams:', teamError)
             teamsData = []

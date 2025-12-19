@@ -1,15 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import { X, User, Calendar, Clock, CheckCircle2, MessageSquare, Send, StickyNote, Paperclip, Smile, Trash2, Building2, AtSign, XCircle, Save } from 'lucide-react'
 import { Task, TaskStatus, TaskPriority, TaskComment, Team, User as UserType, Mention } from '../../types'
-import { taskService } from '../../services/taskService'
+import { taskApiService as taskService } from '../../services/taskApiService'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { canDeleteTask } from '../../utils/permissions'
 import { useMentions } from '../../hooks/useMentions'
 import MentionNotificationService from '../../services/mentionNotificationService'
-// Add Firebase imports
-import { ref, onValue } from 'firebase/database'
-import { database } from '../../config/firebase'
 
 interface TaskViewModalProps {
   isOpen: boolean
@@ -95,71 +92,74 @@ export default function TaskViewModal({
     }
   }, [task])
 
-  // Set up real-time task subscription
+  // Set up polling for task updates
   useEffect(() => {
-    // Clean up previous subscription if it exists or if task changed
+    // Clean up previous polling interval if it exists
     if (unsubscribeRef.current) {
-      unsubscribeRef.current()
-      unsubscribeRef.current = null
+      clearInterval(unsubscribeRef.current);
+      unsubscribeRef.current = null;
     }
     
     if (task && isOpen && task.id) {
-      // Set up real-time listener for task updates
-      const taskRef = ref(database, `tasks/${task.id}`)
-      const unsubscribeFn = onValue(taskRef, (snapshot: any) => {
+      // Set up polling interval for task updates
+      const pollInterval = setInterval(async () => {
         try {
-          if (snapshot.exists()) {
-            const updatedTaskData = snapshot.val()
-            // Update local state with real-time data
-            if (updatedTaskData.description !== undefined) {
-              setDescription(updatedTaskData.description || '')
-            }
-            if (updatedTaskData.comments !== undefined) {
-              // Convert comments from Firebase format
-              const updatedComments = Object.values(updatedTaskData.comments || {}).map((comment: any) => ({
-                ...comment,
-                createdAt: comment.createdAt ? new Date(comment.createdAt) : new Date(),
-                updatedAt: comment.updatedAt ? new Date(comment.updatedAt) : new Date()
-              })) as TaskComment[]
-              // Only update comments if they've actually changed
-              setComments(prevComments => {
-                const newCommentsString = JSON.stringify(updatedComments);
-                const prevCommentsString = JSON.stringify(prevComments);
-                if (newCommentsString !== prevCommentsString) {
-                  return updatedComments;
+          // Fetch updated task data from API
+          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+          const response = await fetch(`${baseUrl}/api/tasks?projectId=${task.projectId}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+              const updatedTask = data.data.find((t: Task) => t.id === task.id);
+              
+              if (updatedTask) {
+                // Update local state with polled data
+                if (updatedTask.description !== undefined) {
+                  setDescription(updatedTask.description || '');
                 }
-                return prevComments;
-              });
-            }
-            if (updatedTaskData.notes !== undefined) {
-              // Only update notes if they've actually changed
-              setNotes(prevNotes => {
-                if (prevNotes !== updatedTaskData.notes) {
-                  return updatedTaskData.notes || '';
+                
+                if (updatedTask.comments !== undefined) {
+                  // Only update comments if they've actually changed
+                  setComments(prevComments => {
+                    const newCommentsString = JSON.stringify(updatedTask.comments);
+                    const prevCommentsString = JSON.stringify(prevComments);
+                    if (newCommentsString !== prevCommentsString) {
+                      return updatedTask.comments;
+                    }
+                    return prevComments;
+                  });
                 }
-                return prevNotes;
-              });
+                
+                if (updatedTask.notes !== undefined) {
+                  // Only update notes if they've actually changed
+                  setNotes(prevNotes => {
+                    if (prevNotes !== updatedTask.notes) {
+                      return updatedTask.notes || '';
+                    }
+                    return prevNotes;
+                  });
+                }
+              }
             }
           }
         } catch (error) {
-          console.error('Error processing real-time task update:', error)
+          console.error('Error polling task updates:', error);
         }
-      }, (error) => {
-        console.error('Error subscribing to real-time task updates:', error)
-      })
+      }, 5000); // Poll every 5 seconds
 
-      // Store unsubscribe function
-      unsubscribeRef.current = unsubscribeFn
+      // Store interval ID
+      unsubscribeRef.current = pollInterval;
     }
     
-    // Cleanup subscription on unmount
+    // Cleanup polling interval on unmount
     return () => {
       if (unsubscribeRef.current) {
-        unsubscribeRef.current()
-        unsubscribeRef.current = null
+        clearInterval(unsubscribeRef.current);
+        unsubscribeRef.current = null;
       }
-    }
-  }, [task?.id, isOpen])
+    };
+  }, [task?.id, isOpen, task?.projectId])
 
   // Auto-scroll to bottom of comments when new comment is added
   useEffect(() => {

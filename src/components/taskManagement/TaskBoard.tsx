@@ -115,10 +115,24 @@ export default function TaskBoard({
     })
   }
 
-  const getPriorityIcon = (priority: TaskPriority | string) => {
-    const priorityName = typeof priority === 'string' ? priority : priority.name
-    const IconComponent = PRIORITY_ICONS[priorityName.toLowerCase() as keyof typeof PRIORITY_ICONS] || Circle
-    return <IconComponent className={`h-4 w-4 ${PRIORITY_COLORS[priorityName.toLowerCase() as keyof typeof PRIORITY_COLORS] || 'text-gray-500'}`} />
+  const getPriorityIcon = (priority: TaskPriority | string | null) => {
+    // Handle null or undefined priority
+    if (!priority) {
+      return <Circle className="h-4 w-4 text-gray-500" />;
+    }
+    
+    // Handle object priority with null name
+    let priorityName = '';
+    if (typeof priority === 'string') {
+      priorityName = priority;
+    } else if (priority.name) {
+      priorityName = priority.name;
+    } else {
+      return <Circle className="h-4 w-4 text-gray-500" />;
+    }
+    
+    const IconComponent = PRIORITY_ICONS[priorityName.toLowerCase() as keyof typeof PRIORITY_ICONS] || Circle;
+    return <IconComponent className={`h-4 w-4 ${PRIORITY_COLORS[priorityName.toLowerCase() as keyof typeof PRIORITY_COLORS] || 'text-gray-500'}`} />;
   }
 
   const getStatusColor = (status: TaskStatus) => {
@@ -157,9 +171,17 @@ export default function TaskBoard({
               {/* Tasks */}
               <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto">
                 {statusTasks.map((task) => {
-                  const priority = typeof task.priority === 'string' 
-                    ? priorities.find(p => p.id === (task.priority as unknown as string)) || { id: task.priority, name: task.priority, level: 1, color: '#6B7280' }
-                    : task.priority
+                  // Handle null or undefined priority
+                  let priority: TaskPriority | null = null;
+                  
+                  if (task.priority) {
+                    if (typeof task.priority === 'string') {
+                      priority = priorities.find(p => p.id === task.priority) || 
+                        { id: task.priority, name: task.priority, level: 1, color: '#6B7280' };
+                    } else {
+                      priority = task.priority;
+                    }
+                  }
                   
                   return (
                     <div
@@ -174,7 +196,7 @@ export default function TaskBoard({
                         <div className="flex items-center space-x-2">
                           <div 
                             className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: priority.color }}
+                            style={{ backgroundColor: priority?.color || '#6B7280' }}
                           />
                           <h4 className="font-medium text-gray-900 dark:text-gray-100">
                             {task.title}
@@ -246,9 +268,9 @@ export default function TaskBoard({
                       <div className="space-y-2">
                         {/* Priority */}
                         <div className="flex items-center space-x-2">
-                          {getPriorityIcon(priority.name)}
+                          {getPriorityIcon(priority)}
                           <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {priority.name} priority
+                            {priority && priority.name ? `${priority.name} priority` : 'No priority'}
                           </span>
                         </div>
 

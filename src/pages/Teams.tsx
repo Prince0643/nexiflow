@@ -19,7 +19,8 @@ import {
   Activity
 } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-import { teamService } from '../services/teamService'
+import { teamApiService } from '../services/teamApiService'
+import { userApiService } from '../services/userApiService'
 import { Team, TeamMember, TeamStats } from '../types'
 import TeamModal from '../components/teams/TeamModal'
 import TeamMemberModal from '../components/teams/TeamMemberModal'
@@ -87,15 +88,16 @@ export default function Teams() {
     try {
       // Use company-scoped team loading for multi-tenant isolation
       const teamsData = currentUser?.companyId 
-        ? await teamService.getTeamsForCompany(currentUser.companyId)
-        : await teamService.getTeams()
+        ? await teamApiService.getTeamsForCompany(currentUser.companyId)
+        : await teamApiService.getAllTeams()
       setTeams(teamsData)
 
       // Load members for each team
       const membersData: { [teamId: string]: TeamMember[] } = {}
       for (const team of teamsData) {
-        const members = await teamService.getTeamMembers(team.id)
-        membersData[team.id] = members
+        // We'll need to implement a team members endpoint or use a different approach
+        // For now, we'll set empty arrays and load them separately if needed
+        membersData[team.id] = []
       }
       setTeamMembers(membersData)
     } catch (error) {
@@ -109,20 +111,26 @@ export default function Teams() {
   const loadTeamLeadership = async () => {
     if (!currentUser?.uid) return;
     
+    // Since we don't have a direct API endpoint for this, we'll determine leadership
+    // based on the team data we already have
     const leadershipData: { [teamId: string]: boolean } = {}
     for (const team of teams) {
-      leadershipData[team.id] = await teamService.isUserTeamLeader(currentUser.uid, team.id)
+      // A user is a leader if their UID matches the team's leaderId
+      leadershipData[team.id] = team.leaderId === currentUser.uid;
     }
     setTeamLeadership(leadershipData)
   }
 
   const loadTeamStats = async () => {
     try {
-      // Load stats for the current week by default (no date range specified)
+      // For now, we'll use the mysqlTeamService directly since we don't have API endpoints for stats yet
+      // In a full implementation, these would be API calls
+      const { mysqlTeamService } = await import('../services/mysqlTeamService');
+      
       const statsData: { [teamId: string]: TeamStats } = {}
 
       for (const team of teams) {
-        const stats = await teamService.getTeamStats(team.id)
+        const stats = await mysqlTeamService.getTeamStats(team.id)
         statsData[team.id] = stats
       }
 
@@ -139,10 +147,16 @@ export default function Teams() {
     setChartLoading(true)
     try {
       const { startDate, endDate } = getDateRange()
+      // For now, we'll use the mysqlTeamService directly since we don't have API endpoints for stats yet
+      // In a full implementation, these would be API calls
+      const { mysqlTeamService } = await import('../services/mysqlTeamService');
+      
       const statsData: { [teamId: string]: TeamStats } = {}
 
       for (const team of teams) {
-        const stats = await teamService.getTeamStats(team.id, startDate, endDate)
+        // Note: The mysqlTeamService.getTeamStats doesn't currently support date ranges
+        // This would need to be implemented in a full migration
+        const stats = await mysqlTeamService.getTeamStats(team.id)
         statsData[team.id] = stats
       }
 
@@ -201,7 +215,10 @@ export default function Teams() {
   const handleDeleteTeam = async (team: Team) => {
     if (window.confirm(`Are you sure you want to delete "${team.name}"?`)) {
       try {
-        await teamService.deleteTeam(team.id)
+        // We'll need to implement team deletion via API
+        // For now, we'll use the mysqlTeamService directly
+        const { mysqlTeamService } = await import('../services/mysqlTeamService');
+        await mysqlTeamService.deleteTeam(team.id)
         loadData()
       } catch (error) {
         setError('Failed to delete team')
@@ -224,7 +241,10 @@ export default function Teams() {
   const handleRemoveMember = async (team: Team, member: TeamMember) => {
     if (window.confirm(`Are you sure you want to remove "${member.userName}" from the team?`)) {
       try {
-        await teamService.removeTeamMember(team.id, member.userId)
+        // We'll need to implement member removal via API
+        // For now, we'll use the mysqlTeamService directly
+        const { mysqlTeamService } = await import('../services/mysqlTeamService');
+        await mysqlTeamService.removeTeamMember(team.id, member.userId)
         loadData()
       } catch (error) {
         setError('Failed to remove team member')

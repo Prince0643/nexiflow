@@ -258,7 +258,11 @@ CREATE TABLE `tasks` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `parent_task_id` varchar(255) DEFAULT NULL,
   `team_id` varchar(255) DEFAULT NULL,
-  `company_id` varchar(255) DEFAULT NULL
+  `company_id` varchar(255) DEFAULT NULL,
+  `tags` text DEFAULT NULL,
+  `attachments` text DEFAULT NULL,
+  `comments` text DEFAULT NULL,
+  `time_entries` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -1781,6 +1785,15 @@ ALTER TABLE `tasks`
   ADD KEY `idx_tasks_project` (`project_id`),
   ADD KEY `idx_tasks_assignee` (`assignee_id`),
   ADD KEY `idx_tasks_company` (`company_id`);
+
+--
+-- Add missing columns for tasks table
+--
+ALTER TABLE `tasks`
+  ADD COLUMN `tags` text DEFAULT NULL,
+  ADD COLUMN `attachments` text DEFAULT NULL,
+  ADD COLUMN `comments` text DEFAULT NULL,
+  ADD COLUMN `time_entries` text DEFAULT NULL;
 
 --
 -- Indexes for table `task_attachments`
