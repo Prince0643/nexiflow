@@ -1,3 +1,4 @@
+console.log('Starting API server...');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -111,6 +112,20 @@ const projectSchema = Joi.object({
   status: Joi.string().valid('active', 'on-hold', 'completed', 'cancelled').default('active'),
   priority: Joi.string().valid('low', 'medium', 'high', 'urgent').default('medium'),
   clientId: Joi.string().optional()
+});
+
+const taskSchema = Joi.object({
+  title: Joi.string().required(),
+  description: Joi.string().optional(),
+  projectId: Joi.string().required(),
+  status: Joi.string().required(),
+  priority: Joi.string().required(),
+  assigneeId: Joi.string().optional(),
+  dueDate: Joi.date().optional(),
+  estimatedHours: Joi.number().min(0).optional(),
+  tags: Joi.array().items(Joi.string()).default([]),
+  parentTaskId: Joi.string().optional(),
+  teamId: Joi.string().optional()
 });
 
 // Utility functions
@@ -1326,6 +1341,55 @@ app.get('/api/calendar', authenticateToken, async (req, res) => {
   }
 });
 
+// Test endpoint without authentication
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Test endpoint working' });
+});
+
+// Task Statuses API
+console.log('Registering /api/task-statuses endpoint');
+app.get('/api/task-statuses', authenticateToken, async (req, res) => {
+  try {
+    // Return default statuses
+    const statuses = [
+      { id: 'status_0', name: 'To Do', color: '#6B7280', order: 0, isCompleted: false },
+      { id: 'status_1', name: 'In Progress', color: '#3B82F6', order: 1, isCompleted: false },
+      { id: 'status_2', name: 'Review', color: '#F59E0B', order: 2, isCompleted: false },
+      { id: 'status_3', name: 'Done', color: '#10B981', order: 3, isCompleted: true }
+    ];
+    
+    res.json({
+      success: true,
+      data: statuses
+    });
+  } catch (error) {
+    console.error('Error fetching task statuses:', error);
+    res.status(500).json({ error: 'Failed to fetch task statuses' });
+  }
+});
+
+// Task Priorities API
+console.log('Registering /api/task-priorities endpoint');
+app.get('/api/task-priorities', authenticateToken, async (req, res) => {
+  try {
+    // Return default priorities
+    const priorities = [
+      { id: 'priority_0', name: 'Low', color: '#6B7280', level: 1 },
+      { id: 'priority_1', name: 'Medium', color: '#F59E0B', level: 2 },
+      { id: 'priority_2', name: 'High', color: '#EF4444', level: 3 },
+      { id: 'priority_3', name: 'Urgent', color: '#DC2626', level: 4 }
+    ];
+    
+    res.json({
+      success: true,
+      data: priorities
+    });
+  } catch (error) {
+    console.error('Error fetching task priorities:', error);
+    res.status(500).json({ error: 'Failed to fetch task priorities' });
+  }
+});
+
 // Logging endpoints
 
 // Create a new log entry
@@ -1508,6 +1572,406 @@ app.delete('/api/logs/clear', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error clearing logs:', error);
     res.status(500).json({ error: 'Failed to clear logs' });
+  }
+});
+
+// Tasks API
+app.get('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const { projectId, userId } = req.query;
+    const companyId = req.user.companyId;
+    
+    const connection = await pool.getConnection();
+    try {
+      let query = 'SELECT * FROM tasks WHERE 1=1';
+      const params = [];
+      
+      // Apply company filtering for non-root users
+      if (req.user.role !== 'root' && companyId) {
+        query += ' AND company_id = ?';
+        params.push(companyId);
+      } else if (req.user.role !== 'root') {
+        query += ' AND company_id IS NULL';
+      }
+      
+      // Filter by project
+      if (projectId) {
+        query += ' AND project_id = ?';
+        params.push(projectId);
+      }
+      
+      // Filter by user (assigned tasks)
+      if (userId) {
+        query += ' AND assignee_id = ?';
+        params.push(userId);
+      }
+      
+      query += ' ORDER BY created_at DESC';
+      
+      const [rows] = await connection.execute(query, params);
+      
+      const tasks = rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        notes: row.notes,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        status: {
+          id: row.status_id,
+          name: row.status_name,
+          color: row.status_color,
+          order: row.status_order,
+          isCompleted: row.status_is_completed === 1
+        },
+        priority: {
+          id: row.priority_id,
+          name: row.priority_name,
+          color: row.priority_color,
+          level: row.priority_level
+        },
+        assigneeId: row.assignee_id,
+        assigneeName: row.assignee_name,
+        assigneeEmail: row.assignee_email,
+        dueDate: row.due_date ? new Date(row.due_date) : undefined,
+        estimatedHours: row.estimated_hours,
+        actualHours: row.actual_hours,
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        isCompleted: row.is_completed === 1,
+        completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+        createdBy: row.created_by,
+        createdByName: row.created_by_name,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
+        parentTaskId: row.parent_task_id,
+        subtasks: [],
+        attachments: row.attachments ? JSON.parse(row.attachments) : [],
+        comments: row.comments ? JSON.parse(row.comments) : [],
+        timeEntries: row.time_entries ? JSON.parse(row.time_entries) : [],
+        teamId: row.team_id
+      }));
+      
+      res.json({
+        success: true,
+        data: tasks,
+        count: tasks.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+app.post('/api/tasks', authenticateToken, async (req, res) => {
+  try {
+    const { error, value } = taskSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    
+    const userId = req.user.uid;
+    const userName = req.user.name;
+    const companyId = req.user.companyId;
+    const now = new Date();
+    
+    // Get default statuses and priorities
+    const defaultStatuses = [
+      { id: 'status_0', name: 'To Do', color: '#6B7280', order: 0, isCompleted: false },
+      { id: 'status_1', name: 'In Progress', color: '#3B82F6', order: 1, isCompleted: false },
+      { id: 'status_2', name: 'Review', color: '#F59E0B', order: 2, isCompleted: false },
+      { id: 'status_3', name: 'Done', color: '#10B981', order: 3, isCompleted: true }
+    ];
+    
+    const defaultPriorities = [
+      { id: 'priority_0', name: 'Low', color: '#6B7280', level: 1 },
+      { id: 'priority_1', name: 'Medium', color: '#F59E0B', level: 2 },
+      { id: 'priority_2', name: 'High', color: '#EF4444', level: 3 },
+      { id: 'priority_3', name: 'Urgent', color: '#DC2626', level: 4 }
+    ];
+    
+    // Find the actual status and priority objects based on the IDs provided
+    const status = defaultStatuses.find(s => s.id === value.status) || defaultStatuses[0];
+    const priority = defaultPriorities.find(p => p.id === value.priority) || defaultPriorities[0];
+    
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        INSERT INTO tasks (
+          id, title, description, notes, project_id, project_name, status_id, status_name,
+          status_color, status_order, status_is_completed, priority_id, priority_name,
+          priority_color, priority_level, assignee_id, assignee_name, assignee_email,
+          due_date, estimated_hours, actual_hours, is_completed, completed_at, created_by,
+          created_by_name, created_at, updated_at, parent_task_id, team_id, company_id,
+          tags, attachments, comments, time_entries
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      
+      // Generate a unique ID for the task
+      const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const result = await connection.execute(query, [
+        taskId,
+        value.title,
+        value.description || null,
+        null, // notes
+        value.projectId,
+        '', // project_name (will be set when project is loaded)
+        status.id,
+        status.name,
+        status.color,
+        status.order,
+        status.isCompleted ? 1 : 0,
+        priority.id,
+        priority.name,
+        priority.color,
+        priority.level,
+        value.assigneeId || null,
+        null, // assignee_name
+        null, // assignee_email
+        value.dueDate ? new Date(value.dueDate).toISOString().split('T')[0] : null,
+        value.estimatedHours || null,
+        null, // actual_hours
+        0, // is_completed
+        null, // completed_at
+        userId,
+        userName,
+        now,
+        now,
+        value.parentTaskId || null,
+        value.teamId || null,
+        companyId || null,
+        JSON.stringify(value.tags || []), // tags
+        JSON.stringify([]), // attachments
+        JSON.stringify([]), // comments
+        JSON.stringify([]) // time_entries
+      ]);
+      
+      // Get the created task
+      const [rows] = await connection.execute(
+        'SELECT * FROM tasks WHERE id = ?', 
+        [taskId]
+      );
+      
+      const task = {
+        id: rows[0].id,
+        title: rows[0].title,
+        description: rows[0].description,
+        notes: rows[0].notes,
+        projectId: rows[0].project_id,
+        projectName: rows[0].project_name,
+        status: {
+          id: rows[0].status_id,
+          name: rows[0].status_name,
+          color: rows[0].status_color,
+          order: rows[0].status_order,
+          isCompleted: rows[0].status_is_completed === 1
+        },
+        priority: {
+          id: rows[0].priority_id,
+          name: rows[0].priority_name,
+          color: rows[0].priority_color,
+          level: rows[0].priority_level
+        },
+        assigneeId: rows[0].assignee_id,
+        assigneeName: rows[0].assignee_name,
+        assigneeEmail: rows[0].assignee_email,
+        dueDate: rows[0].due_date ? new Date(rows[0].due_date) : undefined,
+        estimatedHours: rows[0].estimated_hours,
+        actualHours: rows[0].actual_hours,
+        tags: rows[0].tags ? JSON.parse(rows[0].tags) : [],
+        isCompleted: rows[0].is_completed === 1,
+        completedAt: rows[0].completed_at ? new Date(rows[0].completed_at) : undefined,
+        createdBy: rows[0].created_by,
+        createdByName: rows[0].created_by_name,
+        createdAt: new Date(rows[0].created_at),
+        updatedAt: new Date(rows[0].updated_at),
+        parentTaskId: rows[0].parent_task_id,
+        subtasks: [],
+        attachments: rows[0].attachments ? JSON.parse(rows[0].attachments) : [],
+        comments: rows[0].comments ? JSON.parse(rows[0].comments) : [],
+        timeEntries: rows[0].time_entries ? JSON.parse(rows[0].time_entries) : [],
+        teamId: rows[0].team_id
+      };
+      
+      res.status(201).json({
+        success: true,
+        data: task,
+        message: 'Task created successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ error: 'Failed to create task' });
+  }
+});
+
+app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error, value } = taskSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    
+    const userId = req.user.uid;
+    const companyId = req.user.companyId;
+    
+    // Check if task exists and user has access
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute(
+        'SELECT * FROM tasks WHERE id = ?', 
+        [id]
+      );
+      
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+      
+      const existingTask = existingRows[0];
+      
+      // For non-root users, verify they belong to the same company
+      if (req.user.role !== 'root' && existingTask.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      // Get default statuses and priorities
+      const defaultStatuses = [
+        { id: 'status_0', name: 'To Do', color: '#6B7280', order: 0, isCompleted: false },
+        { id: 'status_1', name: 'In Progress', color: '#3B82F6', order: 1, isCompleted: false },
+        { id: 'status_2', name: 'Review', color: '#F59E0B', order: 2, isCompleted: false },
+        { id: 'status_3', name: 'Done', color: '#10B981', order: 3, isCompleted: true }
+      ];
+      
+      const defaultPriorities = [
+        { id: 'priority_0', name: 'Low', color: '#6B7280', level: 1 },
+        { id: 'priority_1', name: 'Medium', color: '#F59E0B', level: 2 },
+        { id: 'priority_2', name: 'High', color: '#EF4444', level: 3 },
+        { id: 'priority_3', name: 'Urgent', color: '#DC2626', level: 4 }
+      ];
+      
+      // Find the actual status and priority objects based on the IDs provided
+      const status = defaultStatuses.find(s => s.id === value.status) || defaultStatuses[0];
+      const priority = defaultPriorities.find(p => p.id === value.priority) || defaultPriorities[0];
+      
+      // Update task
+      const fields = [];
+      const values = [];
+      
+      if (value.title !== undefined) {
+        fields.push('title = ?');
+        values.push(value.title);
+      }
+      if (value.description !== undefined) {
+        fields.push('description = ?');
+        values.push(value.description);
+      }
+      if (value.status !== undefined) {
+        fields.push('status_id = ?', 'status_name = ?', 'status_color = ?', 'status_order = ?', 'status_is_completed = ?');
+        values.push(status.id, status.name, status.color, status.order, status.isCompleted ? 1 : 0);
+      }
+      if (value.priority !== undefined) {
+        fields.push('priority_id = ?', 'priority_name = ?', 'priority_color = ?', 'priority_level = ?');
+        values.push(priority.id, priority.name, priority.color, priority.level);
+      }
+      if (value.assigneeId !== undefined) {
+        fields.push('assignee_id = ?');
+        values.push(value.assigneeId || null);
+      }
+      if (value.dueDate !== undefined) {
+        fields.push('due_date = ?');
+        values.push(value.dueDate ? new Date(value.dueDate).toISOString().split('T')[0] : null);
+      }
+      if (value.estimatedHours !== undefined) {
+        fields.push('estimated_hours = ?');
+        values.push(value.estimatedHours || null);
+      }
+      if (value.tags !== undefined) {
+        fields.push('tags = ?');
+        values.push(JSON.stringify(value.tags));
+      }
+      if (value.parentTaskId !== undefined) {
+        fields.push('parent_task_id = ?');
+        values.push(value.parentTaskId || null);
+      }
+      if (value.teamId !== undefined) {
+        fields.push('team_id = ?');
+        values.push(value.teamId || null);
+      }
+      
+      // Always update the timestamp
+      fields.push('updated_at = ?');
+      values.push(new Date());
+      
+      if (fields.length === 0) {
+        return res.status(400).json({ error: 'No valid fields to update' });
+      }
+      
+      values.push(id); // For the WHERE clause
+      
+      const query = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`;
+      await connection.execute(query, values);
+      
+      res.json({
+        success: true,
+        message: 'Task updated successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating task:', error);
+    res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.uid;
+    const companyId = req.user.companyId;
+    
+    // Check if task exists and user has access
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute(
+        'SELECT * FROM tasks WHERE id = ?', 
+        [id]
+      );
+      
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+      
+      const existingTask = existingRows[0];
+      
+      // For non-root users, verify they belong to the same company
+      if (req.user.role !== 'root' && existingTask.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      // Check if user is authorized to delete (creator, admin, or super_admin)
+      if (req.user.role !== 'root' && req.user.role !== 'admin' && req.user.role !== 'super_admin' && existingTask.created_by !== userId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      await connection.execute('DELETE FROM tasks WHERE id = ?', [id]);
+      
+      res.json({
+        success: true,
+        message: 'Task deleted successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({ error: 'Failed to delete task' });
   }
 });
 
