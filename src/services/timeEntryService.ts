@@ -5,6 +5,9 @@ import { TimeEntry, CreateTimeEntryData, TimeSummary } from '../types'
 export const timeEntryService = {
   // Create a new time entry
   async createTimeEntry(entryData: CreateTimeEntryData, userId: string, projectName?: string, companyId?: string | null, clientName?: string): Promise<string> {
+    if (!database) {
+      throw new Error('Realtime time tracking is disabled (Firebase is disabled).')
+    }
     // First check if user already has a running timer to prevent multiple concurrent timers
     const existingRunningEntry = await this.getRunningTimeEntry(userId)
     if (existingRunningEntry) {
@@ -64,6 +67,9 @@ export const timeEntryService = {
 
   // Get all time entries for a user
   async getTimeEntries(userId: string): Promise<TimeEntry[]> {
+    if (!database) {
+      return []
+    }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
     const snapshot = await get(q)
@@ -86,6 +92,9 @@ export const timeEntryService = {
 
   // Get all time entries (for admin use)
   async getAllTimeEntries(): Promise<TimeEntry[]> {
+    if (!database) {
+      return []
+    }
     const entriesRef = ref(database, 'timeEntries')
     const snapshot = await get(entriesRef)
     
@@ -107,6 +116,9 @@ export const timeEntryService = {
 
   // Get time entries for a specific date range
   async getTimeEntriesByDateRange(userId: string, startDate: Date, endDate: Date): Promise<TimeEntry[]> {
+    if (!database) {
+      return []
+    }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(
       entriesRef, 
@@ -142,6 +154,9 @@ export const timeEntryService = {
 
   // Get currently running time entry
   async getRunningTimeEntry(userId: string): Promise<TimeEntry | null> {
+    if (!database) {
+      return null
+    }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
     const snapshot = await get(q)
@@ -165,9 +180,13 @@ export const timeEntryService = {
   },
 
   // Stop a running time entry
-  async stopTimeEntry(entryId: string): Promise<void> {
-    const entryRef = ref(database, `timeEntries/${entryId}`)
-    const snapshot = await get(entryRef)
+  async stopTimeEntry(entryId: string, userId: string): Promise<void> {
+    if (!database) {
+      throw new Error('Realtime time tracking is disabled (Firebase is disabled).')
+    }
+    try {
+      const entryRef = ref(database, `timeEntries/${entryId}`)
+      const snapshot = await get(entryRef)
     
     if (snapshot.exists()) {
       const entry = snapshot.val()
@@ -180,13 +199,20 @@ export const timeEntryService = {
         isRunning: false,
         updatedAt: new Date().toISOString()
       })
+    }
+    } catch (error) {
+      console.error(error)
     }
   },
 
   // Stop a running time entry for another user (admin feature)
   async stopOtherUserTimeEntry(entryId: string): Promise<void> {
-    const entryRef = ref(database, `timeEntries/${entryId}`)
-    const snapshot = await get(entryRef)
+    if (!database) {
+      throw new Error('Realtime time tracking is disabled (Firebase is disabled).')
+    }
+    try {
+      const entryRef = ref(database, `timeEntries/${entryId}`)
+      const snapshot = await get(entryRef)
     
     if (snapshot.exists()) {
       const entry = snapshot.val()
@@ -200,10 +226,16 @@ export const timeEntryService = {
         updatedAt: new Date().toISOString()
       })
     }
+    } catch (error) {
+      console.error(error)
+    }
   },
 
   // Update a time entry
   async updateTimeEntry(entryId: string, updates: Partial<CreateTimeEntryData & { projectName?: string, clientName?: string }>): Promise<void> {
+    if (!database) {
+      return
+    }
     const entryRef = ref(database, `timeEntries/${entryId}`)
     
     const dataToUpdate: any = {
@@ -228,12 +260,18 @@ export const timeEntryService = {
 
   // Delete a time entry
   async deleteTimeEntry(entryId: string): Promise<void> {
+    if (!database) {
+      throw new Error('Time entry deletion is disabled (Firebase is disabled).')
+    }
     const entryRef = ref(database, `timeEntries/${entryId}`)
     await remove(entryRef)
   },
 
   // Get all running time entries (for admin use)
   async getAllRunningTimeEntries(companyId?: string | null): Promise<TimeEntry[]> {
+    if (!database) {
+      return []
+    }
     const entriesRef = ref(database, 'timeEntries')
     const snapshot = await get(entriesRef)
     
@@ -262,6 +300,13 @@ export const timeEntryService = {
 
   // Get time summary for dashboard
   async getTimeSummary(userId: string): Promise<TimeSummary> {
+    if (!database) {
+      return {
+        today: { total: 0, billable: 0, entries: 0 },
+        thisWeek: { total: 0, billable: 0, entries: 0 },
+        thisMonth: { total: 0, billable: 0, entries: 0 }
+      }
+    }
     const now = new Date()
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const startOfWeek = new Date(startOfDay)
@@ -297,6 +342,9 @@ export const timeEntryService = {
 
   // Get time entries for all users by date range (for admin use)
   async getAllTimeEntriesByDateRange(startDate: Date, endDate: Date): Promise<TimeEntry[]> {
+    if (!database) {
+      return []
+    }
     const entriesRef = ref(database, 'timeEntries')
     const snapshot = await get(entriesRef)
     
@@ -330,6 +378,11 @@ export const timeEntryService = {
 const realtimeListeners = {
   // Subscribe to time entries for a specific user
   subscribeToTimeEntries(userId: string, callback: (entries: TimeEntry[]) => void): () => void {
+    if (!database) {
+      console.warn('[timeEntryService] Firebase is disabled; skipping subscribeToTimeEntries.')
+      callback([])
+      return () => {}
+    }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
     
@@ -361,6 +414,11 @@ const realtimeListeners = {
     companyId?: string | null,
     limit?: number
   ): () => void {
+    if (!database) {
+      console.warn('[timeEntryService] Firebase is disabled; skipping subscribeToAllTimeEntries.')
+      callback([])
+      return () => {}
+    }
     // Start with base reference
     let entriesQuery: FirebaseQuery | ReturnType<typeof ref> = ref(database, 'timeEntries')
     
@@ -398,6 +456,11 @@ const realtimeListeners = {
 
   // Subscribe to running time entry for real-time timer updates
   subscribeToRunningTimeEntry(userId: string, callback: (entry: TimeEntry | null) => void): () => void {
+    if (!database) {
+      console.warn('[timeEntryService] Firebase is disabled; skipping subscribeToRunningTimeEntry.')
+      callback(null)
+      return () => {}
+    }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
     

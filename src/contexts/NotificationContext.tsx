@@ -1,7 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react'
 import { useMySQLAuth } from './MySQLAuthContext'
-import { ref, onValue, query, orderByChild, equalTo } from 'firebase/database'
-import { database } from '../config/firebase'
 import { playNotificationSound, playMentionSound } from '../utils/soundUtils'
 import { soundManager } from '../utils/soundManager'
 import MentionNotificationService from '../services/mentionNotificationService'
@@ -57,6 +55,22 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       setNotifications([])
       previousNotificationsRef.current = [];
       return
+    }
+
+    // Load any cached notifications first (offline / Firebase-disabled fallback)
+    try {
+      const cached = localStorage.getItem(`notifications_${currentUser.uid}`)
+      if (cached) {
+        const parsed = JSON.parse(cached) as any[]
+        const hydrated = parsed.map((n: any) => ({
+          ...n,
+          timestamp: n.timestamp ? new Date(n.timestamp) : new Date()
+        })) as Notification[]
+        setNotifications(hydrated)
+        previousNotificationsRef.current = hydrated
+      }
+    } catch (e) {
+      console.warn('Failed to load cached notifications:', e)
     }
 
     // Subscribe to real-time notifications from Firebase

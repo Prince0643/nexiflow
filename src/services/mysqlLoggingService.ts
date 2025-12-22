@@ -17,11 +17,18 @@ class MySQLLoggingService {
   // Create a new log entry
   async log(level: SystemLog['level'], message: string, action: string, details?: any, userId?: string, userName?: string): Promise<void> {
     try {
+      const token = localStorage.getItem('authToken');
+
+      if (!token) {
+        return;
+      }
+
       // Make API call to backend to log the event
       await fetch('/api/logs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           level,

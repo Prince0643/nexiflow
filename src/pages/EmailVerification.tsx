@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-import { auth } from '../config/firebase'
-import { applyActionCode, signOut } from 'firebase/auth'
 import { CheckCircle, AlertCircle, Loader } from 'lucide-react'
 
 export default function EmailVerification() {
@@ -13,43 +11,28 @@ export default function EmailVerification() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    // If user is already logged in and verified, redirect to dashboard
-    if (currentUser && currentUser.emailVerified) {
-      navigate('/')
+    // MySQL/JWT auth does not use Firebase email verification callbacks.
+    // If user is logged in, just send them to the app.
+    if (currentUser) {
+      setVerificationStatus('success')
+      setMessage('Your account is ready. Redirecting...')
+      const t = window.setTimeout(() => navigate('/'), 800)
+      return () => window.clearTimeout(t)
+    }
+
+    // If user arrived here from an old Firebase verification email, explain the migration.
+    const mode = searchParams.get('mode')
+    const oobCode = searchParams.get('oobCode')
+
+    if (mode === 'verifyEmail' && oobCode) {
+      setVerificationStatus('error')
+      setMessage('Email verification is no longer handled by Firebase. Please sign in again.')
       return
     }
 
-    // Check if this is an email verification callback
-    const mode = searchParams.get('mode')
-    const oobCode = searchParams.get('oobCode')
-    
-    if (mode === 'verifyEmail' && oobCode) {
-      handleEmailVerification(oobCode)
-    } else {
-      // If not a verification link, show instructions
-      setVerificationStatus('error')
-      setMessage('Invalid verification link. Please check your email for the correct verification link.')
-    }
+    setVerificationStatus('error')
+    setMessage('Email verification is not required. Please sign in to continue.')
   }, [searchParams, currentUser, navigate])
-
-  const handleEmailVerification = async (oobCode: string) => {
-    try {
-      setVerificationStatus('pending')
-      setMessage('Verifying your email address...')
-      
-      // Apply the email verification code
-      await applyActionCode(auth, oobCode)
-      
-      // Sign out the user so they can sign in again after verification
-      await signOut(auth)
-      
-      setVerificationStatus('success')
-      setMessage('Your email has been successfully verified! You can now sign in to your account.')
-    } catch (error) {
-      setVerificationStatus('error')
-      setMessage('Failed to verify email. The verification link may have expired.')
-    }
-  }
 
   const handleSignIn = () => {
     navigate('/auth')
