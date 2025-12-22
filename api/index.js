@@ -1734,6 +1734,60 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
 });
 
 // Clients API
+const mapClientRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  country: row.country,
+  timezone: row.timezone,
+  clientType: row.client_type,
+  hourlyRate: row.hourly_rate,
+  hoursPerWeek: row.hours_per_week,
+  startDate: row.start_date,
+  endDate: row.end_date,
+  phone: row.phone,
+  company: row.company,
+  address: row.address,
+  currency: row.currency,
+  isArchived: row.is_archived === 1,
+  createdBy: row.created_by,
+  companyId: row.company_id,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
+app.get('/api/clients/company/:companyId', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    // Non-root users can only access their own company
+    if (req.user.role !== 'root' && req.user.companyId && req.user.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT * FROM clients WHERE company_id = ? ORDER BY created_at DESC',
+        [companyId]
+      );
+
+      const clients = rows.map(mapClientRow);
+
+      res.json({
+        success: true,
+        data: clients,
+        count: clients.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching clients for company:', error);
+    res.status(500).json({ error: 'Failed to fetch clients' });
+  }
+});
+
 app.get('/api/clients', authenticateToken, async (req, res) => {
   try {
     const companyId = req.user.companyId;
@@ -1752,16 +1806,7 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
       query += ' ORDER BY created_at DESC';
 
       const [rows] = await connection.execute(query, params);
-      const clients = rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        email: row.email,
-        phone: row.phone,
-        address: row.address,
-        companyId: row.company_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      }));
+      const clients = rows.map(mapClientRow);
 
       res.json({
         success: true,
