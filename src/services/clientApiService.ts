@@ -52,16 +52,11 @@ const apiRequest = async <T>(
         throw new Error('Session expired. Please log in again.')
       }
       
-      // If it's a bad request due to invalid company ID format, redirect to login
+      // If it's a bad request due to invalid company ID format, throw an error
       if (response.status === 400 && errorData.error && errorData.error.includes('Invalid company ID format')) {
-        // Clear the invalid data from localStorage
-        localStorage.removeItem('authToken')
-        localStorage.removeItem('currentUser')
-        localStorage.removeItem('currentCompany')
-
-        window.dispatchEvent(new CustomEvent('auth:expired'))
-
-        throw new Error('Invalid user data. Please log in again.')
+        // Do not treat invalid companyId as an auth failure.
+        // This can happen during Firebase -> MySQL migration when legacy Firebase-style IDs are still present.
+        throw new Error('Invalid company ID format')
       }
       
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
@@ -80,18 +75,51 @@ export const clientApiService = {
   // Get clients for company
   async getClientsForCompany(companyId: string | null): Promise<Client[]> {
     if (!companyId) return []
+
+    const endpoint = companyId.startsWith('-') ? '/clients' : `/clients/company/${companyId}`
     
     const response = await apiRequest<{
       success: boolean
       data: Client[]
       count: number
-    }>(`/clients/company/${companyId}`)
+    }>(endpoint)
     
     if (!response.success) {
       throw new Error('Failed to get clients for company')
     }
     
     return response.data
+  },
+
+  async createClient(clientData: any): Promise<Client> {
+    const response = await apiRequest<{
+      success: boolean
+      data: Client
+      message?: string
+    }>('/clients', {
+      method: 'POST',
+      body: JSON.stringify(clientData)
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to create client')
+    }
+
+    return response.data
+  },
+
+  async updateClient(clientId: string, updates: any): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/clients/${clientId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates)
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to update client')
+    }
   },
 
   // Get all clients (fallback for when no company ID)

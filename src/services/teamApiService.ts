@@ -1,4 +1,4 @@
-import { Team } from '../types'
+import { Team, TeamStats } from '../types'
 
 // API Configuration
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
@@ -38,6 +38,11 @@ const apiRequest = async <T>(
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
+
+      // Allow callers to handle missing endpoints (migration period)
+      if (response.status === 404) {
+        throw new Error('API endpoint not found')
+      }
       
       // If the error is due to an invalid or expired token, redirect to login
       if (response.status === 401 || response.status === 403) {
@@ -52,16 +57,9 @@ const apiRequest = async <T>(
         throw new Error('Session expired. Please log in again.')
       }
       
-      // If it's a bad request due to invalid company ID format, redirect to login
+      // If it's a bad request due to invalid company ID format, do not treat as auth-expired
       if (response.status === 400 && errorData.error && errorData.error.includes('Invalid company ID format')) {
-        // Clear the invalid data from localStorage
-        localStorage.removeItem('authToken')
-        localStorage.removeItem('currentUser')
-        localStorage.removeItem('currentCompany')
-
-        window.dispatchEvent(new CustomEvent('auth:expired'))
-
-        throw new Error('Invalid user data. Please log in again.')
+        throw new Error('Invalid company ID format')
       }
       
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
@@ -95,17 +93,42 @@ export const teamApiService = {
   // Get teams for company (admin only)
   async getTeamsForCompany(companyId: string | null): Promise<Team[]> {
     if (!companyId) return []
-    
-    const response = await apiRequest<{
-      success: boolean
-      data: Team[]
-      count: number
-    }>(`/admin/teams/company/${companyId}`)
-    
-    if (!response.success) {
-      throw new Error('Failed to get teams for company')
+
+    // Legacy Firebase-style company IDs are not valid in MySQL routes.
+    if (companyId.startsWith('-')) {
+      return this.getAllTeams()
     }
     
+    try {
+      const response = await apiRequest<{
+        success: boolean
+        data: Team[]
+        count: number
+      }>(`/admin/teams/company/${companyId}`)
+
+      if (!response.success) {
+        throw new Error('Failed to get teams for company')
+      }
+
+      return response.data
+    } catch (e: any) {
+      if (String(e?.message || e).includes('API endpoint not found')) {
+        return this.getAllTeams()
+      }
+      throw e
+    }
+  },
+
+  async getTeamStats(teamId: string): Promise<TeamStats> {
+    const response = await apiRequest<{
+      success: boolean
+      data: TeamStats
+    }>(`/teams/${teamId}/stats`)
+
+    if (!response.success) {
+      throw new Error('Failed to get team stats')
+    }
+
     return response.data
   }
 }

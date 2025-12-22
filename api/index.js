@@ -137,7 +137,26 @@ const projectSchema = Joi.object({
   color: Joi.string().required(),
   status: Joi.string().valid('active', 'on-hold', 'completed', 'cancelled').default('active'),
   priority: Joi.string().valid('low', 'medium', 'high', 'urgent').default('medium'),
+  startDate: Joi.date().optional(),
+  endDate: Joi.date().optional(),
+  budget: Joi.number().min(0).optional(),
   clientId: Joi.string().optional()
+});
+
+const clientSchema = Joi.object({
+  name: Joi.string().required(),
+  email: Joi.string().allow('', null).email().optional(),
+  country: Joi.string().allow('', null).optional(),
+  timezone: Joi.string().allow('', null).optional(),
+  clientType: Joi.string().valid('full-time', 'part-time', 'custom', 'gig').default('full-time'),
+  hourlyRate: Joi.number().min(0).default(25),
+  hoursPerWeek: Joi.number().min(0).optional(),
+  startDate: Joi.date().optional(),
+  endDate: Joi.date().optional(),
+  phone: Joi.string().allow('', null).optional(),
+  company: Joi.string().allow('', null).optional(),
+  address: Joi.string().allow('', null).optional(),
+  currency: Joi.string().allow('', null).optional()
 });
 
 const taskSchema = Joi.object({
@@ -179,6 +198,10 @@ const addCompanyId = (data, companyId) => {
   return data;
 };
 
+const isAdminRole = (role) => {
+  return ['admin', 'super_admin', 'hr', 'root'].includes(role);
+};
+
 // Routes
 
 // Health check
@@ -188,6 +211,139 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0'
   });
+});
+
+app.get('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requesterId = String(req.user.uid);
+    const requesterRole = req.user.role;
+    const requesterCompanyId = req.user.companyId;
+
+    const isSelf = requesterId === String(id);
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(requesterRole);
+
+    if (!isSelf && !isPrivileged) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT * FROM users WHERE (id = ? OR uid = ?) AND is_active = 1 LIMIT 1',
+        [id, id]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      const user = rows[0];
+
+      if (requesterRole !== 'root' && requesterCompanyId && user.company_id !== requesterCompanyId && !isSelf) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          uid: user.uid,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          companyId: user.company_id || null,
+          teamId: user.team_id || null,
+          teamRole: user.team_role || null,
+          avatar: user.avatar || null,
+          timezone: user.timezone,
+          hourlyRate: user.hourly_rate,
+          isActive: user.is_active === 1,
+          createdAt: user.created_at,
+          updatedAt: user.updated_at
+        },
+        company: null
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch user' });
+  }
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requesterId = String(req.user.uid);
+    const requesterRole = req.user.role;
+    const requesterCompanyId = req.user.companyId;
+
+    const isSelf = requesterId === String(id);
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(requesterRole);
+
+    if (!isSelf && !isPrivileged) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const updates = req.body || {};
+
+    const fields = [];
+    const values = [];
+
+    if (updates.name !== undefined) {
+      fields.push('name = ?');
+      values.push(updates.name);
+    }
+    if (updates.timezone !== undefined) {
+      fields.push('timezone = ?');
+      values.push(updates.timezone);
+    }
+    if (updates.avatar !== undefined) {
+      fields.push('avatar = ?');
+      values.push(updates.avatar || null);
+    }
+    if (updates.hourlyRate !== undefined) {
+      fields.push('hourly_rate = ?');
+      values.push(updates.hourlyRate);
+    }
+
+    fields.push('updated_at = ?');
+    values.push(new Date());
+
+    if (!fields.length) {
+      return res.json({ success: true, message: 'No changes applied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT * FROM users WHERE (id = ? OR uid = ?) AND is_active = 1 LIMIT 1',
+        [id, id]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      const user = rows[0];
+
+      if (requesterRole !== 'root' && requesterCompanyId && user.company_id !== requesterCompanyId && !isSelf) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
+
+      const query = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
+      await connection.execute(query, [...values, user.id]);
+
+      res.json({ success: true, message: 'User updated successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ success: false, error: 'Failed to update user' });
+  }
 });
 
 // Login endpoint
@@ -289,6 +445,292 @@ app.post('/api/auth/login', async (req, res) => {
       success: false, 
       error: 'Login failed. Please try again.' 
     });
+  }
+});
+
+app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
+  try {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let query = 'SELECT * FROM time_entries';
+      const params = [];
+
+      if (req.user.role !== 'root' && companyId) {
+        query += ' WHERE company_id = ?';
+        params.push(companyId);
+      }
+
+      query += ' ORDER BY start_time DESC';
+
+      const [rows] = await connection.execute(query, params);
+      const entries = rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        companyId: row.company_id,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        description: row.description,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        duration: row.duration,
+        isRunning: row.is_running === 1,
+        isBillable: row.is_billable === 1,
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+
+      res.json({ success: true, data: entries, count: entries.length });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching admin time entries:', error);
+    res.status(500).json({ error: 'Failed to fetch time entries' });
+  }
+});
+
+app.get('/api/admin/time-entries/running', authenticateToken, async (req, res) => {
+  try {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const queryCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId : null;
+    const shouldIgnoreQueryCompanyId = Boolean(queryCompanyId && queryCompanyId.startsWith('-'));
+    const effectiveCompanyId = req.user.role === 'root'
+      ? (shouldIgnoreQueryCompanyId ? null : queryCompanyId)
+      : req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let query = 'SELECT * FROM time_entries WHERE is_running = 1';
+      const params = [];
+
+      if (effectiveCompanyId) {
+        query += ' AND company_id = ?';
+        params.push(effectiveCompanyId);
+      }
+
+      query += ' ORDER BY start_time DESC';
+
+      const [rows] = await connection.execute(query, params);
+      const entries = rows.map(row => ({
+        id: row.id,
+        userId: row.user_id,
+        companyId: row.company_id,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        description: row.description,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        duration: row.duration,
+        isRunning: row.is_running === 1,
+        isBillable: row.is_billable === 1,
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+
+      res.json({ success: true, data: entries, count: entries.length });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching running admin time entries:', error);
+    res.status(500).json({ error: 'Failed to fetch running time entries' });
+  }
+});
+
+app.delete('/api/admin/time-entries/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let query = 'DELETE FROM time_entries WHERE id = ?';
+      const params = [id];
+
+      if (req.user.role !== 'root' && companyId) {
+        query += ' AND company_id = ?';
+        params.push(companyId);
+      }
+
+      const [result] = await connection.execute(query, params);
+
+      if (!result.affectedRows) {
+        return res.status(404).json({ success: false, error: 'Time entry not found' });
+      }
+
+      res.json({ success: true, message: 'Time entry deleted successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error deleting admin time entry:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete time entry' });
+  }
+});
+
+app.post('/api/admin/time-entries/:id/stop', authenticateToken, async (req, res) => {
+  try {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let selectQuery = 'SELECT * FROM time_entries WHERE id = ?';
+      const selectParams = [id];
+      if (req.user.role !== 'root' && companyId) {
+        selectQuery += ' AND company_id = ?';
+        selectParams.push(companyId);
+      }
+
+      const [rows] = await connection.execute(selectQuery, selectParams);
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'Time entry not found' });
+      }
+
+      const row = rows[0];
+      const endTime = new Date();
+      const duration = calculateDuration(row.start_time, endTime);
+
+      const updateQuery = `
+        UPDATE time_entries
+        SET end_time = ?, duration = ?, is_running = 0, updated_at = ?
+        WHERE id = ?
+      `;
+
+      await connection.execute(updateQuery, [endTime, duration, endTime, id]);
+
+      const timeEntry = {
+        id: row.id,
+        userId: row.user_id,
+        companyId: row.company_id,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        description: row.description,
+        startTime: row.start_time,
+        endTime,
+        duration,
+        isRunning: false,
+        isBillable: row.is_billable === 1,
+        tags: [],
+        createdAt: row.created_at,
+        updatedAt: endTime
+      };
+
+      res.json({ success: true, message: 'Time entry stopped successfully', data: timeEntry });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error stopping admin time entry:', error);
+    res.status(500).json({ success: false, error: 'Failed to stop time entry' });
+  }
+});
+
+app.put('/api/admin/time-entries/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { id } = req.params;
+    const updates = req.body || {};
+    const companyId = req.user.companyId;
+
+    const fields = [];
+    const values = [];
+
+    if (updates.projectId !== undefined) {
+      fields.push('project_id = ?');
+      values.push(updates.projectId || null);
+    }
+    if (updates.projectName !== undefined) {
+      fields.push('project_name = ?');
+      values.push(updates.projectName || null);
+    }
+    if (updates.clientId !== undefined) {
+      fields.push('client_id = ?');
+      values.push(updates.clientId || null);
+    }
+    if (updates.clientName !== undefined) {
+      fields.push('client_name = ?');
+      values.push(updates.clientName || null);
+    }
+    if (updates.description !== undefined) {
+      fields.push('description = ?');
+      values.push(updates.description || null);
+    }
+    if (updates.isBillable !== undefined) {
+      fields.push('is_billable = ?');
+      values.push(updates.isBillable ? 1 : 0);
+    }
+    if (updates.startTime !== undefined) {
+      fields.push('start_time = ?');
+      values.push(new Date(updates.startTime));
+    }
+    if (updates.endTime !== undefined) {
+      fields.push('end_time = ?');
+      values.push(updates.endTime ? new Date(updates.endTime) : null);
+    }
+    if (updates.duration !== undefined) {
+      fields.push('duration = ?');
+      values.push(Number(updates.duration) || 0);
+    }
+
+    fields.push('updated_at = ?');
+    values.push(new Date());
+
+    if (!fields.length) {
+      return res.json({ success: true, message: 'No changes applied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      let where = ' WHERE id = ?';
+      const params = [...values, id];
+      if (req.user.role !== 'root' && companyId) {
+        where += ' AND company_id = ?';
+        params.push(companyId);
+      }
+
+      const query = `UPDATE time_entries SET ${fields.join(', ')}${where}`;
+      const [result] = await connection.execute(query, params);
+
+      if (!result.affectedRows) {
+        return res.status(404).json({ success: false, error: 'Time entry not found' });
+      }
+
+      res.json({ success: true, message: 'Time entry updated successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating admin time entry:', error);
+    res.status(500).json({ success: false, error: 'Failed to update time entry' });
   }
 });
 
@@ -582,8 +1024,8 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
       const query = `
         INSERT INTO time_entries (
           id, user_id, company_id, project_id, project_name, client_id, client_name,
-          description, start_time, end_time, duration, is_running, is_billable, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          description, start_time, end_time, duration, is_running, is_billable, tags, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       const result = await connection.execute(query, [
@@ -600,6 +1042,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
         value.duration ?? 0,
         !value.endTime ? 1 : 0, // is_running
         value.isBillable ? 1 : 0, // is_billable
+        JSON.stringify(value.tags || []),
         now,
         now
       ]);
@@ -624,7 +1067,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
         duration: rows[0].duration,
         isRunning: rows[0].is_running === 1,
         isBillable: rows[0].is_billable === 1,
-        tags: [],
+        tags: rows[0].tags ? JSON.parse(rows[0].tags) : [],
         createdAt: rows[0].created_at,
         updatedAt: rows[0].updated_at
       };
@@ -742,13 +1185,17 @@ app.put('/api/time-entries/:id', authenticateToken, async (req, res) => {
         : existingEntry.is_billable;
 
       const isRunning = endTime ? 0 : 1;
+
+      const tags = Object.prototype.hasOwnProperty.call(value, 'tags')
+        ? JSON.stringify(value.tags || [])
+        : existingEntry.tags;
       
       // Update entry
       const query = `
         UPDATE time_entries 
         SET project_id = ?, project_name = ?, client_id = ?, client_name = ?, 
             description = ?, start_time = ?, end_time = ?, duration = ?, 
-            is_running = ?, is_billable = ?, updated_at = ?
+            is_running = ?, is_billable = ?, tags = ?, updated_at = ?
         WHERE id = ?
       `;
 
@@ -763,6 +1210,7 @@ app.put('/api/time-entries/:id', authenticateToken, async (req, res) => {
         duration,
         isRunning, // is_running
         isBillable, // is_billable
+        tags,
         new Date(),
         id
       ].map(p => (p === undefined ? null : p));
@@ -840,7 +1288,7 @@ app.post('/api/time-entries/:id/stop', authenticateToken, async (req, res) => {
         duration: row.duration,
         isRunning: row.is_running === 1,
         isBillable: row.is_billable === 1,
-        tags: [],
+        tags: row.tags ? JSON.parse(row.tags) : [],
         createdAt: row.created_at,
         updatedAt: row.updated_at
       };
@@ -1028,7 +1476,7 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
         duration: row.duration,
         isRunning: row.is_running === 1,
         isBillable: row.is_billable === 1,
-        tags: row.tags ? JSON.parse(row.tags) : [],
+        tags: [],
         createdAt: row.created_at,
         updatedAt: row.updated_at
       };
@@ -1048,6 +1496,188 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
       success: false, 
       error: 'Failed to get running time entry' 
     });
+  }
+});
+
+// Admin Teams API
+app.get('/api/admin/teams', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let query = 'SELECT * FROM teams WHERE is_active = 1';
+      const params = [];
+
+      // For non-root users, filter by company
+      if (req.user.role !== 'root' && companyId) {
+        query += ' AND company_id = ?';
+        params.push(companyId);
+      }
+
+      query += ' ORDER BY created_at DESC';
+
+      const [rows] = await connection.execute(query, params);
+      const teams = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        leaderId: row.leader_id,
+        leaderName: row.leader_name,
+        leaderEmail: row.leader_email,
+        color: row.color,
+        companyId: row.company_id,
+        isActive: row.is_active === 1,
+        memberCount: row.member_count,
+        createdBy: row.created_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+
+      res.json({
+        success: true,
+        data: teams,
+        count: teams.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+    res.status(500).json({ error: 'Failed to fetch teams' });
+  }
+});
+
+// Team Stats API
+app.get('/api/teams/:teamId/stats', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [teamRows] = await connection.execute('SELECT * FROM teams WHERE id = ?', [teamId]);
+      if (teamRows.length === 0) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+
+      const team = teamRows[0];
+      if (req.user.role !== 'root' && companyId && team.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const [memberRows] = await connection.execute(
+        'SELECT COUNT(*) AS totalMembers, SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS activeMembers FROM team_members WHERE team_id = ?',
+        [teamId]
+      );
+
+      const [taskRows] = await connection.execute(
+        `SELECT
+           COUNT(*) AS totalTasks,
+           SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) AS completedTasks,
+           SUM(CASE WHEN is_completed = 0 THEN 1 ELSE 0 END) AS inProgressTasks,
+           SUM(CASE WHEN due_date IS NOT NULL AND due_date < CURDATE() AND is_completed = 0 THEN 1 ELSE 0 END) AS overdueTasks
+         FROM tasks
+         WHERE team_id = ?`,
+        [teamId]
+      );
+
+      const [timeRows] = await connection.execute(
+        `SELECT
+           COALESCE(SUM(te.duration), 0) AS totalTimeLogged,
+           COALESCE(SUM(CASE WHEN te.is_billable = 1 THEN te.duration ELSE 0 END), 0) AS billableTimeLogged,
+           COUNT(te.id) AS totalTimeEntries
+         FROM task_time_entries tte
+         JOIN tasks t ON tte.task_id = t.id
+         JOIN time_entries te ON tte.time_entry_id = te.id
+         WHERE t.team_id = ?`,
+        [teamId]
+      );
+
+      const totalMembers = Number(memberRows[0]?.totalMembers || 0);
+      const activeMembers = Number(memberRows[0]?.activeMembers || 0);
+      const totalTasks = Number(taskRows[0]?.totalTasks || 0);
+      const completedTasks = Number(taskRows[0]?.completedTasks || 0);
+      const inProgressTasks = Number(taskRows[0]?.inProgressTasks || 0);
+      const overdueTasks = Number(taskRows[0]?.overdueTasks || 0);
+      const totalTimeLogged = Number(timeRows[0]?.totalTimeLogged || 0);
+      const billableTimeLogged = Number(timeRows[0]?.billableTimeLogged || 0);
+      const totalTimeEntries = Number(timeRows[0]?.totalTimeEntries || 0);
+
+      const stats = {
+        totalMembers,
+        activeMembers,
+        totalTasks,
+        completedTasks,
+        inProgressTasks,
+        overdueTasks,
+        totalTimeLogged,
+        averageTaskCompletion: 0,
+        totalHours: totalTimeLogged / 3600,
+        billableHours: billableTimeLogged / 3600,
+        nonBillableHours: (totalTimeLogged - billableTimeLogged) / 3600,
+        totalTimeEntries,
+        averageHoursPerMember: totalMembers > 0 ? (totalTimeLogged / 3600) / totalMembers : 0,
+        timeByProject: []
+      };
+
+      res.json({ success: true, data: stats });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching team stats:', error);
+    res.status(500).json({ error: 'Failed to fetch team stats' });
+  }
+});
+
+// Admin Users API
+app.get('/api/admin/users', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let query = 'SELECT * FROM users WHERE is_active = 1';
+      const params = [];
+
+      // For non-root users, filter by company
+      if (req.user.role !== 'root' && companyId) {
+        query += ' AND company_id = ?';
+        params.push(companyId);
+      }
+
+      query += ' ORDER BY created_at DESC';
+
+      const [rows] = await connection.execute(query, params);
+      const users = rows.map(row => ({
+        id: row.id,
+        uid: row.uid,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        companyId: row.company_id,
+        teamId: row.team_id,
+        teamRole: row.team_role,
+        avatar: row.avatar,
+        timezone: row.timezone,
+        hourlyRate: row.hourly_rate,
+        isActive: row.is_active === 1,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+
+      res.json({
+        success: true,
+        data: users,
+        count: users.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
@@ -1144,6 +1774,149 @@ app.get('/api/clients', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching clients:', error);
     res.status(500).json({ error: 'Failed to fetch clients' });
+  }
+});
+
+app.post('/api/clients', authenticateToken, async (req, res) => {
+  try {
+    const { error, value } = clientSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const userId = req.user.uid;
+    const companyId = req.user.companyId;
+    const now = new Date();
+
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        INSERT INTO clients (
+          name, email, country, timezone, client_type, hourly_rate, hours_per_week,
+          start_date, end_date, phone, company, address, currency, is_archived,
+          created_by, company_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const result = await connection.execute(query, [
+        value.name,
+        value.email || null,
+        value.country || null,
+        value.timezone || null,
+        value.clientType || 'full-time',
+        value.hourlyRate !== undefined ? value.hourlyRate : 25,
+        value.hoursPerWeek !== undefined ? value.hoursPerWeek : null,
+        value.startDate || null,
+        value.endDate || null,
+        value.phone || null,
+        value.company || null,
+        value.address || null,
+        value.currency || null,
+        0,
+        userId,
+        companyId,
+        now,
+        now
+      ]);
+
+      const clientId = result[0].insertId;
+      const [rows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [clientId]);
+      const row = rows[0];
+
+      const client = {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        country: row.country,
+        timezone: row.timezone,
+        clientType: row.client_type,
+        hourlyRate: row.hourly_rate,
+        hoursPerWeek: row.hours_per_week,
+        startDate: row.start_date,
+        endDate: row.end_date,
+        phone: row.phone,
+        company: row.company,
+        address: row.address,
+        currency: row.currency,
+        isArchived: row.is_archived === 1,
+        createdBy: row.created_by,
+        companyId: row.company_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+
+      res.status(201).json({
+        success: true,
+        data: client,
+        message: 'Client created successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error creating client:', error);
+    res.status(500).json({ error: 'Failed to create client' });
+  }
+});
+
+app.put('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error, value } = clientSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Client not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const query = `
+        UPDATE clients
+        SET name = ?, email = ?, country = ?, timezone = ?, client_type = ?, hourly_rate = ?,
+            hours_per_week = ?, start_date = ?, end_date = ?, phone = ?, company = ?, address = ?,
+            currency = ?, updated_at = ?
+        WHERE id = ?
+      `;
+
+      await connection.execute(query, [
+        value.name,
+        value.email || null,
+        value.country || null,
+        value.timezone || null,
+        value.clientType || 'full-time',
+        value.hourlyRate !== undefined ? value.hourlyRate : 25,
+        value.hoursPerWeek !== undefined ? value.hoursPerWeek : null,
+        value.startDate || null,
+        value.endDate || null,
+        value.phone || null,
+        value.company || null,
+        value.address || null,
+        value.currency || null,
+        new Date(),
+        id
+      ]);
+
+      res.json({
+        success: true,
+        message: 'Client updated successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating client:', error);
+    res.status(500).json({ error: 'Failed to update client' });
   }
 });
 

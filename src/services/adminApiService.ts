@@ -69,18 +69,43 @@ export const adminUsersAPI = {
   // Get users for company (admin only)
   async getUsersForCompany(companyId: string | null): Promise<User[]> {
     if (!companyId) return []
-    
-    const response = await apiRequest<{
-      success: boolean
-      data: User[]
-      count: number
-    }>(`/admin/users/company/${companyId}`)
-    
-    if (!response.success) {
-      throw new Error('Failed to get users for company')
+
+    // The MySQL API server (api/index.js) scopes /api/admin/users by the authenticated user's company.
+    // Some older client state may still contain Firebase-style company IDs (e.g. starting with '-')
+    // and some server variants may not implement /admin/users/company/:companyId at all.
+    // In those cases, fall back to /admin/users.
+    const shouldFallbackToScopedList = companyId.startsWith('-')
+
+    try {
+      const response = await apiRequest<{
+        success: boolean
+        data: User[]
+        count: number
+      }>(shouldFallbackToScopedList ? '/admin/users' : `/admin/users/company/${companyId}`)
+
+      if (!response.success) {
+        throw new Error('Failed to get users for company')
+      }
+
+      return response.data
+    } catch (error: any) {
+      const message = String(error?.message || '')
+      if (shouldFallbackToScopedList || message.includes('404') || message.includes('Not Found')) {
+        const response = await apiRequest<{
+          success: boolean
+          data: User[]
+          count: number
+        }>('/admin/users')
+
+        if (!response.success) {
+          throw new Error('Failed to get users')
+        }
+
+        return response.data
+      }
+
+      throw error
     }
-    
-    return response.data
   },
 
   // Update user (admin only)
@@ -151,7 +176,8 @@ export const adminTimeEntriesAPI = {
   // Get all running time entries (for admin use)
   async getAllRunningTimeEntries(companyId: string | null): Promise<TimeEntry[]> {
     const queryParams = new URLSearchParams();
-    if (companyId) {
+    // Legacy Firebase-style company IDs should not be forwarded to the MySQL API.
+    if (companyId && !companyId.startsWith('-')) {
       queryParams.append('companyId', companyId);
     }
     
@@ -219,18 +245,16 @@ export const adminTimeEntriesAPI = {
 export const adminProjectsAPI = {
   // Get projects for company
   async getProjectsForCompany(companyId: string | null): Promise<Project[]> {
-    if (!companyId) return []
-    
     const response = await apiRequest<{
       success: boolean
       data: Project[]
       count: number
-    }>(`/admin/projects/company/${companyId}`)
-    
+    }>('/projects')
+
     if (!response.success) {
-      throw new Error('Failed to get projects for company')
+      throw new Error('Failed to get projects')
     }
-    
+
     return response.data
   },
 
@@ -242,12 +266,12 @@ export const adminProjectsAPI = {
       success: boolean
       data: Client[]
       count: number
-    }>(`/admin/clients/company/${companyId}`)
-    
+    }>('/clients')
+
     if (!response.success) {
-      throw new Error('Failed to get clients for company')
+      throw new Error('Failed to get clients')
     }
-    
+
     return response.data
   }
 }
@@ -256,18 +280,16 @@ export const adminProjectsAPI = {
 export const adminClientsAPI = {
   // Get clients for company
   async getClientsForCompany(companyId: string | null): Promise<Client[]> {
-    if (!companyId) return []
-    
     const response = await apiRequest<{
       success: boolean
       data: Client[]
       count: number
-    }>(`/admin/clients/company/${companyId}`)
-    
+    }>('/clients')
+
     if (!response.success) {
-      throw new Error('Failed to get clients for company')
+      throw new Error('Failed to get clients')
     }
-    
+
     return response.data
   }
 }
@@ -276,18 +298,16 @@ export const adminClientsAPI = {
 export const adminTeamsAPI = {
   // Get teams for company
   async getTeamsForCompany(companyId: string | null): Promise<Team[]> {
-    if (!companyId) return []
-    
     const response = await apiRequest<{
       success: boolean
       data: Team[]
       count: number
-    }>(`/admin/teams/company/${companyId}`)
-    
+    }>('/admin/teams')
+
     if (!response.success) {
-      throw new Error('Failed to get teams for company')
+      throw new Error('Failed to get teams')
     }
-    
+
     return response.data
   }
 }

@@ -24,21 +24,20 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-import { update, get, set, query, orderByChild, equalTo } from 'firebase/database'
-import { ref } from 'firebase/database'
+import { update, get, set, query, orderByChild, equalTo, ref } from 'firebase/database'
 import { format, isValid } from 'date-fns'
-import { database, storage } from '../config/firebase'
 import { mysqlLoggingService } from '../services/mysqlLoggingService'
 import { formatDurationToHHMMSS } from '../utils'
 import { useTheme } from '../contexts/ThemeContext'
 import { canViewHourlyRates, canEditHourlyRates } from '../utils/permissions'
+import { userApiService } from '../services/userApiService'
 import { 
   EmailAuthProvider, 
   reauthenticateWithCredential, 
   updatePassword,
   reauthenticateWithCredential as reauth 
 } from 'firebase/auth'
-import { auth } from '../config/firebase'
+import { auth, database, storage } from '../config/firebase'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import NotificationSettings from '../components/settings/NotificationSettings'
 
@@ -140,17 +139,15 @@ export default function Settings() {
     if (!currentUser) return
     
     try {
-      const userRef = ref(database, `users/${currentUser.uid}`)
-      const snapshot = await get(userRef)
-      
-      if (snapshot.exists()) {
-        const userData = snapshot.val()
+      const userData = await userApiService.getUserById(currentUser.uid)
+
+      if (userData) {
         setProfileData({
           name: userData.name || currentUser.name || '',
           email: userData.email || currentUser.email || '',
-          timezone: userData.timezone || 'GMT+0 (Greenwich Mean Time)',
-          hourlyRate: userData.hourlyRate || 25,
-          avatar: userData.avatar || ''
+          timezone: (userData as any).timezone || 'GMT+0 (Greenwich Mean Time)',
+          hourlyRate: (userData as any).hourlyRate || 25,
+          avatar: (userData as any).avatar || ''
         })
       }
     } catch (error) {
@@ -164,6 +161,10 @@ export default function Settings() {
   }
 
   const handleBackupDatabase = async () => {
+    if (!database) {
+      showMessage('error', 'Database backup is disabled because Firebase is disabled.')
+      return
+    }
     try {
       setLoading(true)
       showMessage('info', 'Starting database backup...')
@@ -278,6 +279,10 @@ export default function Settings() {
   }
 
   const handleRestoreDatabase = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!database) {
+      showMessage('error', 'Database restore is disabled because Firebase is disabled.')
+      return
+    }
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -385,6 +390,10 @@ export default function Settings() {
   }
 
   const handleSaveSettings = async (settingsType: string) => {
+    if (!database) {
+      showMessage('error', 'Saving settings is disabled because Firebase is disabled.')
+      return
+    }
     try {
       setLoading(true)
       // Save settings to Firebase
@@ -440,6 +449,11 @@ export default function Settings() {
   
   const handleUploadAvatar = async () => {
     if (!currentUser || !avatarFile) return
+
+    if (!storage) {
+      showMessage('error', 'Avatar uploads are disabled because Firebase Storage is disabled.')
+      return
+    }
     
     try {
       setLoading(true)
@@ -492,22 +506,18 @@ export default function Settings() {
     try {
       setLoading(true)
       
-      // Update user profile in database
-      const userRef = ref(database, `users/${currentUser.uid}`)
-      
       // Only include hourlyRate in updates if user has permission to edit it
       const updates: any = {
         name: profileData.name,
         timezone: profileData.timezone,
         avatar: profileData.avatar,
-        updatedAt: new Date().toISOString()
       }
       
       if (canEditRates) {
         updates.hourlyRate = profileData.hourlyRate
       }
       
-      await update(userRef, updates)
+      await userApiService.updateUserProfile(currentUser.uid, updates)
       
       // Log the profile update
       await mysqlLoggingService.logUserAction('profile_update', 'User profile updated', currentUser.uid, currentUser.name || 'Unknown')

@@ -1,6 +1,8 @@
 import { ref, set, get, push, remove, update, onValue, query, orderByChild, equalTo, limitToLast } from 'firebase/database'
 import { database } from '../config/firebase'
 import { Project, Client, CreateProjectData, CreateClientData } from '../types'
+import { projectApiService } from './projectApiService'
+import { clientApiService } from './clientApiService'
 
 export const projectService = {
   // Projects
@@ -29,6 +31,9 @@ export const projectService = {
   },
 
   async getProjects(): Promise<Project[]> {
+    if (!database) {
+      return projectApiService.getProjects()
+    }
     const projectsRef = ref(database, 'projects')
     const snapshot = await get(projectsRef)
     
@@ -53,6 +58,9 @@ export const projectService = {
 
   // Get archived projects
   async getArchivedProjects(): Promise<Project[]> {
+    if (!database) {
+      return []
+    }
     const projectsRef = ref(database, 'projects')
     const snapshot = await get(projectsRef)
     
@@ -77,6 +85,9 @@ export const projectService = {
 
   // Get archived projects for specific company (multi-tenant safe)
   async getArchivedProjectsForCompany(companyId: string | null): Promise<Project[]> {
+    if (!database) {
+      return []
+    }
     const projectsRef = ref(database, 'projects')
     const snapshot = await get(projectsRef)
     
@@ -102,6 +113,9 @@ export const projectService = {
 
   // Get projects for specific company (multi-tenant safe)
   async getProjectsForCompany(companyId: string | null): Promise<Project[]> {
+    if (!database) {
+      return projectApiService.getProjectsForCompany(companyId)
+    }
     const projectsRef = ref(database, 'projects')
     const snapshot = await get(projectsRef)
     
@@ -192,6 +206,10 @@ export const projectService = {
 
   // Clients
   async createClient(clientData: CreateClientData, userId: string, companyId?: string | null): Promise<string> {
+    if (!database) {
+      const created = await clientApiService.createClient(clientData)
+      return String((created as any).id)
+    }
     const clientRef = push(ref(database, 'clients'))
     const newClient: Client = {
       ...clientData,
@@ -241,6 +259,9 @@ export const projectService = {
   },
 
   async getClients(): Promise<Client[]> {
+    if (!database) {
+      return projectApiService.getClients()
+    }
     const clientsRef = ref(database, 'clients')
     const snapshot = await get(clientsRef)
     
@@ -265,6 +286,9 @@ export const projectService = {
 
   // Get clients for specific company (multi-tenant safe)
   async getClientsForCompany(companyId: string | null): Promise<Client[]> {
+    if (!database) {
+      return projectApiService.getClientsForCompany(companyId)
+    }
     const clientsRef = ref(database, 'clients')
     const snapshot = await get(clientsRef)
     
@@ -308,6 +332,13 @@ export const projectService = {
 
   // Add this new function to check if a client with the same email already exists
   async getClientByEmail(email: string, companyId?: string | null): Promise<Client | null> {
+    if (!database) {
+      const all = companyId
+        ? await projectApiService.getClientsForCompany(companyId)
+        : await projectApiService.getClients()
+      const existing = all.find((c: Client) => c.email?.toLowerCase() === email.toLowerCase())
+      return existing || null
+    }
     const clientsRef = ref(database, 'clients')
     const snapshot = await get(clientsRef)
     
