@@ -166,7 +166,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const handleLogout = async () => {
     try {
       await logout();
-      navigate('/login');
+      navigate('/auth');
     } catch (error) {
       console.error('Failed to log out', error);
     }

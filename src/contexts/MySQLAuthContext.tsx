@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { AuthUser, LoginCredentials, SignupCredentials, Company } from '../types'
 import { mysqlLoggingService } from '../services/mysqlLoggingService'
 
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+
 interface MySQLAuthContextType {
   currentUser: AuthUser | null
   currentCompany: Company | null
@@ -68,12 +70,18 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
     localStorage.removeItem('authToken')
   }
 
+  useEffect(() => {
+    const handler = () => clearExpiredToken()
+    window.addEventListener('auth:expired', handler as EventListener)
+    return () => window.removeEventListener('auth:expired', handler as EventListener)
+  }, [])
+
   async function login(credentials: LoginCredentials) {
     try {
       setLoading(true)
       
       // Make API call to backend
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,7 +137,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       setLoading(true)
       
       // Make API call to backend
-      const response = await fetch('/api/auth/signup', {
+      const response = await fetch(`${API_BASE_URL}/auth/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -91,14 +91,14 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
             console.error('Error polling for running time entry:', error)
           }
         }
-      }, 5000) // Poll every 5 seconds
+      }, 30000) // Poll every 30 seconds to avoid hitting API rate limits
       
       // Clean up interval
       return () => {
         clearInterval(pollInterval)
       }
     }
-  }, [currentUser, projects]) // Removed isRunning from dependency array to prevent unnecessary re-renders
+  }, [currentUser]) // Keep stable to avoid re-fetch loops that can trigger rate limits
 
   useEffect(() => {
     if (isRunning && startTimeRef.current) {

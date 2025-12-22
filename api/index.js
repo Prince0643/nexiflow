@@ -18,13 +18,24 @@ const PORT = process.env.PORT || 3001;
 
 // Create database connection pool
 const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'localhost',
+  host: process.env.MYSQL_HOST || '127.0.0.1',
+  port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
   user: process.env.MYSQL_USER || 'root',
   password: process.env.MYSQL_PASSWORD || '',
   database: process.env.MYSQL_DATABASE || 'clockistry',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  connectTimeout: process.env.MYSQL_CONNECT_TIMEOUT
+    ? Number(process.env.MYSQL_CONNECT_TIMEOUT)
+    : 10000
+});
+
+console.log('MySQL config:', {
+  host: process.env.MYSQL_HOST || '127.0.0.1',
+  port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
+  user: process.env.MYSQL_USER || 'root',
+  database: process.env.MYSQL_DATABASE || 'clockistry'
 });
 
 // Middleware
@@ -39,9 +50,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting
+const isDev = process.env.NODE_ENV !== 'production'
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  // In dev, allow more requests to avoid tripping rate limits during hot reload / polling
+  max: isDev ? 2000 : 100,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -97,12 +110,25 @@ const authenticateToken = async (req, res, next) => {
 // Validation schemas
 const timeEntrySchema = Joi.object({
   projectId: Joi.string().optional(),
-  description: Joi.string().required(),
-  startTime: Joi.date().required(),
+  description: Joi.string().allow('', null).optional(),
+  startTime: Joi.date().default(() => new Date()),
   endTime: Joi.date().optional(),
-  duration: Joi.number().min(0).required(),
+  duration: Joi.number().min(0).default(0),
   isBillable: Joi.boolean().default(false),
   tags: Joi.array().items(Joi.string()).default([])
+});
+
+const timeEntryUpdateSchema = Joi.object({
+  projectId: Joi.string().optional(),
+  projectName: Joi.string().optional(),
+  clientId: Joi.string().optional(),
+  clientName: Joi.string().optional(),
+  description: Joi.string().optional(),
+  startTime: Joi.date().optional(),
+  endTime: Joi.date().optional(),
+  duration: Joi.number().min(0).optional(),
+  isBillable: Joi.boolean().optional(),
+  tags: Joi.array().items(Joi.string()).optional()
 });
 
 const projectSchema = Joi.object({
@@ -479,7 +505,7 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
         duration: row.duration,
         isRunning: row.is_running === 1,
         isBillable: row.is_billable === 1,
-        tags: row.tags ? JSON.parse(row.tags) : [],
+        tags: [],
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
@@ -508,6 +534,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
     const companyId = req.user.companyId;
     const now = new Date();
+    const entryId = uuidv4();
     
     // Get project name if projectId provided
     let projectName = null;
@@ -523,6 +550,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
         
         if (projectRows.length > 0) {
           const project = projectRows[0];
+          projectId = value.projectId;
           projectName = project.name;
           clientId = project.client_id;
           
@@ -553,30 +581,28 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
     try {
       const query = `
         INSERT INTO time_entries (
-          user_id, company_id, project_id, project_name, client_id, client_name,
-          description, start_time, end_time, duration, is_running, is_billable, tags, created_at, updated_at
+          id, user_id, company_id, project_id, project_name, client_id, client_name,
+          description, start_time, end_time, duration, is_running, is_billable, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       const result = await connection.execute(query, [
+        entryId,
         userId,
         companyId,
         value.projectId || null,
         projectName || null,
         clientId || null,
         clientName || null,
-        value.description,
+        value.description ?? null,
         value.startTime,
         value.endTime || null,
-        value.duration,
+        value.duration ?? 0,
         !value.endTime ? 1 : 0, // is_running
         value.isBillable ? 1 : 0, // is_billable
-        value.tags ? JSON.stringify(value.tags) : null,
         now,
         now
       ]);
-      
-      const entryId = result[0].insertId;
       
       // Get the created time entry
       const [rows] = await connection.execute(
@@ -598,7 +624,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
         duration: rows[0].duration,
         isRunning: rows[0].is_running === 1,
         isBillable: rows[0].is_billable === 1,
-        tags: rows[0].tags ? JSON.parse(rows[0].tags) : [],
+        tags: [],
         createdAt: rows[0].created_at,
         updatedAt: rows[0].updated_at
       };
@@ -620,7 +646,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {
 app.put('/api/time-entries/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { error, value } = timeEntrySchema.validate(req.body);
+    const { error, value } = timeEntryUpdateSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
@@ -651,10 +677,19 @@ app.put('/api/time-entries/:id', authenticateToken, async (req, res) => {
       }
       
       // Get project name if projectId changed
+      let projectId = existingEntry.project_id;
       let projectName = existingEntry.project_name;
       let clientId = existingEntry.client_id;
       let clientName = existingEntry.client_name;
       
+      // Allow explicitly setting client without changing project
+      if (Object.prototype.hasOwnProperty.call(value, 'clientId')) {
+        clientId = value.clientId || null;
+      }
+      if (Object.prototype.hasOwnProperty.call(value, 'clientName')) {
+        clientName = value.clientName || null;
+      }
+
       if (value.projectId && value.projectId !== existingEntry.project_id) {
         const [projectRows] = await connection.execute(
           'SELECT * FROM projects WHERE id = ?', 
@@ -684,31 +719,55 @@ app.put('/api/time-entries/:id', authenticateToken, async (req, res) => {
           }
         }
       }
+
+      // Merge other fields with existing entry
+      const description = Object.prototype.hasOwnProperty.call(value, 'description')
+        ? value.description
+        : existingEntry.description;
+
+      const startTime = Object.prototype.hasOwnProperty.call(value, 'startTime')
+        ? value.startTime
+        : existingEntry.start_time;
+
+      const endTime = Object.prototype.hasOwnProperty.call(value, 'endTime')
+        ? value.endTime
+        : existingEntry.end_time;
+
+      const duration = Object.prototype.hasOwnProperty.call(value, 'duration')
+        ? value.duration
+        : existingEntry.duration;
+
+      const isBillable = Object.prototype.hasOwnProperty.call(value, 'isBillable')
+        ? (value.isBillable ? 1 : 0)
+        : existingEntry.is_billable;
+
+      const isRunning = endTime ? 0 : 1;
       
       // Update entry
       const query = `
         UPDATE time_entries 
         SET project_id = ?, project_name = ?, client_id = ?, client_name = ?, 
             description = ?, start_time = ?, end_time = ?, duration = ?, 
-            is_running = ?, is_billable = ?, tags = ?, updated_at = ?
+            is_running = ?, is_billable = ?, updated_at = ?
         WHERE id = ?
       `;
-      
-      await connection.execute(query, [
-        value.projectId || null,
+
+      const params = [
+        projectId || null,
         projectName || null,
         clientId || null,
         clientName || null,
-        value.description,
-        value.startTime,
-        value.endTime || null,
-        value.duration,
-        !value.endTime ? 1 : 0, // is_running
-        value.isBillable ? 1 : 0, // is_billable
-        value.tags ? JSON.stringify(value.tags) : null,
+        description,
+        startTime,
+        endTime || null,
+        duration,
+        isRunning, // is_running
+        isBillable, // is_billable
         new Date(),
         id
-      ]);
+      ].map(p => (p === undefined ? null : p));
+
+      await connection.execute(query, params);
       
       res.json({
         success: true,
@@ -720,6 +779,83 @@ app.put('/api/time-entries/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating time entry:', error);
     res.status(500).json({ error: 'Failed to update time entry' });
+  }
+});
+
+// Stop a running time entry
+app.post('/api/time-entries/:id/stop', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.uid;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute(
+        'SELECT * FROM time_entries WHERE id = ?',
+        [id]
+      );
+
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Time entry not found' });
+      }
+
+      const existingEntry = existingRows[0];
+      if (existingEntry.user_id !== userId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (req.user.role !== 'root' && existingEntry.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      const startTime = new Date(existingEntry.start_time);
+      const endTime = new Date();
+      const duration = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
+
+      await connection.execute(
+        `UPDATE time_entries
+         SET end_time = ?, duration = ?, is_running = 0, updated_at = ?
+         WHERE id = ?`,
+        [endTime, duration, new Date(), id]
+      );
+
+      const [rows] = await connection.execute(
+        'SELECT * FROM time_entries WHERE id = ?',
+        [id]
+      );
+
+      const row = rows[0];
+      const updated = {
+        id: row.id,
+        userId: row.user_id,
+        companyId: row.company_id,
+        projectId: row.project_id,
+        projectName: row.project_name,
+        clientId: row.client_id,
+        clientName: row.client_name,
+        description: row.description,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        duration: row.duration,
+        isRunning: row.is_running === 1,
+        isBillable: row.is_billable === 1,
+        tags: [],
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+
+      res.json({
+        success: true,
+        data: updated,
+        message: 'Time entry stopped successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error stopping time entry:', error);
+    res.status(500).json({ error: 'Failed to stop time entry' });
   }
 });
 
@@ -964,6 +1100,50 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching projects:', error);
     res.status(500).json({ error: 'Failed to fetch projects' });
+  }
+});
+
+// Clients API
+app.get('/api/clients', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      let query = 'SELECT * FROM clients';
+      const params = [];
+
+      // For non-root users, filter by company
+      if (req.user.role !== 'root' && companyId) {
+        query += ' WHERE company_id = ?';
+        params.push(companyId);
+      }
+
+      query += ' ORDER BY created_at DESC';
+
+      const [rows] = await connection.execute(query, params);
+      const clients = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        address: row.address,
+        companyId: row.company_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+
+      res.json({
+        success: true,
+        data: clients,
+        count: clients.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching clients:', error);
+    res.status(500).json({ error: 'Failed to fetch clients' });
   }
 });
 

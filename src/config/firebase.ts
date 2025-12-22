@@ -17,24 +17,23 @@ const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
-};
+}
 
-// Initialize Firebase 
-const app = initializeApp(firebaseConfig)
+const isFirebaseEnabled = Boolean(firebaseConfig.apiKey)
 
-// Initialize Firebase Authentication and get a reference to the service
-export const auth = getAuth(app)
+// Initialize Firebase only if the config is present.
+// This prevents runtime crashes when migrating away from Firebase.
+const app: any = isFirebaseEnabled ? initializeApp(firebaseConfig) : null
 
-// Initialize Firebase Realtime Database and get a reference to the service
-export const database = getDatabase(app)
+// Initialize Firebase services only when Firebase is enabled.
+export const auth: any = isFirebaseEnabled ? getAuth(app) : null
+export const database: any = isFirebaseEnabled ? getDatabase(app) : null
+export const db: any = isFirebaseEnabled ? getFirestore(app) : null
+export const functions: any = isFirebaseEnabled ? getFunctions(app) : null
+export const storage: any = isFirebaseEnabled ? getStorage(app) : null
 
-// Initialize Firestore and get a reference to the service
-export const db = getFirestore(app)
-
-// Initialize Firebase Functions and get a reference to the service
-export const functions = getFunctions(app)
-
-// Initialize Firebase Storage and get a reference to the service
-export const storage = getStorage(app)
+if (!isFirebaseEnabled) {
+  console.warn('[firebase] Firebase is disabled (missing VITE_FIREBASE_API_KEY).')
+}
 
 export default app

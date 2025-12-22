@@ -1,7 +1,7 @@
 import { Project, Client } from '../types'
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api'
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
 // Get auth token for authentication
 const getAuthToken = async (): Promise<string | null> => {
@@ -45,24 +45,16 @@ const apiRequest = async <T>(
         localStorage.removeItem('authToken')
         localStorage.removeItem('currentUser')
         localStorage.removeItem('currentCompany')
-        
-        // Redirect to login page
-        window.location.href = '/login'
-        
+
+        // Notify the app so it can handle logout without forcing a full page reload
+        window.dispatchEvent(new CustomEvent('auth:expired'))
+
         throw new Error('Session expired. Please log in again.')
       }
       
-      // If it's a bad request due to invalid company ID format, redirect to login
+      // If it's a bad request due to invalid company ID format, do not treat as auth-expired
       if (response.status === 400 && errorData.error && errorData.error.includes('Invalid company ID format')) {
-        // Clear the invalid data from localStorage
-        localStorage.removeItem('authToken')
-        localStorage.removeItem('currentUser')
-        localStorage.removeItem('currentCompany')
-        
-        // Redirect to login page
-        window.location.href = '/login'
-        
-        throw new Error('Invalid user data. Please log in again.')
+        throw new Error('Invalid company ID format')
       }
       
       throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
@@ -81,12 +73,16 @@ export const projectApiService = {
   // Get projects for company
   async getProjectsForCompany(companyId: string | null): Promise<Project[]> {
     if (!companyId) return []
-    
+
+    // During Firebase -> MySQL migration, some users/companies may still have Firebase-style IDs.
+    // Backend company-scoped routes reject those. Fall back to non-param endpoints.
+    const endpoint = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
+
     const response = await apiRequest<{
       success: boolean
       data: Project[]
       count: number
-    }>(`/projects/company/${companyId}`)
+    }>(endpoint)
     
     if (!response.success) {
       throw new Error('Failed to get projects for company')
@@ -113,12 +109,14 @@ export const projectApiService = {
   // Get clients for company
   async getClientsForCompany(companyId: string | null): Promise<Client[]> {
     if (!companyId) return []
-    
+
+    const endpoint = companyId.startsWith('-') ? '/clients' : `/clients/company/${companyId}`
+
     const response = await apiRequest<{
       success: boolean
       data: Client[]
       count: number
-    }>(`/clients/company/${companyId}`)
+    }>(endpoint)
     
     if (!response.success) {
       throw new Error('Failed to get clients for company')

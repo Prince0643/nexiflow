@@ -1,7 +1,7 @@
 import { User } from '../types'
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api'
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
 // Get auth token for authentication
 const getAuthToken = async (): Promise<string | null> => {
@@ -45,10 +45,10 @@ const apiRequest = async <T>(
         localStorage.removeItem('authToken')
         localStorage.removeItem('currentUser')
         localStorage.removeItem('currentCompany')
-        
-        // Redirect to login page
-        window.location.href = '/login'
-        
+
+        // Notify the app so it can handle logout without forcing a full page reload
+        window.dispatchEvent(new CustomEvent('auth:expired'))
+
         throw new Error('Session expired. Please log in again.')
       }
       
@@ -58,10 +58,9 @@ const apiRequest = async <T>(
         localStorage.removeItem('authToken')
         localStorage.removeItem('currentUser')
         localStorage.removeItem('currentCompany')
-        
-        // Redirect to login page
-        window.location.href = '/login'
-        
+
+        window.dispatchEvent(new CustomEvent('auth:expired'))
+
         throw new Error('Invalid user data. Please log in again.')
       }
       
