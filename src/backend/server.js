@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import cors from 'cors';
@@ -2082,7 +2082,6 @@ app.get('/api/projects/company/:companyId', async (req, res) => {
   }
 });
 
-// Get clients for company
 app.get('/api/clients/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
@@ -2116,13 +2115,12 @@ app.get('/api/clients/company/:companyId', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: clients,
         count: clients.length
       });
-      
     } finally {
       connection.release();
     }
@@ -2133,6 +2131,135 @@ app.get('/api/clients/company/:companyId', async (req, res) => {
       success: false, 
       error: 'Failed to get clients' 
     });
+  }
+});
+
+app.post('/api/clients', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const userId = req.user.id;
+
+    if (!companyId && req.user.role !== 'root') {
+      return res.status(400).json({ success: false, error: 'Missing company ID' });
+    }
+
+    const now = new Date();
+    const clientData = req.body || {};
+
+    if (!clientData.name) {
+      return res.status(400).json({ success: false, error: 'Client name is required' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const query = `
+        INSERT INTO clients (
+          name, email, country, timezone, client_type, hourly_rate, hours_per_week,
+          start_date, end_date, phone, company, address, currency, is_archived,
+          created_by, company_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const result = await connection.execute(query, [
+        clientData.name,
+        clientData.email || null,
+        clientData.country || null,
+        clientData.timezone || null,
+        clientData.clientType || 'full-time',
+        clientData.hourlyRate !== undefined ? clientData.hourlyRate : 25,
+        clientData.hoursPerWeek !== undefined ? clientData.hoursPerWeek : null,
+        clientData.startDate || null,
+        clientData.endDate || null,
+        clientData.phone || null,
+        clientData.company || null,
+        clientData.address || null,
+        clientData.currency || null,
+        0,
+        userId,
+        companyId,
+        now,
+        now
+      ]);
+
+      const clientId = result[0].insertId;
+      const [rows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [clientId]);
+
+      res.status(201).json({
+        success: true,
+        data: rows[0],
+        message: 'Client created successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Create client error:', error);
+    res.status(500).json({ success: false, error: 'Failed to create client' });
+  }
+});
+
+app.put('/api/clients/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const updates = req.body || {};
+    const fields = [];
+    const values = [];
+
+    const allowed = {
+      name: 'name',
+      email: 'email',
+      country: 'country',
+      timezone: 'timezone',
+      clientType: 'client_type',
+      hourlyRate: 'hourly_rate',
+      hoursPerWeek: 'hours_per_week',
+      startDate: 'start_date',
+      endDate: 'end_date',
+      phone: 'phone',
+      company: 'company',
+      address: 'address',
+      currency: 'currency'
+    };
+
+    Object.keys(allowed).forEach(key => {
+      if (updates[key] !== undefined) {
+        fields.push(`${allowed[key]} = ?`);
+        values.push(updates[key] === '' ? null : updates[key]);
+      }
+    });
+
+    fields.push('updated_at = ?');
+    values.push(new Date());
+    values.push(id);
+
+    if (fields.length === 1) {
+      return res.json({ success: true, message: 'No changes applied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Client not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
+
+      const query = `UPDATE clients SET ${fields.join(', ')} WHERE id = ?`;
+      await connection.execute(query, values);
+
+      res.json({ success: true, message: 'Client updated successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Update client error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update client' });
   }
 });
 
@@ -2165,22 +2292,22 @@ app.get('/api/projects', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: projects,
         count: projects.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get projects error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get projects' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get projects'
     });
   }
 });
@@ -2217,17 +2344,17 @@ app.get('/api/clients', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: clients,
         count: clients.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get clients error:', error);
     res.status(500).json({ 
@@ -2613,205 +2740,203 @@ app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
       error: 'Failed to add team member' 
     });
   }
-});    } 
- } ) ; 
- 
- / /   U p d a t e   t e a m   m e m b e r   r o l e 
- a p p . p u t ( ' / a p i / t e a m s / : t e a m I d / m e m b e r s / : m e m b e r I d ' ,   a u t h e n t i c a t e T o k e n ,   a s y n c   ( r e q ,   r e s )   = >   { 
-     t r y   { 
-         c o n s t   {   t e a m I d ,   m e m b e r I d   }   =   r e q . p a r a m s ; 
-         c o n s t   {   r o l e   }   =   r e q . b o d y ; 
-         c o n s t   u s e r I d   =   r e q . u s e r . i d ; 
-         c o n s t   u s e r R o l e   =   r e q . u s e r . r o l e ; 
-         
-         / /   V a l i d a t e   r e q u i r e d   f i e l d s 
-         i f   ( ! r o l e )   { 
-             r e t u r n   r e s . s t a t u s ( 4 0 0 ) . j s o n ( {   
-                 s u c c e s s :   f a l s e ,   
-                 e r r o r :   ' r o l e   i s   r e q u i r e d '   
-             } ) ; 
-         } 
-         
-         c o n s t   c o n n e c t i o n   =   a w a i t   p o o l . g e t C o n n e c t i o n ( ) ; 
-         t r y   { 
-             / /   C h e c k   i f   u s e r   i s   t h e   t e a m   l e a d e r   o r   a n   a d m i n 
-             c o n s t   t e a m Q u e r y   =   \ S E L E C T   l e a d e r _ i d   F R O M   t e a m s   W H E R E   i d   =   ?   A N D   i s _ a c t i v e   =   1 \ ; 
-             c o n s t   [ t e a m R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( t e a m Q u e r y ,   [ t e a m I d ] ) ; 
-             
-             i f   ( t e a m R o w s . l e n g t h   = = =   0 )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' T e a m   n o t   f o u n d '   
-                 } ) ; 
-             } 
-             
-             c o n s t   t e a m   =   t e a m R o w s [ 0 ] ; 
-             c o n s t   i s A d m i n   =   u s e r R o l e   = = =   ' a d m i n '   | |   u s e r R o l e   = = =   ' s u p e r _ a d m i n '   | |   u s e r R o l e   = = =   ' r o o t ' ; 
-             c o n s t   i s T e a m L e a d e r   =   t e a m . l e a d e r _ i d   = = =   u s e r I d ; 
-             
-             i f   ( ! i s T e a m L e a d e r   & &   ! i s A d m i n )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 3 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' A c c e s s   d e n i e d .   O n l y   t e a m   l e a d e r s   a n d   a d m i n i s t r a t o r s   c a n   u p d a t e   t e a m   m e m b e r s . '   
-                 } ) ; 
-             } 
-             
-             / /   C h e c k   i f   m e m b e r   e x i s t s   a n d   i s   a c t i v e 
-             c o n s t   m e m b e r Q u e r y   =   \ 
-                 S E L E C T   u s e r _ i d   F R O M   t e a m _ m e m b e r s   
-                 W H E R E   i d   =   ?   A N D   t e a m _ i d   =   ?   A N D   i s _ a c t i v e   =   1 
-             \ ; 
-             c o n s t   [ m e m b e r R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( m e m b e r Q u e r y ,   [ m e m b e r I d ,   t e a m I d ] ) ; 
-             
-             i f   ( m e m b e r R o w s . l e n g t h   = = =   0 )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' T e a m   m e m b e r   n o t   f o u n d '   
-                 } ) ; 
-             } 
-             
-             c o n s t   m e m b e r U s e r I d   =   m e m b e r R o w s [ 0 ] . u s e r _ i d ; 
-             
-             / /   I f   p r o m o t i n g   t o   l e a d e r ,   u p d a t e   t e a m   l e a d e r   i n f o 
-             i f   ( r o l e   = = =   ' l e a d e r ' )   { 
-                 / /   U p d a t e   t e a m   l e a d e r   i n f o 
-                 c o n s t   u p d a t e T e a m Q u e r y   =   \ 
-                     U P D A T E   t e a m s   
-                     S E T   l e a d e r _ i d   =   ? 
-                     W H E R E   i d   =   ? 
-                 \ ; 
-                 a w a i t   c o n n e c t i o n . e x e c u t e ( u p d a t e T e a m Q u e r y ,   [ m e m b e r U s e r I d ,   t e a m I d ] ) ; 
-                 
-                 / /   S e t   c u r r e n t   l e a d e r   t o   m e m b e r 
-                 c o n s t   u p d a t e O l d L e a d e r Q u e r y   =   \ 
-                     U P D A T E   t e a m _ m e m b e r s   
-                     S E T   t e a m _ r o l e   =   ' m e m b e r ' 
-                     W H E R E   t e a m _ i d   =   ?   A N D   t e a m _ r o l e   =   ' l e a d e r '   A N D   i s _ a c t i v e   =   1 
-                 \ ; 
-                 a w a i t   c o n n e c t i o n . e x e c u t e ( u p d a t e O l d L e a d e r Q u e r y ,   [ t e a m I d ] ) ; 
-             } 
-             
-             / /   U p d a t e   m e m b e r   r o l e 
-             c o n s t   q u e r y   =   \ 
-                 U P D A T E   t e a m _ m e m b e r s   
-                 S E T   t e a m _ r o l e   =   ? 
-                 W H E R E   i d   =   ? 
-             \ ; 
-             a w a i t   c o n n e c t i o n . e x e c u t e ( q u e r y ,   [ r o l e ,   m e m b e r I d ] ) ; 
-             
-             r e s . j s o n ( {   
-                 s u c c e s s :   t r u e ,   
-                 m e s s a g e :   ' T e a m   m e m b e r   u p d a t e d   s u c c e s s f u l l y ' 
-             } ) ; 
-             
-         }   f i n a l l y   { 
-             c o n n e c t i o n . r e l e a s e ( ) ; 
-         } 
-         
-     }   c a t c h   ( e r r o r )   { 
-         c o n s o l e . e r r o r ( ' U p d a t e   t e a m   m e m b e r   e r r o r : ' ,   e r r o r ) ; 
-         r e s . s t a t u s ( 5 0 0 ) . j s o n ( {   
-             s u c c e s s :   f a l s e ,   
-             e r r o r :   ' F a i l e d   t o   u p d a t e   t e a m   m e m b e r '   
-         } ) ; 
-     } 
- } ) ; 
- 
- / /   R e m o v e   t e a m   m e m b e r 
- a p p . d e l e t e ( ' / a p i / t e a m s / : t e a m I d / m e m b e r s / : m e m b e r I d ' ,   a u t h e n t i c a t e T o k e n ,   a s y n c   ( r e q ,   r e s )   = >   { 
-     t r y   { 
-         c o n s t   {   t e a m I d ,   m e m b e r I d   }   =   r e q . p a r a m s ; 
-         c o n s t   u s e r I d   =   r e q . u s e r . i d ; 
-         c o n s t   u s e r R o l e   =   r e q . u s e r . r o l e ; 
-         
-         c o n s t   c o n n e c t i o n   =   a w a i t   p o o l . g e t C o n n e c t i o n ( ) ; 
-         t r y   { 
-             / /   C h e c k   i f   u s e r   i s   t h e   t e a m   l e a d e r   o r   a n   a d m i n 
-             c o n s t   t e a m Q u e r y   =   \ S E L E C T   l e a d e r _ i d   F R O M   t e a m s   W H E R E   i d   =   ?   A N D   i s _ a c t i v e   =   1 \ ; 
-             c o n s t   [ t e a m R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( t e a m Q u e r y ,   [ t e a m I d ] ) ; 
-             
-             i f   ( t e a m R o w s . l e n g t h   = = =   0 )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' T e a m   n o t   f o u n d '   
-                 } ) ; 
-             } 
-             
-             c o n s t   t e a m   =   t e a m R o w s [ 0 ] ; 
-             c o n s t   i s A d m i n   =   u s e r R o l e   = = =   ' a d m i n '   | |   u s e r R o l e   = = =   ' s u p e r _ a d m i n '   | |   u s e r R o l e   = = =   ' r o o t ' ; 
-             c o n s t   i s T e a m L e a d e r   =   t e a m . l e a d e r _ i d   = = =   u s e r I d ; 
-             
-             i f   ( ! i s T e a m L e a d e r   & &   ! i s A d m i n )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 3 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' A c c e s s   d e n i e d .   O n l y   t e a m   l e a d e r s   a n d   a d m i n i s t r a t o r s   c a n   r e m o v e   t e a m   m e m b e r s . '   
-                 } ) ; 
-             } 
-             
-             / /   C h e c k   i f   m e m b e r   e x i s t s   a n d   i s   a c t i v e 
-             c o n s t   m e m b e r Q u e r y   =   \ 
-                 S E L E C T   u s e r _ i d   F R O M   t e a m _ m e m b e r s   
-                 W H E R E   i d   =   ?   A N D   t e a m _ i d   =   ?   A N D   i s _ a c t i v e   =   1 
-             \ ; 
-             c o n s t   [ m e m b e r R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( m e m b e r Q u e r y ,   [ m e m b e r I d ,   t e a m I d ] ) ; 
-             
-             i f   ( m e m b e r R o w s . l e n g t h   = = =   0 )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 4 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' T e a m   m e m b e r   n o t   f o u n d '   
-                 } ) ; 
-             } 
-             
-             c o n s t   m e m b e r U s e r I d   =   m e m b e r R o w s [ 0 ] . u s e r _ i d ; 
-             
-             / /   P r e v e n t   r e m o v i n g   t h e   t e a m   l e a d e r   ( t h e y   s h o u l d   b e   t r a n s f e r r e d   o r   t e a m   d e l e t e d ) 
-             i f   ( m e m b e r U s e r I d   = = =   t e a m . l e a d e r _ i d )   { 
-                 r e t u r n   r e s . s t a t u s ( 4 0 0 ) . j s o n ( {   
-                     s u c c e s s :   f a l s e ,   
-                     e r r o r :   ' C a n n o t   r e m o v e   t e a m   l e a d e r .   T r a n s f e r   l e a d e r s h i p   f i r s t   o r   d e l e t e   t h e   t e a m . '   
-                 } ) ; 
-             } 
-             
-             / /   S o f t   d e l e t e   t h e   m e m b e r 
-             c o n s t   q u e r y   =   \ 
-                 U P D A T E   t e a m _ m e m b e r s   
-                 S E T   i s _ a c t i v e   =   0 ,   l e f t _ a t   =   ? 
-                 W H E R E   i d   =   ? 
-             \ ; 
-             a w a i t   c o n n e c t i o n . e x e c u t e ( q u e r y ,   [ n e w   D a t e ( ) . t o I S O S t r i n g ( ) ,   m e m b e r I d ] ) ; 
-             
-             / /   U p d a t e   t e a m   m e m b e r   c o u n t 
-             c o n s t   c o u n t Q u e r y   =   \ 
-                 S E L E C T   C O U N T ( * )   a s   c o u n t   F R O M   t e a m _ m e m b e r s   
-                 W H E R E   t e a m _ i d   =   ?   A N D   i s _ a c t i v e   =   1 
-             \ ; 
-             c o n s t   [ c o u n t R o w s ]   =   a w a i t   c o n n e c t i o n . e x e c u t e ( c o u n t Q u e r y ,   [ t e a m I d ] ) ; 
-             c o n s t   m e m b e r C o u n t   =   c o u n t R o w s [ 0 ] . c o u n t ; 
-             
-             c o n s t   u p d a t e Q u e r y   =   \ 
-                 U P D A T E   t e a m s   
-                 S E T   m e m b e r _ c o u n t   =   ? ,   u p d a t e d _ a t   =   ? 
-                 W H E R E   i d   =   ? 
-             \ ; 
-             a w a i t   c o n n e c t i o n . e x e c u t e ( u p d a t e Q u e r y ,   [ m e m b e r C o u n t ,   n e w   D a t e ( ) . t o I S O S t r i n g ( ) ,   t e a m I d ] ) ; 
-             
-             r e s . j s o n ( {   
-                 s u c c e s s :   t r u e ,   
-                 m e s s a g e :   ' T e a m   m e m b e r   r e m o v e d   s u c c e s s f u l l y ' 
-             } ) ; 
-             
-         }   f i n a l l y   { 
-             c o n n e c t i o n . r e l e a s e ( ) ; 
-         } 
-         
-     }   c a t c h   ( e r r o r )   { 
-         c o n s o l e . e r r o r ( ' R e m o v e   t e a m   m e m b e r   e r r o r : ' ,   e r r o r ) ; 
-         r e s . s t a t u s ( 5 0 0 ) . j s o n ( {   
-             s u c c e s s :   f a l s e ,   
-             e r r o r :   ' F a i l e d   t o   r e m o v e   t e a m   m e m b e r '   
-         } ) ; 
-     } 
- } ) ; 
- 
- e x p o r t   d e f a u l t   a p p ;  
- 
+});  
+
+// Update team member role
+app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, res) => {
+  try {
+    const { teamId, memberId } = req.params;
+    const { role } = req.body;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // Validate required fields
+    if (!role) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'role is required' 
+      });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      // Check if user is the team leader or an admin
+      const teamQuery = `SELECT leader_id FROM teams WHERE id = ? AND is_active = 1`;
+      const [teamRows] = await connection.execute(teamQuery, [teamId]);
+
+      if (teamRows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Team not found' 
+        });
+      }
+
+      const team = teamRows[0];
+      const isAdmin = userRole === 'admin' || userRole === 'super_admin' || userRole === 'root';
+      const isTeamLeader = team.leader_id === userId;
+
+      if (!isTeamLeader && !isAdmin) {
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Access denied. Only team leaders and administrators can update team members.' 
+        });
+      }
+
+      // Check if member exists and is active
+      const memberQuery = `
+        SELECT user_id FROM team_members 
+        WHERE id = ? AND team_id = ? AND is_active = 1
+      `;
+      const [memberRows] = await connection.execute(memberQuery, [memberId, teamId]);
+
+      if (memberRows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Team member not found' 
+        });
+      }
+
+      const memberUserId = memberRows[0].user_id;
+
+      // If promoting to leader, update team leader info
+      if (role === 'leader') {
+        // Update team leader
+        const updateTeamQuery = `
+          UPDATE teams 
+          SET leader_id = ?
+          WHERE id = ?
+        `;
+        await connection.execute(updateTeamQuery, [memberUserId, teamId]);
+
+        // Set current leader to member
+        const updateOldLeaderQuery = `
+          UPDATE team_members 
+          SET team_role = 'member'
+          WHERE team_id = ? AND team_role = 'leader' AND is_active = 1
+        `;
+        await connection.execute(updateOldLeaderQuery, [teamId]);
+      }
+
+      // Update member role
+      const query = `
+        UPDATE team_members 
+        SET team_role = ?
+        WHERE id = ?
+      `;
+      await connection.execute(query, [role, memberId]);
+
+      res.json({ 
+        success: true, 
+        message: 'Team member updated successfully'
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('Update team member error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update team member' 
+    });
+  }
+});
+
+// Remove team member
+app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, res) => {
+  try {
+    const { teamId, memberId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const connection = await pool.getConnection();
+    try {
+      // Check if user is the team leader or an admin
+      const teamQuery = `SELECT leader_id FROM teams WHERE id = ? AND is_active = 1`;
+      const [teamRows] = await connection.execute(teamQuery, [teamId]);
+
+      if (teamRows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Team not found' 
+        });
+      }
+
+      const team = teamRows[0];
+      const isAdmin = userRole === 'admin' || userRole === 'super_admin' || userRole === 'root';
+      const isTeamLeader = team.leader_id === userId;
+
+      if (!isTeamLeader && !isAdmin) {
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Access denied. Only team leaders and administrators can remove team members.' 
+        });
+      }
+
+      // Check if member exists and is active
+      const memberQuery = `
+        SELECT user_id FROM team_members 
+        WHERE id = ? AND team_id = ? AND is_active = 1
+      `;
+      const [memberRows] = await connection.execute(memberQuery, [memberId, teamId]);
+
+      if (memberRows.length === 0) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Team member not found' 
+        });
+      }
+
+      const memberUserId = memberRows[0].user_id;
+
+      // Prevent removing the team leader
+      if (memberUserId === team.leader_id) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Cannot remove team leader. Transfer leadership first or delete the team.' 
+        });
+      }
+
+      // Soft delete the member
+      const query = `
+        UPDATE team_members 
+        SET is_active = 0, left_at = ?
+        WHERE id = ?
+      `;
+      await connection.execute(query, [new Date().toISOString(), memberId]);
+
+      // Update team member count
+      const countQuery = `
+        SELECT COUNT(*) as count FROM team_members 
+        WHERE team_id = ? AND is_active = 1
+      `;
+      const [countRows] = await connection.execute(countQuery, [teamId]);
+      const memberCount = countRows[0].count;
+
+      const updateQuery = `
+        UPDATE teams 
+        SET member_count = ?, updated_at = ?
+        WHERE id = ?
+      `;
+      await connection.execute(updateQuery, [memberCount, new Date().toISOString(), teamId]);
+
+      res.json({ 
+        success: true, 
+        message: 'Team member removed successfully'
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('Remove team member error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to remove team member' 
+    });
+  }
+});
+
+export default app;

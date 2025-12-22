@@ -123,14 +123,10 @@ export default function Teams() {
 
   const loadTeamStats = async () => {
     try {
-      // For now, we'll use the mysqlTeamService directly since we don't have API endpoints for stats yet
-      // In a full implementation, these would be API calls
-      const { mysqlTeamService } = await import('../services/mysqlTeamService');
-      
       const statsData: { [teamId: string]: TeamStats } = {}
 
       for (const team of teams) {
-        const stats = await mysqlTeamService.getTeamStats(team.id)
+        const stats = await teamApiService.getTeamStats(team.id)
         statsData[team.id] = stats
       }
 
@@ -147,16 +143,12 @@ export default function Teams() {
     setChartLoading(true)
     try {
       const { startDate, endDate } = getDateRange()
-      // For now, we'll use the mysqlTeamService directly since we don't have API endpoints for stats yet
-      // In a full implementation, these would be API calls
-      const { mysqlTeamService } = await import('../services/mysqlTeamService');
       
       const statsData: { [teamId: string]: TeamStats } = {}
 
       for (const team of teams) {
-        // Note: The mysqlTeamService.getTeamStats doesn't currently support date ranges
-        // This would need to be implemented in a full migration
-        const stats = await mysqlTeamService.getTeamStats(team.id)
+        // Note: backend stats currently ignore date ranges
+        const stats = await teamApiService.getTeamStats(team.id)
         statsData[team.id] = stats
       }
 

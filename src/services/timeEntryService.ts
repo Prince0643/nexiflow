@@ -1,6 +1,7 @@
 import { ref, set, get, push, remove, update, query, orderByChild, equalTo, onValue, off, limitToLast, Query as FirebaseQuery } from 'firebase/database'
 import { database } from '../config/firebase'
 import { TimeEntry, CreateTimeEntryData, TimeSummary } from '../types'
+import { timeEntryApiService } from './timeEntryApiService'
 
 export const timeEntryService = {
   // Create a new time entry
@@ -68,7 +69,7 @@ export const timeEntryService = {
   // Get all time entries for a user
   async getTimeEntries(userId: string): Promise<TimeEntry[]> {
     if (!database) {
-      return []
+      return timeEntryApiService.getTimeEntries(userId)
     }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
@@ -117,7 +118,7 @@ export const timeEntryService = {
   // Get time entries for a specific date range
   async getTimeEntriesByDateRange(userId: string, startDate: Date, endDate: Date): Promise<TimeEntry[]> {
     if (!database) {
-      return []
+      return timeEntryApiService.getTimeEntriesByDateRange(userId, startDate, endDate)
     }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(
@@ -155,7 +156,7 @@ export const timeEntryService = {
   // Get currently running time entry
   async getRunningTimeEntry(userId: string): Promise<TimeEntry | null> {
     if (!database) {
-      return null
+      return timeEntryApiService.getRunningTimeEntry(userId)
     }
     const entriesRef = ref(database, 'timeEntries')
     const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
@@ -301,11 +302,7 @@ export const timeEntryService = {
   // Get time summary for dashboard
   async getTimeSummary(userId: string): Promise<TimeSummary> {
     if (!database) {
-      return {
-        today: { total: 0, billable: 0, entries: 0 },
-        thisWeek: { total: 0, billable: 0, entries: 0 },
-        thisMonth: { total: 0, billable: 0, entries: 0 }
-      }
+      return timeEntryApiService.getTimeSummary(userId)
     }
     const now = new Date()
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())

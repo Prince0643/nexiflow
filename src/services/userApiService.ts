@@ -38,6 +38,11 @@ const apiRequest = async <T>(
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
+
+      // Allow callers to handle missing endpoints (migration period)
+      if (response.status === 404) {
+        throw new Error('API endpoint not found')
+      }
       
       // If the error is due to an invalid or expired token, redirect to login
       if (response.status === 401 || response.status === 403) {
@@ -95,18 +100,31 @@ export const userApiService = {
   // Get users for company (admin only)
   async getUsersForCompany(companyId: string | null): Promise<User[]> {
     if (!companyId) return []
-    
-    const response = await apiRequest<{
-      success: boolean
-      data: User[]
-      count: number
-    }>(`/admin/users/company/${companyId}`)
-    
-    if (!response.success) {
-      throw new Error('Failed to get users for company')
+
+    // Backend does not currently expose /admin/users/company/:companyId.
+    // Also, legacy Firebase-style company IDs (starting with '-') are not valid in MySQL routes.
+    if (companyId.startsWith('-')) {
+      return this.getAllUsers()
     }
-    
-    return response.data
+
+    try {
+      const response = await apiRequest<{
+        success: boolean
+        data: User[]
+        count: number
+      }>(`/admin/users/company/${companyId}`)
+
+      if (!response.success) {
+        throw new Error('Failed to get users for company')
+      }
+
+      return response.data
+    } catch (e: any) {
+      if (String(e?.message || e).includes('API endpoint not found')) {
+        return this.getAllUsers()
+      }
+      throw e
+    }
   },
 
   // Get user by ID
@@ -122,6 +140,24 @@ export const userApiService = {
     }
     
     return response.user
+  },
+
+  // Update user profile
+  async updateUserProfile(
+    userId: string,
+    updates: Partial<Pick<User, 'name' | 'timezone' | 'avatar' | 'hourlyRate'>>
+  ): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message: string
+    }>(`/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+
+    if (!response.success) {
+      throw new Error(response.message || 'Failed to update user')
+    }
   }
 }
 
