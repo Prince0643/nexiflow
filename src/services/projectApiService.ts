@@ -1,4 +1,4 @@
-import { Project, Client } from '../types'
+import { Project, Client, CreateProjectData } from '../types'
 
 // API Configuration
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
@@ -71,12 +71,13 @@ const apiRequest = async <T>(
 // Project API Service
 export const projectApiService = {
   // Get projects for company
-  async getProjectsForCompany(companyId: string | null): Promise<Project[]> {
+  async getProjectsForCompany(companyId: string | null, includeArchived: boolean = false): Promise<Project[]> {
     if (!companyId) return []
 
     // During Firebase -> MySQL migration, some users/companies may still have Firebase-style IDs.
     // Backend company-scoped routes reject those. Fall back to non-param endpoints.
-    const endpoint = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
+    const endpointBase = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
+    const endpoint = includeArchived ? `${endpointBase}?archived=1` : endpointBase
 
     const response = await apiRequest<{
       success: boolean
@@ -92,18 +93,89 @@ export const projectApiService = {
   },
 
   // Get all projects (fallback for when no company ID)
-  async getProjects(): Promise<Project[]> {
+  async getProjects(includeArchived: boolean = false): Promise<Project[]> {
+    const endpoint = includeArchived ? '/projects?archived=1' : '/projects'
     const response = await apiRequest<{
       success: boolean
       data: Project[]
       count: number
-    }>('/projects')
+    }>(endpoint)
     
     if (!response.success) {
       throw new Error('Failed to get projects')
     }
     
     return response.data
+  },
+
+  async createProject(projectData: CreateProjectData): Promise<Project> {
+    const response = await apiRequest<{
+      success: boolean
+      data: Project
+      message?: string
+    }>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(projectData)
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to create project')
+    }
+
+    return response.data
+  },
+
+  async updateProject(projectId: string, projectData: CreateProjectData): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/projects/${projectId}`, {
+      method: 'PUT',
+      body: JSON.stringify(projectData)
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to update project')
+    }
+  },
+
+  async deleteProject(projectId: string): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/projects/${projectId}`, {
+      method: 'DELETE'
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to delete project')
+    }
+  },
+
+  async archiveProject(projectId: string): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/projects/${projectId}/archive`, {
+      method: 'PUT'
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to archive project')
+    }
+  },
+
+  async unarchiveProject(projectId: string): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/projects/${projectId}/unarchive`, {
+      method: 'PUT'
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to unarchive project')
+    }
   },
 
   // Get clients for company
