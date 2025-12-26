@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 import { Project, Client } from '../types'
 import { projectApiService } from '../services/projectApiService'
-import { projectService } from '../services/projectService'
 import ProjectModal from '../components/projects/ProjectModal'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { canAccessFeature } from '../utils/permissions'
@@ -63,16 +62,10 @@ export default function Projects() {
           ? projectApiService.getClientsForCompany(currentUser.companyId)
           : projectApiService.getClients()
       ])
-      
-      if (showArchived) {
-        projectsData = currentUser?.companyId 
-          ? await projectApiService.getProjectsForCompany(currentUser.companyId)
-          : await projectApiService.getProjects()
-      } else {
-        projectsData = currentUser?.companyId 
-          ? await projectApiService.getProjectsForCompany(currentUser.companyId)
-          : await projectApiService.getProjects()
-      }
+
+      projectsData = currentUser?.companyId 
+        ? await projectApiService.getProjectsForCompany(currentUser.companyId, showArchived)
+        : await projectApiService.getProjects(showArchived)
       
       setProjects(projectsData)
       setClients(clientsData)
@@ -104,7 +97,7 @@ export default function Projects() {
   const handleDeleteProject = async (project: Project) => {
     if (window.confirm(`Are you sure you want to delete "${project.name}"?`)) {
       try {
-        await projectService.deleteProject(project.id)
+        await projectApiService.deleteProject(project.id)
         loadData()
       } catch (error) {
         setError('Failed to delete project')
@@ -115,7 +108,7 @@ export default function Projects() {
 
   const handleArchiveProject = async (project: Project) => {
     try {
-      await projectService.archiveProject(project.id)
+      await projectApiService.archiveProject(project.id)
       loadData()
     } catch (error) {
       setError('Failed to archive project')
@@ -125,7 +118,7 @@ export default function Projects() {
 
   const handleUnarchiveProject = async (project: Project) => {
     try {
-      await projectService.unarchiveProject(project.id)
+      await projectApiService.unarchiveProject(project.id)
       loadData()
     } catch (error) {
       setError('Failed to unarchive project')

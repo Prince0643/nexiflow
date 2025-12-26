@@ -273,6 +273,174 @@ app.get('/api/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
+app.put('/api/projects/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error, value } = projectSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM projects WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      // Get client name if client exists
+      let clientName = null;
+      if (value.clientId) {
+        const [clientRows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [value.clientId]);
+        if (clientRows.length > 0) {
+          clientName = clientRows[0].name;
+        }
+      }
+
+      const query = `
+        UPDATE projects
+        SET name = ?, description = ?, color = ?, status = ?, priority = ?,
+            start_date = ?, end_date = ?, budget = ?, client_id = ?, client_name = ?, updated_at = ?
+        WHERE id = ?
+      `;
+
+      await connection.execute(query, [
+        value.name,
+        value.description || null,
+        value.color,
+        value.status,
+        value.priority,
+        value.startDate || null,
+        value.endDate || null,
+        value.budget || null,
+        value.clientId || null,
+        clientName,
+        new Date(),
+        id
+      ]);
+
+      res.json({
+        success: true,
+        message: 'Project updated successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating project:', error);
+    res.status(500).json({ error: 'Failed to update project' });
+  }
+});
+
+app.delete('/api/projects/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM projects WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await connection.execute('DELETE FROM projects WHERE id = ?', [id]);
+
+      res.json({
+        success: true,
+        message: 'Project deleted successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error deleting project:', error);
+    res.status(500).json({ error: 'Failed to delete project' });
+  }
+});
+
+app.put('/api/projects/:id/archive', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM projects WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await connection.execute(
+        'UPDATE projects SET is_archived = 1, updated_at = ? WHERE id = ?',
+        [new Date(), id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Project archived successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error archiving project:', error);
+    res.status(500).json({ error: 'Failed to archive project' });
+  }
+});
+
+app.put('/api/projects/:id/unarchive', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM projects WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await connection.execute(
+        'UPDATE projects SET is_archived = 0, updated_at = ? WHERE id = ?',
+        [new Date(), id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Project unarchived successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error unarchiving project:', error);
+    res.status(500).json({ error: 'Failed to unarchive project' });
+  }
+});
+
 app.put('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1682,14 +1850,33 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 });
 
 // Projects API
+const mapProjectRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  description: row.description,
+  color: row.color,
+  status: row.status,
+  priority: row.priority,
+  startDate: row.start_date,
+  endDate: row.end_date,
+  budget: row.budget,
+  clientId: row.client_id,
+  clientName: row.client_name,
+  isArchived: row.is_archived === 1,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
 app.get('/api/projects', authenticateToken, async (req, res) => {
   try {
     const companyId = req.user.companyId;
+    const includeArchived = req.query.archived === '1' || req.query.archived === 'true';
     
     const connection = await pool.getConnection();
     try {
-      let query = 'SELECT * FROM projects WHERE is_archived = 0';
-      let params = [];
+      let query = 'SELECT * FROM projects WHERE is_archived = ?';
+      const params = [includeArchived ? 1 : 0];
       
       // For non-root users, filter by company
       if (req.user.role !== 'root' && companyId) {
@@ -1700,24 +1887,7 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
       query += ' ORDER BY created_at DESC';
       
       const [rows] = await connection.execute(query, params);
-      
-      const projects = rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        color: row.color,
-        status: row.status,
-        priority: row.priority,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        budget: row.budget,
-        clientId: row.client_id,
-        clientName: row.client_name,
-        isArchived: row.is_archived === 1,
-        createdBy: row.created_by,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      }));
+      const projects = rows.map(mapProjectRow);
       
       res.json({
         success: true,
@@ -2031,21 +2201,7 @@ app.post('/api/projects', authenticateToken, async (req, res) => {
       );
       
       const project = {
-        id: rows[0].id,
-        name: rows[0].name,
-        description: rows[0].description,
-        color: rows[0].color,
-        status: rows[0].status,
-        priority: rows[0].priority,
-        startDate: rows[0].start_date,
-        endDate: rows[0].end_date,
-        budget: rows[0].budget,
-        clientId: rows[0].client_id,
-        clientName: rows[0].client_name,
-        isArchived: rows[0].is_archived === 1,
-        createdBy: rows[0].created_by,
-        createdAt: rows[0].created_at,
-        updatedAt: rows[0].updated_at
+        ...mapProjectRow(rows[0])
       };
       
       res.status(201).json({
@@ -2066,6 +2222,7 @@ app.post('/api/projects', authenticateToken, async (req, res) => {
 app.get('/api/projects/company/:companyId', authenticateToken, async (req, res) => {
   try {
     const { companyId } = req.params;
+    const includeArchived = req.query.archived === '1' || req.query.archived === 'true';
     
     // Check if user has access to this company
     // Handle case where companyId might be a Firebase ID (not a valid MySQL ID)
@@ -2081,28 +2238,12 @@ app.get('/api/projects/company/:companyId', authenticateToken, async (req, res) 
     try {
       const query = `
         SELECT * FROM projects 
-        WHERE company_id = ? AND is_archived = 0
+        WHERE company_id = ? AND is_archived = ?
         ORDER BY created_at DESC
       `;
       
-      const [rows] = await connection.execute(query, [companyId]);
-      const projects = rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        color: row.color,
-        status: row.status,
-        priority: row.priority,
-        startDate: row.start_date ? new Date(row.start_date) : undefined,
-        endDate: row.end_date ? new Date(row.end_date) : undefined,
-        budget: row.budget,
-        clientId: row.client_id,
-        clientName: row.client_name,
-        isArchived: row.is_archived === 1,
-        createdBy: row.created_by,
-        createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at)
-      }));
+      const [rows] = await connection.execute(query, [companyId, includeArchived ? 1 : 0]);
+      const projects = rows.map(mapProjectRow);
       
       res.json({
         success: true,
@@ -2118,54 +2259,6 @@ app.get('/api/projects/company/:companyId', authenticateToken, async (req, res) 
   }
 });
 
-// Get clients for company
-app.get('/api/clients/company/:companyId', authenticateToken, async (req, res) => {
-  try {
-    const { companyId } = req.params;
-    
-    // Check if user has access to this company
-    // Handle case where companyId might be a Firebase ID (not a valid MySQL ID)
-    if (!companyId || companyId.startsWith('-')) {
-      return res.status(400).json({ error: 'Invalid company ID format' });
-    }
-    
-    if (req.user.role !== 'root' && req.user.companyId !== companyId) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-    
-    const connection = await pool.getConnection();
-    try {
-      const query = `
-        SELECT * FROM clients 
-        WHERE company_id = ?
-        ORDER BY created_at DESC
-      `;
-      
-      const [rows] = await connection.execute(query, [companyId]);
-      const clients = rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        email: row.email,
-        phone: row.phone,
-        address: row.address,
-        companyId: row.company_id,
-        createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at)
-      }));
-      
-      res.json({
-        success: true,
-        data: clients,
-        count: clients.length
-      });
-    } finally {
-      connection.release();
-    }
-  } catch (error) {
-    console.error('Error fetching clients for company:', error);
-    res.status(500).json({ error: 'Failed to fetch clients for company' });
-  }
-});
 
 // Time Summary API
 app.get('/api/time-summary', authenticateToken, async (req, res) => {

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X, AlertCircle } from 'lucide-react'
 import { Project, Client, CreateProjectData } from '../../types'
-import { projectService } from '../../services/projectService'
 import { projectApiService } from '../../services/projectApiService'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -103,9 +102,9 @@ export default function ProjectModal({ isOpen, onClose, project, onSuccess }: Pr
 
     try {
       if (isEdit) {
-        await projectService.updateProject(project.id, formData)
+        await projectApiService.updateProject(project!.id, formData)
       } else {
-        await projectService.createProject(formData, currentUser.uid, currentUser.companyId)
+        await projectApiService.createProject(formData)
       }
       onSuccess()
       onClose()
@@ -118,10 +117,19 @@ export default function ProjectModal({ isOpen, onClose, project, onSuccess }: Pr
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'number' ? (value ? Number(value) : undefined) : value
-    }))
+    setFormData(prev => {
+      // Normalize empty client selection to undefined to satisfy backend validation
+      if (name === 'clientId') {
+        return {
+          ...prev,
+          clientId: value ? value : undefined
+        }
+      }
+      return {
+        ...prev,
+        [name]: type === 'number' ? (value ? Number(value) : undefined) : value
+      }
+    })
   }
 
 
