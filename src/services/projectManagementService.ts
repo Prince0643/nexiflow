@@ -351,7 +351,7 @@ class ProjectManagementService {
     
     const totalTasks = tasks.length
     const completedTasks = tasks.filter(task => task.isCompleted).length
-    const inProgressTasks = tasks.filter(task => !task.isCompleted && task.status.name === 'In Progress').length
+    const inProgressTasks = tasks.filter(task => !task.isCompleted && (typeof task.status === 'string' ? task.status : task.status.name) === 'In Progress').length
     const overdueTasks = tasks.filter(task => 
       task.dueDate && 
       !task.isCompleted && 
@@ -429,8 +429,14 @@ class ProjectManagementService {
 
     return tasks.filter(task => {
       if (filters.projectId && task.projectId !== filters.projectId) return false
-      if (filters.status && filters.status.length > 0 && !filters.status.includes(task.status.id)) return false
-      if (filters.priority && filters.priority.length > 0 && !filters.priority.includes(task.priority.id)) return false
+      if (filters.status && filters.status.length > 0) {
+        const statusId = typeof task.status === 'string' ? task.status : task.status.id
+        if (!filters.status.includes(statusId)) return false
+      }
+      if (filters.priority && filters.priority.length > 0) {
+        const priorityId = typeof task.priority === 'string' ? task.priority : task.priority.id
+        if (!filters.priority.includes(priorityId)) return false
+      }
       if (filters.assigneeId && task.assigneeId !== filters.assigneeId) return false
       if (filters.tags && filters.tags.length > 0 && !filters.tags.some(tag => task.tags.includes(tag))) return false
       if (filters.dueDateFrom && task.dueDate && task.dueDate < filters.dueDateFrom) return false

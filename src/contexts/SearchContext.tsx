@@ -102,11 +102,12 @@ export function SearchProvider({ children }: SearchProviderProps) {
           task.projectName.toLowerCase().includes(query.toLowerCase())
         )
         .forEach(task => {
+          const taskStatusName = typeof task.status === 'string' ? task.status : task.status.name
           results.push({
             type: 'task',
             id: task.id,
             title: task.title,
-            description: `Project: ${task.projectName} • Status: ${task.status.name}`,
+            description: `Project: ${task.projectName} • Status: ${taskStatusName}`,
             url: `/management`,
             metadata: { status: task.status, priority: task.priority }
           })
