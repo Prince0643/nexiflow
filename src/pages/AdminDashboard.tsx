@@ -120,6 +120,18 @@ export default function AdminDashboard() {
     }
   }
 
+  const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
+    const seen = new Set<string>()
+    const result: T[] = []
+    for (const item of items) {
+      if (!item?.id) continue
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      result.push(item)
+    }
+    return result
+  }
+
   const loadData = async () => {
     try {
       setLoading(true)
@@ -182,12 +194,17 @@ export default function AdminDashboard() {
         teams: scopedTeams.length
       })
       
-      setUsers(usersData)
+      const uniqueUsers = dedupeById<UserType>(usersData)
+      const uniqueProjects = dedupeById<Project>(scopedProjects)
+      const uniqueClients = dedupeById<Client>(scopedClients)
+      const uniqueTeams = dedupeById<Team>(scopedTeams)
+
+      setUsers(uniqueUsers)
       setTimeEntries(validTimeEntries)
       setRunningTimeEntries(scopedRunningTimeEntries)
-      setProjects(scopedProjects)
-      setClients(scopedClients)
-      setTeams(scopedTeams)
+      setProjects(uniqueProjects)
+      setClients(uniqueClients)
+      setTeams(uniqueTeams)
     } catch (error) {
       console.error('Error loading admin data:', error)
       // Set empty arrays as fallback
@@ -723,25 +740,25 @@ export default function AdminDashboard() {
       {activeTab === 'users' && (
         <div className="space-y-6">
           {/* Search and Filters */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-            <div className="flex-1">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="flex-1 min-w-0">
               <div className="relative rounded-md shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                   <Search className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
                   type="text"
-                  className="focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
                   placeholder="Search users..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
             </div>
-            <div className="flex space-x-3">
+            <div className="sm:flex-none">
               <button
                 onClick={() => setIsCreateModalOpen(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800"
+                className="h-10 w-full sm:w-auto inline-flex items-center justify-center px-4 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add User
@@ -755,19 +772,19 @@ export default function AdminDashboard() {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       User
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Role
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Team
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Status
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -776,14 +793,14 @@ export default function AdminDashboard() {
                   {filteredUsers.map((user) => {
                     const team = teams.find(t => t.id === user.teamId)
                     return (
-                      <tr key={user.id}>
+                      <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div className="flex-shrink-0 h-10 w-10">
                               {user.avatar ? (
                                 <img className="h-10 w-10 rounded-full" src={user.avatar} alt="" />
                               ) : (
-                                <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
+                                <div className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
                                   <UserIcon className="h-6 w-6 text-gray-500" />
                                 </div>
                               )}
@@ -806,30 +823,32 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button
-                            onClick={() => {
-                              setSelectedUserForDetails(user)
-                              setIsUserDetailsModalOpen(true)
-                            }}
-                            className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300 mr-3"
-                          >
-                            <Eye className="h-5 w-5" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingUser(user)
-                              setIsEditModalOpen(true)
-                            }}
-                            className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-3"
-                          >
-                            <Edit className="h-5 w-5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(user.id)}
-                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedUserForDetails(user)
+                                setIsUserDetailsModalOpen(true)
+                              }}
+                              className="p-1.5 rounded text-primary-600 hover:text-primary-900 hover:bg-primary-50 dark:text-primary-400 dark:hover:text-primary-300 dark:hover:bg-gray-700"
+                            >
+                              <Eye className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingUser(user)
+                                setIsEditModalOpen(true)
+                              }}
+                              className="p-1.5 rounded text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:text-indigo-300 dark:hover:bg-gray-700"
+                            >
+                              <Edit className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="p-1.5 rounded text-red-600 hover:text-red-900 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -845,15 +864,15 @@ export default function AdminDashboard() {
       {activeTab === 'time-entries' && (
         <div className="space-y-6">
           {/* Filters */}
-          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-4 sm:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
                 <label htmlFor="user-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   User
                 </label>
                 <select
                   id="user-filter"
-                  className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   value={selectedUser || ''}
                   onChange={(e) => setSelectedUser(e.target.value || null)}
                 >
@@ -872,7 +891,7 @@ export default function AdminDashboard() {
                 </label>
                 <select
                   id="client-filter"
-                  className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   value={selectedClient || ''}
                   onChange={(e) => setSelectedClient(e.target.value || null)}
                 >
@@ -891,7 +910,7 @@ export default function AdminDashboard() {
                 </label>
                 <select
                   id="project-filter"
-                  className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   value={selectedProject || ''}
                   onChange={(e) => setSelectedProject(e.target.value || null)}
                 >
@@ -910,7 +929,7 @@ export default function AdminDashboard() {
                 </label>
                 <select
                   id="team-filter"
-                  className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   value={selectedTeam || ''}
                   onChange={(e) => setSelectedTeam(e.target.value || null)}
                 >
@@ -929,7 +948,7 @@ export default function AdminDashboard() {
                 </label>
                 <select
                   id="date-filter"
-                  className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                   value={dateFilter}
                   onChange={(e) => setDateFilter(e.target.value as any)}
                 >
@@ -949,7 +968,7 @@ export default function AdminDashboard() {
                     <input
                       type="date"
                       id="start-date"
-                      className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                       value={customStartDate}
                       onChange={(e) => setCustomStartDate(e.target.value)}
                     />
@@ -961,7 +980,7 @@ export default function AdminDashboard() {
                     <input
                       type="date"
                       id="end-date"
-                      className="focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                       value={customEndDate}
                       onChange={(e) => setCustomEndDate(e.target.value)}
                     />
@@ -970,25 +989,25 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            <div className="mt-4 flex">
-              <div className="flex-1">
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-end gap-3">
+              <div className="flex-1 min-w-0">
                 <div className="relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Search className="h-5 w-5 text-gray-400" />
                   </div>
                   <input
                     type="text"
-                    className="focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
+                    className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
                     placeholder="Search time entries..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
               </div>
-              <div className="ml-3">
+              <div className="sm:flex-none">
                 <button
                   onClick={loadData}
-                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600 dark:focus:ring-offset-gray-800"
+                  className="h-10 w-full sm:w-auto inline-flex items-center justify-center px-4 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600 dark:focus:ring-offset-gray-800"
                 >
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
@@ -1003,28 +1022,28 @@ export default function AdminDashboard() {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       User
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Date
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Client
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Project
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Description
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Duration
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Billable
                     </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th scope="col" className="px-6 py-3 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -1033,7 +1052,7 @@ export default function AdminDashboard() {
                   {filteredTimeEntries.map((entry) => {
                     const user = getUserById(entry.userId)
                     return (
-                      <tr key={entry.id}>
+                      <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                           {user?.name || 'Unknown User'}
                         </td>
@@ -1046,8 +1065,10 @@ export default function AdminDashboard() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                           {getProjectName(entry.projectId)}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
-                          {entry.description || 'No description'}
+                        <td className="px-6 py-4 text-sm text-gray-900 dark:text-white max-w-[28rem]">
+                          <div className="truncate" title={entry.description || 'No description'}>
+                            {entry.description || 'No description'}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                           {formatDurationToHHMMSS(entry.duration)}
@@ -1060,21 +1081,23 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button
-                            onClick={() => {
-                              setEditingTimeEntry(entry)
-                              setIsTimeEntryEditModalOpen(true)
-                            }}
-                            className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-3"
-                          >
-                            <Edit className="h-5 w-5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTimeEntry(entry.id)}
-                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setEditingTimeEntry(entry)
+                                setIsTimeEntryEditModalOpen(true)
+                              }}
+                              className="p-1.5 rounded text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:text-indigo-300 dark:hover:bg-gray-700"
+                            >
+                              <Edit className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTimeEntry(entry.id)}
+                              className="p-1.5 rounded text-red-600 hover:text-red-900 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )

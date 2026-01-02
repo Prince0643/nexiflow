@@ -40,11 +40,18 @@ export default function TimeTrackerPage() {
       setTimeSummary(summary)
       // Filter out entries without valid IDs
       const validEntries = entries.filter(entry => entry.id)
-      setAllEntries(validEntries)
+      const uniqueEntries: TimeEntry[] = []
+      const seen = new Set<string>()
+      for (const entry of validEntries) {
+        if (seen.has(entry.id)) continue
+        seen.add(entry.id)
+        uniqueEntries.push(entry)
+      }
+      setAllEntries(uniqueEntries)
       // Show first page of entries
       const indexOfLastEntry = currentPage * entriesPerPage
       const indexOfFirstEntry = indexOfLastEntry - entriesPerPage
-      setRecentEntries(validEntries.slice(indexOfFirstEntry, indexOfLastEntry))
+      setRecentEntries(uniqueEntries.slice(indexOfFirstEntry, indexOfLastEntry))
     } catch (error) {
       console.error('Error loading time data:', error)
     } finally {

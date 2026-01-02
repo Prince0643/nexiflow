@@ -52,6 +52,18 @@ export default function TaskModal({
   const [tagInput, setTagInput] = useState('')
   const [assigneeType, setAssigneeType] = useState<'user' | 'team'>('user')
 
+  const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
+    const seen = new Set<string>()
+    const result: T[] = []
+    for (const item of items) {
+      if (!item?.id) continue
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      result.push(item)
+    }
+    return result
+  }
+
   useEffect(() => {
     if (isOpen) {
       loadData()
@@ -178,11 +190,16 @@ export default function TaskModal({
         userHasCompanyId: !!currentUser?.companyId,
         userRole: currentUser?.role
       })
+
+      const uniqueProjects = dedupeById<Project>(projectsData)
+      const uniqueUsers = dedupeById<User>(usersData)
+      const uniqueTeams = dedupeById<Team>(teamsData)
+      const uniqueUserTeams = dedupeById<Team>(userTeamsData)
       
-      setProjects(projectsData)
-      setUsers(usersData)
-      setTeams(teamsData)
-      setUserTeams(userTeamsData)
+      setProjects(uniqueProjects)
+      setUsers(uniqueUsers)
+      setTeams(uniqueTeams)
+      setUserTeams(uniqueUserTeams)
     } catch (error) {
       console.error('Error loading data:', error)
     }

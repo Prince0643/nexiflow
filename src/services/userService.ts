@@ -8,6 +8,11 @@ export const userService = {
   // Get all users (for admin/team leader use) - with multi-tenant filtering
   async getAllUsers(): Promise<User[]> {
     try {
+      if (!database) {
+        const { userApiService } = await import('./userApiService')
+        return await userApiService.getAllUsers()
+      }
+
       const usersRef = ref(database, 'users')
       const snapshot = await get(usersRef)
       
@@ -37,6 +42,11 @@ export const userService = {
     if (!companyId) return []
     
     try {
+      if (!database) {
+        const { userApiService } = await import('./userApiService')
+        return await userApiService.getUsersForCompany(companyId)
+      }
+
       // Query users by companyId for better performance and proper permission handling
       const usersRef = ref(database, 'users')
       const q = query(usersRef, orderByChild('companyId'), equalTo(companyId))
@@ -80,6 +90,11 @@ export const userService = {
   // Get user by ID
   async getUserById(userId: string): Promise<User | null> {
     try {
+      if (!database) {
+        const { userApiService } = await import('./userApiService')
+        return await userApiService.getUserById(userId)
+      }
+
       const userRef = ref(database, `users/${userId}`)
       const snapshot = await get(userRef)
       

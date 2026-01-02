@@ -1,5 +1,6 @@
 import pool from '../config/db';
 import { Project, CreateProjectData, Client } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 
 export const mysqlProjectService = {
   // Get all projects for a company
@@ -75,15 +76,17 @@ export const mysqlProjectService = {
   async createProject(projectData: CreateProjectData & { companyId: string | null, createdBy: string, startDate?: Date, endDate?: Date, budget?: number }): Promise<Project> {
     const connection = await pool.getConnection();
     try {
+      const projectId = uuidv4();
       const query = `
         INSERT INTO projects (
-          name, description, color, status, priority, start_date, end_date, budget, 
+          id, name, description, color, status, priority, start_date, end_date, budget, 
           client_id, client_name, is_archived, created_by, company_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const now = new Date();
-      const result: any = await connection.execute(query, [
+      await connection.execute(query, [
+        projectId,
         projectData.name,
         projectData.description || null,
         projectData.color || '#3B82F6',
@@ -102,7 +105,7 @@ export const mysqlProjectService = {
       ]);
 
       const newProject: Project = {
-        id: result[0].insertId.toString(),
+        id: projectId,
         name: projectData.name,
         description: projectData.description,
         color: projectData.color || '#3B82F6',
@@ -247,16 +250,18 @@ export const mysqlProjectService = {
   async createClient(clientData: any & { companyId: string | null, createdBy: string }): Promise<Client> {
     const connection = await pool.getConnection();
     try {
+      const clientId = uuidv4();
       const query = `
         INSERT INTO clients (
-          name, email, country, timezone, client_type, hourly_rate, hours_per_week,
+          id, name, email, country, timezone, client_type, hourly_rate, hours_per_week,
           start_date, end_date, phone, company, address, currency, is_archived,
           created_by, company_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       const now = new Date();
-      const result: any = await connection.execute(query, [
+      await connection.execute(query, [
+        clientId,
         clientData.name,
         clientData.email || null,
         clientData.country || null,
@@ -278,7 +283,7 @@ export const mysqlProjectService = {
       ]);
 
       const newClient: Client = {
-        id: result[0].insertId.toString(),
+        id: clientId,
         name: clientData.name,
         email: clientData.email,
         country: clientData.country,

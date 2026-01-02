@@ -143,7 +143,8 @@ export default function TaskManagement() {
         tasksData = await taskService.getTasks(undefined, undefined, currentUser?.companyId)
       } else if (currentUser?.role === 'hr' && currentUser?.teamId) {
         // HR can see team tasks within their company
-        tasksData = await taskService.getTeamTasks(currentUser.teamId, undefined, currentUser?.companyId)
+        tasksData = await taskService.getTasks(undefined, undefined, currentUser?.companyId)
+        tasksData = tasksData.filter(t => t.teamId === currentUser.teamId)
       } else {
         // Regular users see only their own tasks
         tasksData = await taskService.getTasks(undefined, currentUser?.uid, currentUser?.companyId)
@@ -233,12 +234,7 @@ export default function TaskManagement() {
       } else {
         // Create new task with proper company scoping
         if (currentUser) {
-          await taskService.createTask(
-            taskData as CreateTaskData, 
-            currentUser.uid, 
-            currentUser.name || 'Unknown User',
-            currentUser.companyId
-          )
+          await taskService.createTask(taskData as CreateTaskData)
         }
       }
       
@@ -325,12 +321,18 @@ export default function TaskManagement() {
 
     // Status filter
     if (selectedStatus !== 'all') {
-      filtered = filtered.filter(task => task.status.id === selectedStatus)
+      filtered = filtered.filter(task => {
+        const statusId = typeof task.status === 'string' ? task.status : task.status.id
+        return statusId === selectedStatus
+      })
     }
 
     // Priority filter
     if (selectedPriority !== 'all') {
-      filtered = filtered.filter(task => task.priority.id === selectedPriority)
+      filtered = filtered.filter(task => {
+        const priorityId = typeof task.priority === 'string' ? task.priority : task.priority.id
+        return priorityId === selectedPriority
+      })
     }
 
     return filtered
@@ -480,7 +482,7 @@ export default function TaskManagement() {
                 {/* Completion Rate */}
                 <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-700">
                   <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {allTasks.length > 0 ? Math.round((allTasks.filter(task => task.status.name === 'Done').length / allTasks.length) * 100) : 0}%
+                    {allTasks.length > 0 ? Math.round((allTasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.name) === 'Done').length / allTasks.length) * 100) : 0}%
                   </div>
                   <div className="text-sm text-gray-600 dark:text-gray-400">Completion Rate</div>
                 </div>
@@ -492,8 +494,8 @@ export default function TaskManagement() {
               <h4 className="text-md font-medium text-blue-800 dark:text-blue-200 mb-2">Task Distribution by Status</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {statuses.map(status => {
-                  const count = allTasks.filter(task => task.status.id === status.id).length
-                  const filteredCount = tasks.filter(task => task.status.id === status.id).length
+                  const count = allTasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.id) === status.id).length
+                  const filteredCount = tasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.id) === status.id).length
                   return (
                     <div key={status.id} className="bg-white dark:bg-gray-800 p-2 rounded border dark:border-gray-700 text-center">
                       <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{filteredCount}</div>
@@ -512,8 +514,8 @@ export default function TaskManagement() {
               <h4 className="text-md font-medium text-blue-800 dark:text-blue-200 mb-2">Task Distribution by Priority</h4>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {priorities.map(priority => {
-                  const count = allTasks.filter(task => task.priority.id === priority.id).length
-                  const filteredCount = tasks.filter(task => task.priority.id === priority.id).length
+                  const count = allTasks.filter(task => (typeof task.priority === 'string' ? task.priority : task.priority.id) === priority.id).length
+                  const filteredCount = tasks.filter(task => (typeof task.priority === 'string' ? task.priority : task.priority.id) === priority.id).length
                   const priorityColors = {
                     'Low': 'text-gray-600 dark:text-gray-400',
                     'Medium': 'text-yellow-600 dark:text-yellow-400',
