@@ -1,137 +1,133 @@
 import { Link } from 'react-router-dom'
-import {
-  Clock,
-  Calendar,
-  FolderKanban,
-  Users,
-  BarChart3,
-  Settings as SettingsIcon,
-  Shield,
-  FileText
-} from 'lucide-react'
+import { BarChart3, Clock, FolderKanban, Plus, RefreshCw } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-
-type DashboardCard = {
-  title: string
-  description: string
-  to: string
-  icon: React.ComponentType<{ className?: string }>
-  show?: boolean
-}
 
 export default function Dashboard() {
   const { currentUser } = useMySQLAuth()
 
-  const role = currentUser?.role
-  const isAdminRole = role === 'admin' || role === 'super_admin' || role === 'hr'
-  const isRoot = role === 'root'
-
-  const cards: DashboardCard[] = [
-    {
-      title: 'Start Time Tracker',
-      description: 'Clock in and start tracking time now',
-      to: '/tracker',
-      icon: Clock,
-      show: !isRoot
-    },
-    {
-      title: 'Calendar',
-      description: 'View your time entries by day and week',
-      to: '/calendar',
-      icon: Calendar,
-      show: !isRoot
-    },
-    {
-      title: 'Projects',
-      description: 'Browse and manage projects',
-      to: '/projects',
-      icon: FolderKanban,
-      show: !isRoot
-    },
-    {
-      title: 'Teams',
-      description: 'See your team and members',
-      to: '/teams',
-      icon: Users,
-      show: !isRoot
-    },
-    {
-      title: 'Reports',
-      description: 'Analyze productivity and billing insights',
-      to: '/reports',
-      icon: BarChart3,
-      show: !isRoot
-    },
-    {
-      title: 'Settings',
-      description: 'Profile, notifications, and preferences',
-      to: '/settings',
-      icon: SettingsIcon,
-      show: true
-    },
-    {
-      title: 'Admin Dashboard',
-      description: 'User management and admin tools',
-      to: '/admin',
-      icon: Shield,
-      show: isAdminRole
-    },
-    {
-      title: 'Root Dashboard',
-      description: 'System-level management',
-      to: '/root',
-      icon: Shield,
-      show: isRoot
-    },
-    {
-      title: 'PDF Settings',
-      description: 'Customize invoice and PDF exports',
-      to: '/pdf-settings',
-      icon: FileText,
-      show: isAdminRole || isRoot
-    }
-  ]
-
-  const visibleCards = cards.filter(c => c.show !== false)
+  const displayName = currentUser?.name || currentUser?.email || 'User'
+  const roleLabel = currentUser?.role
+    ? currentUser.role
+        .split('_')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ')
+    : ''
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          {isRoot ? 'Root Home' : 'Dashboard'}
-        </h1>
-        <p className="mt-1 text-gray-600 dark:text-gray-400">
-          Choose where you want to go.
-        </p>
+    <div className="w-full space-y-6">
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+          <p className="mt-1 text-base text-gray-600 dark:text-gray-400">
+            Welcome back, {displayName}{roleLabel ? ` ${roleLabel}` : ''}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link
+            to="/tracker"
+            className="inline-flex items-center gap-2 rounded-md bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+          >
+            <Clock className="h-4 w-4" />
+            Start Timer
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {visibleCards.map((card) => {
-          const Icon = card.icon
-          return (
+      <div className="flex min-h-[320px] items-center rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/60 sm:p-8">
+        <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-600/10 dark:bg-primary-500/15">
+            <Clock className="h-7 w-7 text-primary-600 dark:text-primary-400" />
+          </div>
+
+          <h2 className="mt-4 text-3xl font-bold text-gray-900 dark:text-white">Welcome to NexiFlow</h2>
+          <p className="mt-2 max-w-xl text-base text-gray-600 dark:text-gray-300">
+            Your time tracking application is ready. The system has been rebuilt with a clean foundation.
+          </p>
+
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
             <Link
-              key={card.to}
-              to={card.to}
-              className="group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow"
+              to="/tracker"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start space-x-4">
-                  <div className="h-11 w-11 rounded-lg bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center">
-                    <Icon className="h-6 w-6 text-primary-600 dark:text-primary-400" />
-                  </div>
-                  <div>
-                    <div className="text-base font-semibold text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-400">
-                      {card.title}
-                    </div>
-                    <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                      {card.description}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <Clock className="h-4 w-4" />
+              Start Tracking
             </Link>
-          )
-        })}
+            <Link
+              to="/projects"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+            >
+              <FolderKanban className="h-4 w-4" />
+              Manage Projects
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Link
+          to="/tracker"
+          className="group flex min-h-[110px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-800/60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-600/10 dark:bg-primary-500/15">
+              <Clock className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-gray-900 dark:text-white">Start Timer</div>
+              <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                Begin tracking time for a new task
+              </div>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          to="/projects"
+          className="group flex min-h-[110px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-800/60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-600/10 dark:bg-green-500/15">
+              <Plus className="h-5 w-5 text-green-600 dark:text-green-400" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-gray-900 dark:text-white">New Project</div>
+              <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                Create a new project to organize work
+              </div>
+            </div>
+          </div>
+        </Link>
+
+        <Link
+          to="/reports"
+          className="group flex min-h-[110px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-800/60"
+        >
+          <div className="flex items-start gap-4">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-600/10 dark:bg-purple-500/15">
+              <BarChart3 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-gray-900 dark:text-white">View Reports</div>
+              <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                Analyze your time and productivity
+              </div>
+            </div>
+          </div>
+        </Link>
       </div>
     </div>
   )
