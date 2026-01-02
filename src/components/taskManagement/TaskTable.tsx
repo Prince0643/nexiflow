@@ -167,12 +167,20 @@ export default function TaskTable({
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-1/12">
-                    <span 
-                      className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full text-white truncate"
-                      style={{ backgroundColor: task.status.color }}
-                    >
-                      {task.status.name}
-                    </span>
+                    {(() => {
+                      const status = typeof task.status === 'string'
+                        ? statuses.find(s => s.id === task.status) || { id: task.status, name: task.status, color: '#6B7280', order: 0, isCompleted: false }
+                        : task.status
+
+                      return (
+                        <span 
+                          className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full text-white truncate"
+                          style={{ backgroundColor: status.color }}
+                        >
+                          {status.name}
+                        </span>
+                      )
+                    })()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-1/12">
                     <div className="flex items-center">
