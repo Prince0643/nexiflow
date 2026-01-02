@@ -60,7 +60,7 @@ export default function TaskViewModal({
   const commentsEndRef = useRef<HTMLDivElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const notesInputRef = useRef<HTMLTextAreaElement>(null)
-  const unsubscribeRef = useRef<(() => void) | null>(null)
+  const unsubscribeRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Use the mentions hook
   const {
@@ -339,8 +339,13 @@ export default function TaskViewModal({
   // Safety check for required task properties
   if (!task.priority || !task.status) return null
 
-  const priority = task.priority || { name: 'Unknown', color: '#6B7280' }
-  const status = task.status || { name: 'Unknown', color: '#6B7280' }
+  const priority = typeof task.priority === 'string'
+    ? priorities.find(p => p.id === task.priority) || { id: task.priority, name: task.priority, level: 1, color: '#6B7280' }
+    : task.priority
+
+  const status = typeof task.status === 'string'
+    ? statuses.find(s => s.id === task.status) || { id: task.status, name: task.status, order: 0, isCompleted: false, color: '#6B7280' }
+    : task.status
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -352,6 +357,7 @@ export default function TaskViewModal({
               className="w-3 h-3 rounded-full"
               style={{ backgroundColor: priority?.color || '#6B7280' }}
             />
+
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
               {task.title}
             </h2>
@@ -361,6 +367,7 @@ export default function TaskViewModal({
             >
               {status?.name || 'Unknown Status'}
             </span>
+
           </div>
           <div className="flex items-center space-x-2">
             <button

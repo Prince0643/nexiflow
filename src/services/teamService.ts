@@ -29,6 +29,10 @@ export const teamService = {
 
   // Teams
   async createTeam(teamData: CreateTeamData, createdBy: string, leaderName: string, leaderEmail: string, companyId?: string | null): Promise<string> {
+    if (!database) {
+      throw new Error('Firebase is disabled')
+    }
+
     const teamRef = push(ref(database, 'teams'))
     const newTeam: Team = {
       ...teamData,
@@ -59,6 +63,11 @@ export const teamService = {
   },
 
   async getTeams(): Promise<Team[]> {
+    if (!database) {
+      const { teamApiService } = await import('./teamApiService')
+      return await teamApiService.getAllTeams()
+    }
+
     const teamsRef = ref(database, 'teams')
     const snapshot = await get(teamsRef)
     
@@ -79,6 +88,11 @@ export const teamService = {
 
   // Get teams for specific company (multi-tenant safe)
   async getTeamsForCompany(companyId: string | null): Promise<Team[]> {
+    if (!database) {
+      const { teamApiService } = await import('./teamApiService')
+      return await teamApiService.getTeamsForCompany(companyId)
+    }
+
     const teamsRef = ref(database, 'teams')
     const snapshot = await get(teamsRef)
     
@@ -101,6 +115,10 @@ export const teamService = {
   },
 
   async getTeamById(teamId: string): Promise<Team | null> {
+    if (!database) {
+      return null
+    }
+
     const teamRef = ref(database, `teams/${teamId}`)
     const snapshot = await get(teamRef)
     
@@ -117,6 +135,10 @@ export const teamService = {
   },
 
   async updateTeam(teamId: string, updates: UpdateTeamData): Promise<void> {
+    if (!database) {
+      throw new Error('Firebase is disabled')
+    }
+
     const teamRef = ref(database, `teams/${teamId}`)
     await update(teamRef, {
       ...updates,
@@ -125,6 +147,10 @@ export const teamService = {
   },
 
   async deleteTeam(teamId: string): Promise<void> {
+    if (!database) {
+      throw new Error('Firebase is disabled')
+    }
+
     const teamRef = ref(database, `teams/${teamId}`)
     await update(teamRef, {
       isActive: false,
@@ -134,6 +160,10 @@ export const teamService = {
 
   // Team Members
   async addTeamMember(teamId: string, memberData: AddTeamMemberData, userName: string, userEmail: string): Promise<string> {
+    if (!database) {
+      throw new Error('Firebase is disabled')
+    }
+
     const memberRef = push(ref(database, 'teamMembers'))
     const newMember: TeamMemberData = {
       id: memberRef.key!,
@@ -165,6 +195,10 @@ export const teamService = {
     try {
       console.log('=== getTeamMembers called ===');
       console.log('teamId:', teamId);
+
+      if (!database) {
+        return []
+      }
       
       const membersRef = ref(database, 'teamMembers')
       const q = query(membersRef, orderByChild('teamId'), equalTo(teamId))
@@ -209,6 +243,10 @@ export const teamService = {
   },
 
   async getUserTeams(userId: string): Promise<Team[]> {
+    if (!database) {
+      return []
+    }
+
     const membersRef = ref(database, 'teamMembers')
     const q = query(membersRef, orderByChild('userId'), equalTo(userId))
     const snapshot = await get(q)
@@ -230,6 +268,10 @@ export const teamService = {
   },
 
   async removeTeamMember(teamId: string, userId: string): Promise<void> {
+    if (!database) {
+      throw new Error('Firebase is disabled')
+    }
+
     const membersRef = ref(database, 'teamMembers')
     const q = query(membersRef, orderByChild('teamId'), equalTo(teamId))
     const snapshot = await get(q)
@@ -259,6 +301,10 @@ export const teamService = {
   },
 
   async updateTeamMemberRole(teamId: string, userId: string, newRole: TeamRole): Promise<void> {
+    if (!database) {
+      throw new Error('Firebase is disabled')
+    }
+
     const membersRef = ref(database, 'teamMembers')
     const q = query(membersRef, orderByChild('teamId'), equalTo(teamId))
     const snapshot = await get(q)
@@ -292,6 +338,10 @@ export const teamService = {
   },
 
   async updateTeamMemberCount(teamId: string): Promise<void> {
+    if (!database) {
+      return
+    }
+
     const members = await this.getTeamMembers(teamId)
     const teamRef = ref(database, `teams/${teamId}`)
     await update(teamRef, {

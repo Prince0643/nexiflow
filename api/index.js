@@ -1750,17 +1750,28 @@ app.get('/api/teams/:teamId/stats', authenticateToken, async (req, res) => {
         [teamId]
       );
 
-      const [timeRows] = await connection.execute(
-        `SELECT
-           COALESCE(SUM(te.duration), 0) AS totalTimeLogged,
-           COALESCE(SUM(CASE WHEN te.is_billable = 1 THEN te.duration ELSE 0 END), 0) AS billableTimeLogged,
-           COUNT(te.id) AS totalTimeEntries
-         FROM task_time_entries tte
-         JOIN tasks t ON tte.task_id = t.id
-         JOIN time_entries te ON tte.time_entry_id = te.id
-         WHERE t.team_id = ?`,
-        [teamId]
-      );
+      // Time tracking is computed from the team's members.
+      // This ensures time is reflected even if entries aren't linked to tasks.
+      let timeQuery = `
+        SELECT
+          COALESCE(SUM(te.duration), 0) AS totalTimeLogged,
+          COALESCE(SUM(CASE WHEN te.is_billable = 1 THEN te.duration ELSE 0 END), 0) AS billableTimeLogged,
+          COUNT(te.id) AS totalTimeEntries
+        FROM time_entries te
+        WHERE te.user_id IN (
+          SELECT tm.user_id
+          FROM team_members tm
+          WHERE tm.team_id = ? AND tm.is_active = 1
+        )
+      `;
+
+      const timeParams = [teamId];
+      if (req.user.role !== 'root' && companyId) {
+        timeQuery += ' AND te.company_id = ?';
+        timeParams.push(companyId);
+      }
+
+      const [timeRows] = await connection.execute(timeQuery, timeParams);
 
       const totalMembers = Number(memberRows[0]?.totalMembers || 0);
       const activeMembers = Number(memberRows[0]?.activeMembers || 0);
@@ -2002,18 +2013,20 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
     const companyId = req.user.companyId;
     const now = new Date();
+    const clientId = uuidv4();
 
     const connection = await pool.getConnection();
     try {
       const query = `
         INSERT INTO clients (
-          name, email, country, timezone, client_type, hourly_rate, hours_per_week,
+          id, name, email, country, timezone, client_type, hourly_rate, hours_per_week,
           start_date, end_date, phone, company, address, currency, is_archived,
           created_by, company_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
-      const result = await connection.execute(query, [
+      await connection.execute(query, [
+        clientId,
         value.name,
         value.email || null,
         value.country || null,
@@ -2033,8 +2046,6 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
         now,
         now
       ]);
-
-      const clientId = result[0].insertId;
       const [rows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [clientId]);
       const row = rows[0];
 
@@ -2145,6 +2156,7 @@ app.post('/api/projects', authenticateToken, async (req, res) => {
     const userId = req.user.uid;
     const companyId = req.user.companyId;
     const now = new Date();
+    const projectId = uuidv4();
     
     // Get client name if client exists
     let clientName = null;
@@ -2169,12 +2181,13 @@ app.post('/api/projects', authenticateToken, async (req, res) => {
     try {
       const query = `
         INSERT INTO projects (
-          name, description, color, status, priority, start_date, end_date, budget, 
+          id, name, description, color, status, priority, start_date, end_date, budget, 
           client_id, client_name, is_archived, company_id, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
-      const result = await connection.execute(query, [
+      await connection.execute(query, [
+        projectId,
         value.name,
         value.description || null,
         value.color,
@@ -2191,8 +2204,6 @@ app.post('/api/projects', authenticateToken, async (req, res) => {
         now,
         now
       ]);
-      
-      const projectId = result[0].insertId;
       
       // Get the created project
       const [rows] = await connection.execute(

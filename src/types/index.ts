@@ -271,8 +271,8 @@ export interface Task {
   notes?: string
   projectId: string
   projectName: string
-  status: TaskStatus
-  priority: TaskPriority
+  status: TaskStatus | string
+  priority: TaskPriority | string
   assigneeId?: string
   assigneeName?: string
   assigneeEmail?: string

@@ -55,14 +55,26 @@ export default function TimeEntryEditModal({
     }
   }, [isOpen, timeEntry])
 
+  const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
+    const seen = new Set<string>()
+    const result: T[] = []
+    for (const item of items) {
+      if (!item?.id) continue
+      if (seen.has(item.id)) continue
+      seen.add(item.id)
+      result.push(item)
+    }
+    return result
+  }
+
   const loadData = async () => {
     try {
       const [projectsData, usersData] = await Promise.all([
         projectService.getProjects(),
         userService.getAllUsers()
       ])
-      setProjects(projectsData)
-      setUsers(usersData)
+      setProjects(dedupeById<Project>(projectsData))
+      setUsers(dedupeById<UserType>(usersData))
     } catch (error) {
       console.error('Error loading data:', error)
     }
