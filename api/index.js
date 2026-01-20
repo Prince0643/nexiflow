@@ -1879,31 +1879,60 @@ const mapProjectRow = (row) => ({
   updatedAt: row.updated_at
 });
 
+const parsePagination = (req) => {
+  const limitRaw = req.query.limit;
+  const offsetRaw = req.query.offset;
+
+  const limit = Math.max(1, Math.min(100, Number.parseInt(String(limitRaw ?? '20'), 10) || 20));
+  const offset = Math.max(0, Number.parseInt(String(offsetRaw ?? '0'), 10) || 0);
+
+  return { limit, offset };
+};
+
 app.get('/api/projects', authenticateToken, async (req, res) => {
   try {
     const companyId = req.user.companyId;
     const includeArchived = req.query.archived === '1' || req.query.archived === 'true';
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const { limit, offset } = parsePagination(req);
     
     const connection = await pool.getConnection();
     try {
-      let query = 'SELECT * FROM projects WHERE is_archived = ?';
+      let where = ' WHERE is_archived = ?';
       const params = [includeArchived ? 1 : 0];
       
       // For non-root users, filter by company
       if (req.user.role !== 'root' && companyId) {
-        query += ' AND company_id = ?';
+        where += ' AND company_id = ?';
         params.push(companyId);
       }
+
+      if (status && status !== 'all') {
+        where += ' AND status = ?';
+        params.push(status);
+      }
+
+      if (search) {
+        where += ' AND (name LIKE ? OR description LIKE ?)';
+        const like = `%${search}%`;
+        params.push(like, like);
+      }
+
+      const countQuery = `SELECT COUNT(*) as total FROM projects${where}`;
+      const [countRows] = await connection.execute(countQuery, params);
+      const total = Number(countRows?.[0]?.total || 0);
+
+      const query = `SELECT * FROM projects${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      const dataParams = [...params, limit, offset];
       
-      query += ' ORDER BY created_at DESC';
-      
-      const [rows] = await connection.execute(query, params);
+      const [rows] = await connection.execute(query, dataParams);
       const projects = rows.map(mapProjectRow);
       
       res.json({
         success: true,
         data: projects,
-        count: projects.length
+        count: total
       });
     } finally {
       connection.release();
@@ -2234,6 +2263,9 @@ app.get('/api/projects/company/:companyId', authenticateToken, async (req, res) 
   try {
     const { companyId } = req.params;
     const includeArchived = req.query.archived === '1' || req.query.archived === 'true';
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const { limit, offset } = parsePagination(req);
     
     // Check if user has access to this company
     // Handle case where companyId might be a Firebase ID (not a valid MySQL ID)
@@ -2247,19 +2279,34 @@ app.get('/api/projects/company/:companyId', authenticateToken, async (req, res) 
     
     const connection = await pool.getConnection();
     try {
-      const query = `
-        SELECT * FROM projects 
-        WHERE company_id = ? AND is_archived = ?
-        ORDER BY created_at DESC
-      `;
-      
-      const [rows] = await connection.execute(query, [companyId, includeArchived ? 1 : 0]);
+      let where = ' WHERE company_id = ? AND is_archived = ?';
+      const params = [companyId, includeArchived ? 1 : 0];
+
+      if (status && status !== 'all') {
+        where += ' AND status = ?';
+        params.push(status);
+      }
+
+      if (search) {
+        where += ' AND (name LIKE ? OR description LIKE ?)';
+        const like = `%${search}%`;
+        params.push(like, like);
+      }
+
+      const countQuery = `SELECT COUNT(*) as total FROM projects${where}`;
+      const [countRows] = await connection.execute(countQuery, params);
+      const total = Number(countRows?.[0]?.total || 0);
+
+      const query = `SELECT * FROM projects${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+      const dataParams = [...params, limit, offset];
+
+      const [rows] = await connection.execute(query, dataParams);
       const projects = rows.map(mapProjectRow);
       
       res.json({
         success: true,
         data: projects,
-        count: projects.length
+        count: total
       });
     } finally {
       connection.release();

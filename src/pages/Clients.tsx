@@ -59,6 +59,7 @@ const formatDurationToHHMMSS = (seconds: number): string => {
 export default function Clients() {
   const { currentUser, currentCompany } = useMySQLAuth()
   const navigate = useNavigate()
+  const PAGE_SIZE = 6
   
   // Helper function to format date for input field (YYYY-MM-DD format in local timezone)
   const formatDateForInput = (date: Date): string => {
@@ -81,6 +82,7 @@ export default function Clients() {
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [pageIndex, setPageIndex] = useState(0)
   const [showClientModal, setShowClientModal] = useState(false)
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [showExportModal, setShowExportModal] = useState(false)
@@ -108,6 +110,10 @@ export default function Clients() {
     loadClients()
     loadPDFSettings() // Load PDF settings when component mounts
   }, [currentCompany])
+
+  useEffect(() => {
+    setPageIndex(0)
+  }, [searchTerm, typeFilter, viewMode])
 
   useEffect(() => {
     if (clients.length > 0) {
@@ -807,7 +813,18 @@ export default function Clients() {
   const stats = getClientStats()
   const billingStats = getBillingStats()
   const filteredClients = getFilteredClients()
+  const totalPages = Math.max(1, Math.ceil(filteredClients.length / PAGE_SIZE))
+  const safePageIndex = Math.min(pageIndex, totalPages - 1)
+  const startItem = filteredClients.length === 0 ? 0 : safePageIndex * PAGE_SIZE + 1
+  const endItem = Math.min(filteredClients.length, safePageIndex * PAGE_SIZE + PAGE_SIZE)
+  const displayedClients = filteredClients.slice(safePageIndex * PAGE_SIZE, safePageIndex * PAGE_SIZE + PAGE_SIZE)
   const chartData = getTimeChartData()
+
+  useEffect(() => {
+    if (pageIndex > totalPages - 1) {
+      setPageIndex(Math.max(0, totalPages - 1))
+    }
+  }, [pageIndex, totalPages])
 
   if (!currentUser?.role || !canAccessFeature(currentUser.role, 'clients')) {
     return (
@@ -1097,8 +1114,42 @@ export default function Clients() {
           <div className="animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-b-2 border-primary-600"></div>
         </div>
       ) : filteredClients.length > 0 ? (
-        <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6' : 'space-y-4'}>
-          {filteredClients.map((client) => (
+        <>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              Showing {startItem}-{endItem} of {filteredClients.length}
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+                disabled={safePageIndex <= 0}
+                className={`px-3 h-10 rounded-lg border text-sm ${
+                  safePageIndex <= 0
+                    ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'
+                    : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                Prev
+              </button>
+              <div className="px-2 h-10 inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
+                Page {safePageIndex + 1} / {totalPages}
+              </div>
+              <button
+                onClick={() => setPageIndex((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={safePageIndex >= totalPages - 1}
+                className={`px-3 h-10 rounded-lg border text-sm ${
+                  safePageIndex >= totalPages - 1
+                    ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'
+                    : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6' : 'space-y-4'}>
+            {displayedClients.map((client) => (
             <div key={client.id} className="bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md transition-shadow">
               {viewMode === 'grid' ? (
                 // Grid View
@@ -1361,8 +1412,9 @@ export default function Clients() {
                 </div>
               )}
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       ) : (
         <div className="text-center py-12">
           <Building2 className="h-10 w-10 sm:h-12 sm:w-12 text-gray-400 mx-auto mb-4" />

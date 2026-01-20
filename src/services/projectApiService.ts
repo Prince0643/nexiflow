@@ -89,23 +89,101 @@ export const projectApiService = {
       throw new Error('Failed to get projects for company')
     }
     
-    return response.data
+    return response.data.map((project: Project) => ({
+      ...project,
+      startDate: (project as any).startDate ? new Date((project as any).startDate) : undefined,
+      endDate: (project as any).endDate ? new Date((project as any).endDate) : undefined,
+      createdAt: new Date((project as any).createdAt),
+      updatedAt: new Date((project as any).updatedAt)
+    }))
   },
 
   // Get all projects (fallback for when no company ID)
   async getProjects(includeArchived: boolean = false): Promise<Project[]> {
-    const endpoint = includeArchived ? '/projects?archived=1' : '/projects'
+    const result = await this.getProjectsPage({ includeArchived, limit: 100, offset: 0 })
+    return result.data
+  },
+
+  async getProjectsPage(params: {
+    includeArchived?: boolean
+    status?: string
+    search?: string
+    limit?: number
+    offset?: number
+  } = {}): Promise<{ data: Project[]; count: number }> {
+    const query = new URLSearchParams()
+
+    if (params.includeArchived) query.set('archived', '1')
+    if (params.status && params.status !== 'all') query.set('status', params.status)
+    if (params.search) query.set('search', params.search)
+    if (typeof params.limit === 'number') query.set('limit', String(params.limit))
+    if (typeof params.offset === 'number') query.set('offset', String(params.offset))
+
+    const endpoint = `/projects${query.toString() ? `?${query.toString()}` : ''}`
     const response = await apiRequest<{
       success: boolean
       data: Project[]
       count: number
     }>(endpoint)
-    
+
     if (!response.success) {
       throw new Error('Failed to get projects')
     }
-    
-    return response.data
+
+    const normalized = response.data.map((project: Project) => ({
+      ...project,
+      startDate: (project as any).startDate ? new Date((project as any).startDate) : undefined,
+      endDate: (project as any).endDate ? new Date((project as any).endDate) : undefined,
+      createdAt: new Date((project as any).createdAt),
+      updatedAt: new Date((project as any).updatedAt)
+    }))
+
+    return { data: normalized, count: response.count }
+  },
+
+  async getProjectsForCompanyPage(
+    companyId: string | null,
+    params: {
+      includeArchived?: boolean
+      status?: string
+      search?: string
+      limit?: number
+      offset?: number
+    } = {}
+  ): Promise<{ data: Project[]; count: number }> {
+    if (!companyId) return { data: [], count: 0 }
+
+    // During Firebase -> MySQL migration, some users/companies may still have Firebase-style IDs.
+    // Backend company-scoped routes reject those. Fall back to non-param endpoints.
+    const endpointBase = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
+
+    const query = new URLSearchParams()
+    if (params.includeArchived) query.set('archived', '1')
+    if (params.status && params.status !== 'all') query.set('status', params.status)
+    if (params.search) query.set('search', params.search)
+    if (typeof params.limit === 'number') query.set('limit', String(params.limit))
+    if (typeof params.offset === 'number') query.set('offset', String(params.offset))
+
+    const endpoint = `${endpointBase}${query.toString() ? `?${query.toString()}` : ''}`
+    const response = await apiRequest<{
+      success: boolean
+      data: Project[]
+      count: number
+    }>(endpoint)
+
+    if (!response.success) {
+      throw new Error('Failed to get projects for company')
+    }
+
+    const normalized = response.data.map((project: Project) => ({
+      ...project,
+      startDate: (project as any).startDate ? new Date((project as any).startDate) : undefined,
+      endDate: (project as any).endDate ? new Date((project as any).endDate) : undefined,
+      createdAt: new Date((project as any).createdAt),
+      updatedAt: new Date((project as any).updatedAt)
+    }))
+
+    return { data: normalized, count: response.count }
   },
 
   async createProject(projectData: CreateProjectData): Promise<Project> {

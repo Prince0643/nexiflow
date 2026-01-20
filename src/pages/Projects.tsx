@@ -1,18 +1,16 @@
 import { useState, useEffect } from 'react'
+
 import { 
   Plus, 
   Search, 
-  Grid, 
-  List, 
   MoreVertical, 
   Edit, 
   Trash2, 
   Archive,
-  Calendar,
-  DollarSign,
   AlertCircle,
   Info
 } from 'lucide-react'
+
 import { Project, Client } from '../types'
 import { projectApiService } from '../services/projectApiService'
 import ProjectModal from '../components/projects/ProjectModal'
@@ -36,39 +34,104 @@ const PRIORITY_COLORS = {
 
 export default function Projects() {
   const { currentUser, currentCompany } = useMySQLAuth()
+  const PAGE_SIZE = 8
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [error, setError] = useState('')
   const [openProjectId, setOpenProjectId] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
 
+  const [pageIndex, setPageIndex] = useState(0)
+  const [totalCount, setTotalCount] = useState(0)
+  const [activeProjectsCount, setActiveProjectsCount] = useState(0)
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearch(searchTerm.trim()), 250)
+    return () => window.clearTimeout(t)
+  }, [searchTerm])
+
+  useEffect(() => {
+    setPageIndex(0)
+  }, [showArchived, currentUser?.companyId, statusFilter, debouncedSearch])
+
   useEffect(() => {
     loadData()
-  }, [showArchived, currentUser?.companyId])
+  }, [showArchived, currentUser?.companyId, statusFilter, debouncedSearch, pageIndex])
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  const safePageIndex = Math.min(pageIndex, totalPages - 1)
+  const startItem = totalCount === 0 ? 0 : safePageIndex * PAGE_SIZE + 1
+  const endItem = Math.min(totalCount, safePageIndex * PAGE_SIZE + projects.length)
+
+  useEffect(() => {
+    if (pageIndex > totalPages - 1) {
+      setPageIndex(Math.max(0, totalPages - 1))
+    }
+  }, [pageIndex, totalPages])
 
   const loadData = async () => {
     setLoading(true)
     try {
-      // Use company-scoped data loading for multi-tenant isolation
-      let projectsData: Project[] = [];
-      const [clientsData] = await Promise.all([
-        currentUser?.companyId 
-          ? projectApiService.getClientsForCompany(currentUser.companyId)
-          : projectApiService.getClients()
+      if (!currentUser) return
+
+      const offset = pageIndex * PAGE_SIZE
+
+      const projectsPromise = currentUser.companyId
+        ? projectApiService.getProjectsForCompanyPage(currentUser.companyId, {
+            includeArchived: showArchived,
+            status: statusFilter,
+            search: debouncedSearch,
+            limit: PAGE_SIZE,
+            offset
+          })
+        : projectApiService.getProjectsPage({
+            includeArchived: showArchived,
+            status: statusFilter,
+            search: debouncedSearch,
+            limit: PAGE_SIZE,
+            offset
+          })
+
+      const clientsPromise = currentUser.companyId
+        ? projectApiService.getClientsForCompany(currentUser.companyId)
+        : projectApiService.getClients()
+
+      const activeCountPromise = currentCompany?.pricingLevel === 'solo'
+        ? (currentUser.companyId
+            ? projectApiService.getProjectsForCompanyPage(currentUser.companyId, {
+                includeArchived: false,
+                status: 'all',
+                search: '',
+                limit: 1,
+                offset: 0
+              })
+            : projectApiService.getProjectsPage({
+                includeArchived: false,
+                status: 'all',
+                search: '',
+                limit: 1,
+                offset: 0
+              }))
+        : Promise.resolve({ data: [], count: 0 })
+
+      const [{ data: projectsData, count }, clientsData, activeCountResult] = await Promise.all([
+        projectsPromise,
+        clientsPromise,
+        activeCountPromise
       ])
 
-      projectsData = currentUser?.companyId 
-        ? await projectApiService.getProjectsForCompany(currentUser.companyId, showArchived)
-        : await projectApiService.getProjects(showArchived)
-      
       setProjects(projectsData)
+      setTotalCount(count)
       setClients(clientsData)
+      if (currentCompany?.pricingLevel === 'solo') {
+        setActiveProjectsCount(activeCountResult.count)
+      }
     } catch (error) {
       setError('Failed to load projects')
       console.error('Error loading data:', error)
@@ -79,7 +142,7 @@ export default function Projects() {
 
   const handleCreateProject = () => {
     // Check if user is on solo pricing level and has reached the project limit
-    if (currentCompany?.pricingLevel === 'solo' && projects.length >= 1) {
+    if (currentCompany?.pricingLevel === 'solo' && activeProjectsCount >= 1) {
       setError('Solo plan is limited to 1 project. Please upgrade to create more projects.')
       return
     }
@@ -126,14 +189,6 @@ export default function Projects() {
     setOpenProjectId(null) // Close dropdown after selection
   }
 
-  const filteredProjects = projects.filter(project => {
-    const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         project.description?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === 'all' || project.status === statusFilter
-    const matchesArchived = showArchived ? project.isArchived : !project.isArchived
-    return matchesSearch && matchesStatus && matchesArchived
-  })
-
   const getClientName = (clientId?: string) => {
     if (!clientId) return 'No client'
     const client = clients.find(c => c.id === clientId)
@@ -176,9 +231,9 @@ export default function Projects() {
           {currentUser?.role && canAccessFeature(currentUser.role, 'projects') && (
             <button
               onClick={handleCreateProject}
-              disabled={currentCompany?.pricingLevel === 'solo' && projects.length >= 1}
-              className={`flex items-center space-x-2 ${currentCompany?.pricingLevel === 'solo' && projects.length >= 1 ? 'btn-secondary cursor-not-allowed opacity-50' : 'btn-primary'}`}
-              title={currentCompany?.pricingLevel === 'solo' && projects.length >= 1 ? 'Solo plan is limited to 1 project. Please upgrade to create more projects.' : ''}
+              disabled={currentCompany?.pricingLevel === 'solo' && activeProjectsCount >= 1}
+              className={`flex items-center space-x-2 ${currentCompany?.pricingLevel === 'solo' && activeProjectsCount >= 1 ? 'btn-secondary cursor-not-allowed opacity-50' : 'btn-primary'}`}
+              title={currentCompany?.pricingLevel === 'solo' && activeProjectsCount >= 1 ? 'Solo plan is limited to 1 project. Please upgrade to create more projects.' : ''}
             >
               <Plus className="h-4 w-4" />
               <span className="hidden xs:inline">New Project</span>
@@ -203,7 +258,7 @@ export default function Projects() {
             <div>
               <h3 className="font-medium text-blue-800 dark:text-blue-200">Project Limit</h3>
               <p className="text-sm text-blue-700 mt-1 dark:text-blue-300">
-                Your Solo plan is limited to 1 project. You have {projects.length} of 1 project slots used.
+                Your Solo plan is limited to 1 project. You have {activeProjectsCount} of 1 project slots used.
               </p>
               <p className="text-sm text-blue-700 mt-1 dark:text-blue-300">
                 Upgrade to Office or Enterprise plan to create more projects.
@@ -214,7 +269,7 @@ export default function Projects() {
       )}
 
       {/* Filters and Search */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
@@ -227,12 +282,12 @@ export default function Projects() {
             />
           </div>
         </div>
-        
-        <div className="flex flex-wrap gap-2">
+
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 justify-end">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="input"
+            className="input h-10 min-w-[140px]"
           >
             <option value="all">All Status</option>
             <option value="active">Active</option>
@@ -241,24 +296,9 @@ export default function Projects() {
             <option value="cancelled">Cancelled</option>
           </select>
           
-          <div className="flex border border-gray-300 dark:border-gray-600 rounded-lg">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 ${viewMode === 'grid' ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300' : 'text-gray-600 dark:text-gray-400'}`}
-            >
-              <Grid className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 ${viewMode === 'list' ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300' : 'text-gray-600 dark:text-gray-400'}`}
-            >
-              <List className="h-4 w-4" />
-            </button>
-          </div>
-          
           <button
             onClick={() => setShowArchived(!showArchived)}
-            className={`px-3 py-2 rounded-lg border text-sm ${
+            className={`px-3 h-10 rounded-lg border text-sm inline-flex items-center ${
               showArchived 
                 ? 'bg-primary-100 dark:bg-primary-900 border-primary-300 dark:border-primary-700 text-primary-700 dark:text-primary-300' 
                 : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
@@ -274,8 +314,45 @@ export default function Projects() {
         </div>
       </div>
 
+      {/* Pagination */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="text-sm text-gray-600 dark:text-gray-400">
+          Showing {startItem}-{endItem} of {totalCount}
+        </div>
+
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+            disabled={safePageIndex <= 0}
+            className={`px-3 h-10 rounded-lg border text-sm ${
+              safePageIndex <= 0
+                ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'
+                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            Prev
+          </button>
+
+          <div className="px-2 h-10 inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
+            Page {safePageIndex + 1} / {totalPages}
+          </div>
+
+          <button
+            onClick={() => setPageIndex((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={safePageIndex >= totalPages - 1}
+            className={`px-3 h-10 rounded-lg border text-sm ${
+              safePageIndex >= totalPages - 1
+                ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'
+                : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
       {/* Projects Grid/List */}
-      {filteredProjects.length === 0 ? (
+      {projects.length === 0 ? (
         <div className="text-center py-12">
           <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-full w-16 h-16 mx-auto mb-4 flex items-center justify-center">
             <Plus className="h-8 w-8 text-gray-400 dark:text-gray-500" />
@@ -301,45 +378,60 @@ export default function Projects() {
           )}
         </div>
       ) : (
-        <div className={viewMode === 'grid' 
-          ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6' 
-          : 'space-y-4'
-        }>
-          {filteredProjects.map((project) => (
-            <div
-              key={project.id}
-              className={`card hover:shadow-md transition-shadow ${
-                viewMode === 'list' ? 'flex items-center justify-between' : ''
-              }`}
-            >
-              {viewMode === 'grid' ? (
-                <>
-                  {/* Grid View */}
-                  <div className="flex items-start justify-between mb-3 sm:mb-4">
-                    <div className="flex items-center space-x-3">
-                      <div 
-                        className="w-3 h-3 sm:w-4 sm:h-4 rounded-full"
-                        style={{ backgroundColor: project.color }}
-                      />
-                      <div>
-                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">{project.name}</h3>
-                        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{getClientName(project.clientId)}</p>
+        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-800">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Project</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Priority</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Budget</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+              {projects.map((project) => (
+                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{project.name}</div>
+                        {project.description && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project.description}</div>
+                        )}
                       </div>
                     </div>
-                    <div className="relative">
-                      <button 
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{getClientName(project.clientId)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.status as keyof typeof STATUS_COLORS]}`}>
+                      {project.status.replace('-', ' ')}
+                    </span>
+                  </td>
+                  <td className={`px-4 py-3 text-sm font-medium ${PRIORITY_COLORS[project.priority as keyof typeof PRIORITY_COLORS]}`}>{project.priority}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                    {project.startDate ? formatDate(project.startDate) : '-'}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                    {project.budget ? `$${project.budget.toLocaleString()}` : '-'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="relative inline-block">
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setOpenProjectId(openProjectId === project.id ? null : project.id);
                         }}
-                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                       >
-                        <MoreVertical className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                        <MoreVertical className="h-4 w-4" />
                       </button>
-                      
-                      {/* Dropdown Menu */}
+
                       {openProjectId === project.id && (
-                        <div 
+                        <div
                           className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 border border-gray-200 dark:border-gray-700"
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -377,120 +469,11 @@ export default function Projects() {
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  {project.description && (
-                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mb-3 sm:mb-4 line-clamp-2">
-                      {project.description}
-                    </p>
-                  )}
-
-                  <div className="space-y-2 sm:space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.status]}`}>
-                        {project.status.replace('-', ' ')}
-                      </span>
-                      <span className={`text-xs font-medium ${PRIORITY_COLORS[project.priority]}`}>
-                        {project.priority}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-                      {project.startDate && (
-                        <div className="flex items-center space-x-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>{formatDate(project.startDate)}</span>
-                        </div>
-                      )}
-                      {project.budget && (
-                        <div className="flex items-center space-x-1">
-                          <DollarSign className="h-3 w-3" />
-                          <span>${project.budget.toLocaleString()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* List View */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:space-x-4">
-                    <div className="flex items-center space-x-3">
-                      <div 
-                        className="w-3 h-3 sm:w-4 sm:h-4 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: project.color }}
-                      />
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base truncate">{project.name}</h3>
-                        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">{getClientName(project.clientId)}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.status]}`}>
-                        {project.status.replace('-', ' ')}
-                      </span>
-                      <span className={`text-xs font-medium ${PRIORITY_COLORS[project.priority]}`}>
-                        {project.priority}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Action Menu for List View */}
-                  <div className="relative mt-2 sm:mt-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenProjectId(openProjectId === project.id ? null : project.id);
-                      }}
-                      className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                    
-                    {/* Dropdown Menu */}
-                    {openProjectId === project.id && (
-                      <div 
-                        className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 border border-gray-200 dark:border-gray-700"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          onClick={() => handleEditProject(project)}
-                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        >
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </button>
-                        {showArchived ? (
-                          <button
-                            onClick={() => handleUnarchiveProject(project)}
-                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                          >
-                            <Archive className="h-4 w-4 mr-2" />
-                            Unarchive
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleArchiveProject(project)}
-                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                          >
-                            <Archive className="h-4 w-4 mr-2" />
-                            Archive
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteProject(project)}
-                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
