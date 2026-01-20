@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { 
   Settings, 
   Users, 
-  Database, 
   Shield, 
   Activity,
   Server,
@@ -64,7 +63,6 @@ export default function SystemSettings() {
     { id: 'companies', name: 'Company Management', icon: Building2 },
     { id: 'admins', name: 'Admin Management', icon: UserCheck },
     { id: 'security', name: 'Security Settings', icon: Shield },
-    { id: 'database', name: 'Database', icon: Database },
     { id: 'server', name: 'Server Status', icon: Server }
   ]
 
@@ -342,36 +340,6 @@ export default function SystemSettings() {
     </div>
   )
 
-  const renderDatabase = () => (
-    <div className="space-y-6">
-      <div className="card">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Database Management</h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <Database className="h-5 w-5 text-blue-500" />
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Firebase Realtime Database</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <CheckCircle className="h-4 w-4 text-green-500" />
-              <span className="text-sm text-green-600 dark:text-green-400">Connected</span>
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <Activity className="h-5 w-5 text-purple-500" />
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Last Backup</span>
-            </div>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              {new Date(systemStats.lastBackup).toLocaleString()}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
   const renderServer = () => (
     <div className="space-y-6">
       <div className="card">
@@ -415,8 +383,6 @@ export default function SystemSettings() {
         return renderAdmins()
       case 'security':
         return renderSecurity()
-      case 'database':
-        return renderDatabase()
       case 'server':
         return renderServer()
       default:

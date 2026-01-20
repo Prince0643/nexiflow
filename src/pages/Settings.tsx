@@ -11,17 +11,15 @@ import {
   Globe,
   Clock as ClockIcon,
   AlertTriangle,
-  Database,
   FileText,
   Shield,
   CheckCircle,
   Activity,
   Mail,
-  Download,
-  Upload,
   Trash,
   ChevronRight
 } from 'lucide-react'
+
 import { Link } from 'react-router-dom'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { update, get, set, query, orderByChild, equalTo, ref } from 'firebase/database'
@@ -31,6 +29,7 @@ import { formatDurationToHHMMSS } from '../utils'
 import { useTheme } from '../contexts/ThemeContext'
 import { canViewHourlyRates, canEditHourlyRates } from '../utils/permissions'
 import { userApiService } from '../services/userApiService'
+
 import { 
   EmailAuthProvider, 
   reauthenticateWithCredential, 
@@ -41,30 +40,12 @@ import { auth, database, storage } from '../config/firebase'
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import NotificationSettings from '../components/settings/NotificationSettings'
 
-interface BackupData {
-  users: any
-  projects: any
-  tasks: any
-  timeEntries: any
-  clients: any
-  tags: any
-  teams: any
-  teamMembers: any
-  metadata: {
-    timestamp: Date
-    version: string
-    totalRecords: number
-    companyId: string | null
-    userRole: string
-  }
-}
-
 export default function Settings() {
   const { currentUser, currentCompany } = useMySQLAuth()
   const { isDarkMode, toggleDarkMode } = useTheme()
-  const [activeTab, setActiveTab] = useState<'profile' | 'general' | 'database' | 'security' | 'notifications' | 'pdf'>('profile')
+  
+  const [activeTab, setActiveTab] = useState<'profile' | 'general' | 'security' | 'notifications' | 'pdf'>('profile')
   const [loading, setLoading] = useState(false)
-  const [backupData, setBackupData] = useState<BackupData | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const canEditRates = currentUser?.role ? canEditHourlyRates(currentUser.role) : false
@@ -160,216 +141,6 @@ export default function Settings() {
     setTimeout(() => setMessage(null), 5000)
   }
 
-  const handleBackupDatabase = async () => {
-    if (!database) {
-      showMessage('error', 'Database backup is disabled because Firebase is disabled.')
-      return
-    }
-    try {
-      setLoading(true)
-      showMessage('info', 'Starting database backup...')
-
-      // Get data from Firebase with proper scoping
-      let usersPromise, projectsPromise, tasksPromise, timeEntriesPromise, 
-          clientsPromise, tagsPromise, teamsPromise, teamMembersPromise;
-
-      if (currentCompany?.id) {
-        // For company users, scope data to their company
-        usersPromise = get(query(ref(database, 'users'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        projectsPromise = get(query(ref(database, 'projects'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        tasksPromise = get(query(ref(database, 'tasks'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        timeEntriesPromise = get(query(ref(database, 'timeEntries'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        clientsPromise = get(query(ref(database, 'clients'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        tagsPromise = get(query(ref(database, 'tags'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        teamsPromise = get(query(ref(database, 'teams'), orderByChild('companyId'), equalTo(currentCompany.id)));
-        teamMembersPromise = get(query(ref(database, 'teamMembers'), orderByChild('companyId'), equalTo(currentCompany.id)));
-      } else if (currentUser?.role === 'root' || currentUser?.role === 'admin') {
-        // For root/admin users, get all data (with reasonable limits)
-        usersPromise = get(ref(database, 'users'));
-        projectsPromise = get(ref(database, 'projects'));
-        tasksPromise = get(ref(database, 'tasks'));
-        timeEntriesPromise = get(ref(database, 'timeEntries'));
-        clientsPromise = get(ref(database, 'clients'));
-        tagsPromise = get(ref(database, 'tags'));
-        teamsPromise = get(ref(database, 'teams'));
-        teamMembersPromise = get(ref(database, 'teamMembers'));
-      } else if (currentUser?.uid) {
-        // For regular users, only get their own data
-        usersPromise = get(query(ref(database, 'users'), orderByChild('id'), equalTo(currentUser.uid)));
-        projectsPromise = Promise.resolve({ val: () => ({}) }); // No project access
-        tasksPromise = Promise.resolve({ val: () => ({}) }); // No task access
-        timeEntriesPromise = get(query(ref(database, 'timeEntries'), orderByChild('userId'), equalTo(currentUser.uid)));
-        clientsPromise = Promise.resolve({ val: () => ({}) }); // No client access
-        tagsPromise = Promise.resolve({ val: () => ({}) }); // No tag access
-        teamsPromise = Promise.resolve({ val: () => ({}) }); // No team access
-        teamMembersPromise = get(query(ref(database, 'teamMembers'), orderByChild('userId'), equalTo(currentUser.uid)));
-      } else {
-        // Fallback case
-        usersPromise = Promise.resolve({ val: () => ({}) });
-        projectsPromise = Promise.resolve({ val: () => ({}) });
-        tasksPromise = Promise.resolve({ val: () => ({}) });
-        timeEntriesPromise = Promise.resolve({ val: () => ({}) });
-        clientsPromise = Promise.resolve({ val: () => ({}) });
-        tagsPromise = Promise.resolve({ val: () => ({}) });
-        teamsPromise = Promise.resolve({ val: () => ({}) });
-        teamMembersPromise = Promise.resolve({ val: () => ({}) });
-      }
-
-      const [usersSnapshot, projectsSnapshot, tasksSnapshot, timeEntriesSnapshot, 
-             clientsSnapshot, tagsSnapshot, teamsSnapshot, teamMembersSnapshot] = await Promise.all([
-        usersPromise,
-        projectsPromise,
-        tasksPromise,
-        timeEntriesPromise,
-        clientsPromise,
-        tagsPromise,
-        teamsPromise,
-        teamMembersPromise
-      ])
-
-      const backupData: BackupData = {
-        users: usersSnapshot.val() || {},
-        projects: projectsSnapshot.val() || {},
-        tasks: tasksSnapshot.val() || {},
-        timeEntries: timeEntriesSnapshot.val() || {},
-        clients: clientsSnapshot.val() || {},
-        tags: tagsSnapshot.val() || {},
-        teams: teamsSnapshot.val() || {},
-        teamMembers: teamMembersSnapshot.val() || {},
-        metadata: {
-          timestamp: new Date(),
-          version: '1.0.0',
-          totalRecords: Object.keys(usersSnapshot.val() || {}).length +
-                       Object.keys(projectsSnapshot.val() || {}).length +
-                       Object.keys(tasksSnapshot.val() || {}).length +
-                       Object.keys(timeEntriesSnapshot.val() || {}).length,
-          companyId: currentCompany?.id || null,
-          userRole: currentUser?.role || 'unknown'
-        }
-      }
-
-      setBackupData(backupData)
-
-      // Create and download backup file
-      const dataStr = JSON.stringify(backupData, null, 2)
-      const dataBlob = new Blob([dataStr], { type: 'application/json' })
-      const url = URL.createObjectURL(dataBlob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `clockistry-backup-${format(new Date(), 'yyyy-MM-dd-HH-mm-ss')}.json`
-      link.click()
-      URL.revokeObjectURL(url)
-
-      // Log the backup success
-      await mysqlLoggingService.logSystemEvent('backup', 'Database backup completed successfully', 
-        {
-          totalRecords: backupData.metadata.totalRecords,
-          timestamp: backupData.metadata.timestamp,
-          companyId: backupData.metadata.companyId,
-          userRole: backupData.metadata.userRole
-        })
-      
-      showMessage('success', 'Database backup completed successfully!')
-    } catch (error) {
-      console.error('Backup error:', error)
-      showMessage('error', 'Failed to backup database')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleRestoreDatabase = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!database) {
-      showMessage('error', 'Database restore is disabled because Firebase is disabled.')
-      return
-    }
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    try {
-      setLoading(true)
-      showMessage('info', 'Starting database restore...')
-
-      const text = await file.text()
-      const backupData: BackupData = JSON.parse(text)
-
-      // Validate backup data
-      if (!backupData.metadata || !backupData.users) {
-        throw new Error('Invalid backup file format')
-      }
-
-      // Security check: Only allow restore if user has appropriate permissions
-      // and the backup matches their company scope
-      if (currentCompany?.id && backupData.metadata.companyId && backupData.metadata.companyId !== currentCompany.id) {
-        throw new Error('Cannot restore backup from different company')
-      }
-
-      // For non-root users, filter the data to only restore their own records
-      let usersToRestore = backupData.users;
-      let timeEntriesToRestore = backupData.timeEntries;
-      let teamMembersToRestore = backupData.teamMembers;
-
-      if (currentUser && currentUser.role !== 'root' && currentUser.role !== 'admin') {
-        // Only restore user's own data
-        usersToRestore = {};
-        if (backupData.users && currentUser.uid && backupData.users[currentUser.uid]) {
-          usersToRestore[currentUser.uid] = backupData.users[currentUser.uid];
-        }
-
-        // Only restore user's own time entries
-        timeEntriesToRestore = {};
-        if (backupData.timeEntries) {
-          Object.keys(backupData.timeEntries).forEach(key => {
-            const entry = backupData.timeEntries[key];
-            if (entry.userId === currentUser.uid) {
-              timeEntriesToRestore[key] = entry;
-            }
-          });
-        }
-
-        // Only restore user's own team memberships
-        teamMembersToRestore = {};
-        if (backupData.teamMembers) {
-          Object.keys(backupData.teamMembers).forEach(key => {
-            const member = backupData.teamMembers[key];
-            if (member.userId === currentUser.uid) {
-              teamMembersToRestore[key] = member;
-            }
-          });
-        }
-      }
-
-      // Restore data to Firebase (scoped appropriately)
-      await Promise.all([
-        set(ref(database, 'users'), usersToRestore),
-        set(ref(database, 'projects'), currentUser?.role === 'root' || currentUser?.role === 'admin' ? backupData.projects : {}),
-        set(ref(database, 'tasks'), currentUser?.role === 'root' || currentUser?.role === 'admin' ? backupData.tasks : {}),
-        set(ref(database, 'timeEntries'), timeEntriesToRestore),
-        set(ref(database, 'clients'), currentUser?.role === 'root' || currentUser?.role === 'admin' ? backupData.clients : {}),
-        set(ref(database, 'tags'), currentUser?.role === 'root' || currentUser?.role === 'admin' ? backupData.tags : {}),
-        set(ref(database, 'teams'), currentUser?.role === 'root' || currentUser?.role === 'admin' ? backupData.teams : {}),
-        set(ref(database, 'teamMembers'), teamMembersToRestore)
-      ])
-
-      // Log the restore success
-      await mysqlLoggingService.logSystemEvent('restore', 'Database restored successfully', 
-        {
-          backupVersion: backupData.metadata.version,
-          backupDate: backupData.metadata.timestamp,
-          totalRecords: backupData.metadata.totalRecords,
-          companyId: backupData.metadata.companyId,
-          userRole: backupData.metadata.userRole
-        })
-      
-      showMessage('success', 'Database restored successfully!')
-    } catch (error: any) {
-      console.error('Restore error:', error)
-      showMessage('error', `Failed to restore database: ${error.message || 'Unknown error'}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const handleClearLogs = async () => {
     if (currentUser?.role !== 'admin') {
       showMessage('error', 'Only administrators can clear logs')
@@ -390,10 +161,6 @@ export default function Settings() {
   }
 
   const handleSaveSettings = async (settingsType: string) => {
-    if (!database) {
-      showMessage('error', 'Saving settings is disabled because Firebase is disabled.')
-      return
-    }
     try {
       setLoading(true)
       // Save settings to Firebase
@@ -450,11 +217,6 @@ export default function Settings() {
   const handleUploadAvatar = async () => {
     if (!currentUser || !avatarFile) return
 
-    if (!storage) {
-      showMessage('error', 'Avatar uploads are disabled because Firebase Storage is disabled.')
-      return
-    }
-    
     try {
       setLoading(true)
       
@@ -630,7 +392,7 @@ export default function Settings() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Settings</h1>
-        <p className="text-gray-600 dark:text-gray-400">Manage your application preferences, database, and system configuration.</p>
+        <p className="text-gray-600 dark:text-gray-400">Manage your application preferences and configuration.</p>
       </div>
 
       {/* Message */}
@@ -653,8 +415,6 @@ export default function Settings() {
           {[
             { id: 'profile', name: 'Profile', icon: User },
             { id: 'general', name: 'General', icon: SettingsIcon },
-            // Hide Database tab for Solo pricing level
-            (currentCompany?.pricingLevel !== 'solo') && { id: 'database', name: 'Database', icon: Database },
             { id: 'notifications', name: 'Notifications', icon: Bell },
             (currentUser?.role === 'super_admin' || currentUser?.role === 'root') && 
               { id: 'pdf', name: 'PDF Settings', icon: FileText }
@@ -940,80 +700,6 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        )}
-
-        {/* Database Settings */}
-        {activeTab === 'database' && (
-          currentCompany?.pricingLevel === 'solo' ? (
-            <div className="space-y-6">
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
-                <Database className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Database Management Unavailable</h3>
-                <p className="text-gray-600 dark:text-gray-400 mb-4">
-                  Database management features are not available on the Solo plan.
-                </p>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Upgrade to Office or Enterprise plan to access database backup and restore functionality.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Database Management</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <Download className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-gray-100">Backup Database</h4>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Download a complete backup of your database</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleBackupDatabase}
-                      disabled={loading}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2 text-white rounded-lg"
-                    >
-                      <Download className="h-4 w-4" />
-                      <span>Backup Now</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <Upload className="h-5 w-5 text-green-600 dark:text-green-400" />
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-gray-100">Restore Database</h4>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Upload and restore from a backup file</p>
-                      </div>
-                    </div>
-                    <label className="px-4 py-2 bg-green-600 hover:bg-green-700 cursor-pointer flex items-center space-x-2 text-white rounded-lg">
-                      <Upload className="h-4 w-4" />
-                      <span>Choose File</span>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleRestoreDatabase}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-
-                  {backupData && (
-                    <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                      <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Last Backup Info</h4>
-                      <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
-                        <p>Date: {format(backupData.metadata.timestamp, 'MMM dd, yyyy HH:mm')}</p>
-                        <p>Version: {backupData.metadata.version}</p>
-                        <p>Total Records: {backupData.metadata.totalRecords}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )
         )}
 
         {/* Notification Settings */}

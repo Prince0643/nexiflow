@@ -216,6 +216,15 @@ const isAdminRole = (role) => {
   return ['admin', 'super_admin', 'hr', 'root'].includes(role);
 };
 
+const pdfSettingsSchema = Joi.object({
+  companyName: Joi.string().allow('', null).optional(),
+  logoUrl: Joi.string().allow('', null).optional(),
+  primaryColor: Joi.string().allow('', null).optional(),
+  secondaryColor: Joi.string().allow('', null).optional(),
+  showPoweredBy: Joi.boolean().optional(),
+  customFooterText: Joi.string().allow('', null).optional()
+});
+
 // Routes
 
 // Health check
@@ -225,6 +234,133 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     version: '1.0.0'
   });
+});
+
+// Company PDF Settings API
+app.get('/api/companies/:companyId/pdf-settings', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    if (req.user.role !== 'root' && req.user.companyId && String(req.user.companyId) !== String(companyId)) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [companyRows] = await connection.execute(
+        'SELECT id FROM companies WHERE id = ? LIMIT 1',
+        [companyId]
+      );
+
+      if (!companyRows.length) {
+        return res.status(404).json({ success: false, error: 'Company not found' });
+      }
+
+      const [settingsRows] = await connection.execute(
+        'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
+        [companyId]
+      );
+
+      if (!settingsRows.length) {
+        return res.json({ success: true, data: null });
+      }
+
+      const row = settingsRows[0];
+      res.json({
+        success: true,
+        data: {
+          companyName: row.company_name || '',
+          logoUrl: row.logo_url || '',
+          primaryColor: row.primary_color || '#3B82F6',
+          secondaryColor: row.secondary_color || '#10B981',
+          showPoweredBy: row.show_powered_by === null || row.show_powered_by === undefined ? true : row.show_powered_by === 1,
+          customFooterText: row.custom_footer_text || ''
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error loading PDF settings:', error);
+    res.status(500).json({ success: false, error: 'Failed to load PDF settings' });
+  }
+});
+
+app.put('/api/companies/:companyId/pdf-settings', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    if (req.user.role !== 'root' && req.user.companyId && String(req.user.companyId) !== String(companyId)) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const { error, value } = pdfSettingsSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, error: error.details[0].message });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [companyRows] = await connection.execute(
+        'SELECT id FROM companies WHERE id = ? LIMIT 1',
+        [companyId]
+      );
+
+      if (!companyRows.length) {
+        return res.status(404).json({ success: false, error: 'Company not found' });
+      }
+
+      const updateQuery = `
+        UPDATE company_pdf_settings
+        SET company_name = ?, logo_url = ?, primary_color = ?, secondary_color = ?, show_powered_by = ?, custom_footer_text = ?
+        WHERE company_id = ?
+      `;
+
+      const updateParams = [
+        value.companyName || '',
+        value.logoUrl || '',
+        value.primaryColor || '#3B82F6',
+        value.secondaryColor || '#10B981',
+        value.showPoweredBy ? 1 : 0,
+        value.customFooterText || '',
+        companyId
+      ];
+
+      const [updateResult] = await connection.execute(updateQuery, updateParams);
+
+      if (!updateResult.affectedRows) {
+        const insertQuery = `
+          INSERT INTO company_pdf_settings (
+            company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
+        await connection.execute(insertQuery, [
+          companyId,
+          value.companyName || '',
+          value.logoUrl || '',
+          value.primaryColor || '#3B82F6',
+          value.secondaryColor || '#10B981',
+          value.showPoweredBy ? 1 : 0,
+          value.customFooterText || ''
+        ]);
+      }
+
+      res.json({ success: true, data: value });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating PDF settings:', error);
+    res.status(500).json({ success: false, error: 'Failed to update PDF settings' });
+  }
 });
 
 app.get('/api/users/:id', authenticateToken, async (req, res) => {
@@ -580,6 +716,23 @@ app.post('/api/auth/login', async (req, res) => {
         
         if (companyRows.length > 0) {
           const company = companyRows[0];
+          const [settingsRows] = await connection.execute(
+            'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
+            [company.id]
+          );
+          const settings = settingsRows.length
+            ? {
+                companyName: settingsRows[0].company_name || '',
+                logoUrl: settingsRows[0].logo_url || '',
+                primaryColor: settingsRows[0].primary_color || '#3B82F6',
+                secondaryColor: settingsRows[0].secondary_color || '#10B981',
+                showPoweredBy:
+                  settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
+                    ? true
+                    : settingsRows[0].show_powered_by === 1,
+                customFooterText: settingsRows[0].custom_footer_text || ''
+              }
+            : undefined;
           companyData = {
             id: company.id,
             name: company.name,
@@ -588,7 +741,7 @@ app.post('/api/auth/login', async (req, res) => {
             maxMembers: company.max_members,
             createdAt: company.created_at,
             updatedAt: company.updated_at,
-            pdfSettings: company.pdf_settings ? JSON.parse(company.pdf_settings) : undefined
+            pdfSettings: settings
           };
         }
       }
@@ -977,9 +1130,10 @@ app.post('/api/auth/signup', async (req, res) => {
       let companyData = null;
       if (role === 'super_admin' && companyName) {
         // Create company
+        const newCompanyId = `-${uuidv4()}`;
         const companyQuery = `
           INSERT INTO companies (
-            name, is_active, pricing_level, max_members, created_at, updated_at, pdf_settings
+            id, name, is_active, pricing_level, max_members, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `;
         
@@ -993,17 +1147,35 @@ app.post('/api/auth/signup', async (req, res) => {
           customFooterText: ''
         };
         
-        const companyResult = await connection.execute(companyQuery, [
+        await connection.execute(companyQuery, [
+          newCompanyId,
           companyName,
           1, // is_active
           'solo', // pricing_level
           1, // max_members
           now,
-          now,
-          JSON.stringify(defaultPdfSettings)
+          now
         ]);
-        
-        const companyId = companyResult[0].insertId;
+
+        const companyId = newCompanyId;
+
+        // Create default PDF settings row
+        await connection.execute(
+          `
+            INSERT INTO company_pdf_settings (
+              company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            companyId,
+            defaultPdfSettings.companyName,
+            defaultPdfSettings.logoUrl,
+            defaultPdfSettings.primaryColor,
+            defaultPdfSettings.secondaryColor,
+            defaultPdfSettings.showPoweredBy ? 1 : 0,
+            defaultPdfSettings.customFooterText
+          ]
+        );
         
         // Update user with company ID
         const updateUserQuery = `UPDATE users SET company_id = ? WHERE id = ?`;

@@ -195,8 +195,31 @@ export default function AdminDashboard() {
       const uniqueClients = dedupeById<Client>(scopedClients)
       const uniqueTeams = dedupeById<Team>(scopedTeams)
 
+      const enrichedTimeEntries = validTimeEntries.map((entry: TimeEntry) => {
+        let projectId = entry.projectId
+        let projectName = (entry as any).projectName as string | undefined
+
+        if (!projectId && projectName) {
+          const match = uniqueProjects.find(
+            (p) => p.name?.trim().toLowerCase() === projectName?.trim().toLowerCase()
+          )
+          if (match) projectId = match.id
+        }
+
+        if (projectId && !projectName) {
+          const match = uniqueProjects.find((p) => p.id === projectId)
+          if (match) projectName = match.name
+        }
+
+        return {
+          ...entry,
+          projectId,
+          projectName
+        }
+      })
+
       setUsers(uniqueUsers)
-      setTimeEntries(validTimeEntries)
+      setTimeEntries(enrichedTimeEntries)
       setRunningTimeEntries(scopedRunningTimeEntries)
       setProjects(uniqueProjects)
       setClients(uniqueClients)
@@ -1059,7 +1082,7 @@ export default function AdminDashboard() {
                           {getClientName(entry.clientId)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                          {getProjectName(entry.projectId)}
+                          {entry.projectName || getProjectName(entry.projectId)}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900 dark:text-white max-w-[28rem]">
                           <div className="truncate" title={entry.description || 'No description'}>
@@ -1158,7 +1181,7 @@ export default function AdminDashboard() {
                         }`}>
                           {!project.isArchived ? 'active' : 'archived'}
                         </span>
-                      </td>                      <td className="px-6 py-4 whitespace-nowrap">
+                      </td><td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           project.priority === 'high' 
                             ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'

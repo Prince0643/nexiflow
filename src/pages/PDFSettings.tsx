@@ -1,38 +1,26 @@
 import React, { useState, useEffect } from 'react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-import { companyService } from '../services/companyService'
-import { pdfSettingsService } from '../services/pdfSettingsService'
 import PDFSettingsForm from '../components/settings/PDFSettingsForm'
 import { Company, CompanyWithPDFSettings } from '../types'
 
 export default function PDFSettingsPage() {
-  const { currentUser } = useMySQLAuth()
+  const { currentUser, currentCompany } = useMySQLAuth()
   const [company, setCompany] = useState<CompanyWithPDFSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     loadCompany()
-  }, [])
+  }, [currentCompany, currentUser])
 
   const loadCompany = async () => {
     setLoading(true)
     try {
-      // Super admins should only see their own company
-      if (currentUser?.companyId) {
-        const companiesData = await companyService.getCompanies()
-        const userCompany = companiesData.find(c => c.id === currentUser.companyId) || null
-        if (userCompany) {
-          // Type assertion to include pdfSettings property
-          setCompany(userCompany as CompanyWithPDFSettings)
-        }
-      } else if (currentUser?.role === 'root') {
-        // Root user can see all companies, but we'll still show the company selector for root
-        const companiesData = await companyService.getCompanies()
-        if (companiesData.length > 0) {
-          // Type assertion to include pdfSettings property
-          setCompany(companiesData[0] as CompanyWithPDFSettings)
-        }
+      setError('')
+      if (currentCompany) {
+        setCompany(currentCompany as CompanyWithPDFSettings)
+      } else {
+        setCompany(null)
       }
     } catch (error) {
       console.error('Error loading company:', error)

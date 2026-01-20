@@ -1,6 +1,55 @@
-import { ref, get, set, update } from 'firebase/database'
-import { database } from '../config/firebase'
 import { PDFSettings } from '../types'
+
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api'
+
+// Get auth token for authentication
+const getAuthToken = async (): Promise<string | null> => {
+  try {
+    return localStorage.getItem('authToken') || null
+  } catch (error) {
+    console.error('Error getting auth token:', error)
+    return null
+  }
+}
+
+// Generic API request function
+const apiRequest = async <T>(endpoint: string, options: RequestInit = {}): Promise<T> => {
+  const token = await getAuthToken()
+  const url = `${API_BASE_URL}${endpoint}`
+
+  const config: RequestInit = {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers
+    }
+  }
+
+  const response = await fetch(url, config)
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let errorMessage = `HTTP error! status: ${response.status}`
+    try {
+      const parsed = text ? JSON.parse(text) : {}
+      if (parsed && typeof parsed.error === 'string') {
+        errorMessage = parsed.error
+      }
+    } catch {
+      // ignore non-JSON body
+    }
+
+    // If the server didn't return JSON, still provide a useful 404 message.
+    if (response.status === 404 && errorMessage.startsWith('HTTP error!')) {
+      errorMessage = 'API endpoint not found'
+    }
+
+    throw new Error(errorMessage)
+  }
+
+  return response.json()
+}
 
 export interface CompanyPDFSettings {
   id: string
@@ -10,35 +59,30 @@ export interface CompanyPDFSettings {
 export const pdfSettingsService = {
   // Get PDF settings for a company
   async getPDFSettings(companyId: string): Promise<PDFSettings | null> {
-    try {
-      const companyRef = ref(database, `companies/${companyId}`)
-      const snapshot = await get(companyRef)
-      
-      if (snapshot.exists()) {
-        const companyData = snapshot.val()
-        return companyData.pdfSettings || null
-      }
-      
-      return null
-    } catch (error) {
-      console.error('Error fetching PDF settings:', error)
-      throw error
+    const response = await apiRequest<{ success: boolean; data: PDFSettings | null }>(
+      `/companies/${companyId}/pdf-settings`
+    )
+
+    if (!response.success) {
+      throw new Error('Failed to get PDF settings')
     }
+
+    // If settings are not yet configured, API returns null.
+    return response.data
   },
 
   // Update PDF settings for a company
   async updatePDFSettings(companyId: string, pdfSettings: PDFSettings): Promise<void> {
-    try {
-      const companyRef = ref(database, `companies/${companyId}`)
-      
-      // Update only the pdfSettings field
-      await update(companyRef, {
-        pdfSettings,
-        updatedAt: new Date().toISOString()
-      })
-    } catch (error) {
-      console.error('Error updating PDF settings:', error)
-      throw error
+    const response = await apiRequest<{ success: boolean; data: PDFSettings }>(
+      `/companies/${companyId}/pdf-settings`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(pdfSettings)
+      }
+    )
+
+    if (!response.success) {
+      throw new Error('Failed to update PDF settings')
     }
   },
 
