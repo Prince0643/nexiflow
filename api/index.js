@@ -16,6 +16,10 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Create database connection pool
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST || '127.0.0.1',
@@ -29,6 +33,33 @@ const pool = mysql.createPool({
   connectTimeout: process.env.MYSQL_CONNECT_TIMEOUT
     ? Number(process.env.MYSQL_CONNECT_TIMEOUT)
     : 10000
+});
+
+const ensureSystemLogsTable = async () => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS system_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        level VARCHAR(50) NOT NULL,
+        message TEXT NOT NULL,
+        user_id VARCHAR(255),
+        user_name VARCHAR(255),
+        action VARCHAR(255),
+        details JSON,
+        ip_address VARCHAR(255),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } finally {
+    connection.release();
+  }
+};
+
+ensureSystemLogsTable().catch((error) => {
+  console.error('Error ensuring system_logs table exists:', error);
 });
 
 console.log('MySQL config:', {
@@ -2109,10 +2140,11 @@ app.get('/api/projects', authenticateToken, async (req, res) => {
       const [countRows] = await connection.execute(countQuery, params);
       const total = Number(countRows?.[0]?.total || 0);
 
-      const query = `SELECT * FROM projects${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-      const dataParams = [...params, limit, offset];
+      const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+      const safeOffset = Math.max(0, Number(offset) || 0);
+      const query = `SELECT * FROM projects${where} ORDER BY created_at DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`;
       
-      const [rows] = await connection.execute(query, dataParams);
+      const [rows] = await connection.execute(query, params);
       const projects = rows.map(mapProjectRow);
       
       res.json({
