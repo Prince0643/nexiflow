@@ -4,6 +4,23 @@ import { mysqlLoggingService } from '../services/mysqlLoggingService'
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
+function isJwtExpired(token: string): boolean {
+  try {
+    const payloadPart = token.split('.')[1]
+    if (!payloadPart) return true
+
+    const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=')
+    const payloadJson = atob(padded)
+    const payload = JSON.parse(payloadJson) as { exp?: number }
+
+    if (!payload.exp) return true
+    return Date.now() >= payload.exp * 1000
+  } catch {
+    return true
+  }
+}
+
 interface MySQLAuthContextType {
   currentUser: AuthUser | null
   currentCompany: Company | null
@@ -40,7 +57,16 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
         const storedUser = localStorage.getItem('currentUser')
         const storedCompany = localStorage.getItem('currentCompany')
         const storedToken = localStorage.getItem('authToken')
-        
+
+        if (storedToken && isJwtExpired(storedToken)) {
+          localStorage.removeItem('currentUser')
+          localStorage.removeItem('currentCompany')
+          localStorage.removeItem('authToken')
+          setCurrentUser(null)
+          setCurrentCompany(null)
+          return
+        }
+
         if (storedUser && storedToken) {
           const user = JSON.parse(storedUser)
           setCurrentUser(user)

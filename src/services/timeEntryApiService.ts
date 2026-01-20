@@ -126,8 +126,14 @@ export const timeEntryApiService = {
     if (!response.success) {
       throw new Error('Failed to get time entries')
     }
-    
-    return response.data
+
+    return response.data.map((entry: TimeEntry) => ({
+      ...entry,
+      startTime: new Date(entry.startTime),
+      endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+      createdAt: new Date(entry.createdAt),
+      updatedAt: new Date(entry.updatedAt)
+    }))
   },
 
   // Get time entries for a specific date range
