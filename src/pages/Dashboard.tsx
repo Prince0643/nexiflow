@@ -1,9 +1,80 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart3, Clock, FolderKanban, Plus, RefreshCw } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 
 export default function Dashboard() {
   const { currentUser } = useMySQLAuth()
+
+  const userTimezoneRaw = (currentUser as any)?.timezone as string | undefined
+  const timezoneLabel = userTimezoneRaw || 'Local time'
+
+  const tzConfig = useMemo(() => {
+    const tz = (userTimezoneRaw || '').trim()
+
+    if (!tz) return { type: 'local' as const }
+
+    if (tz.toUpperCase() === 'UTC') return { type: 'iana' as const, iana: 'UTC' }
+
+    if (tz.includes('/')) return { type: 'iana' as const, iana: tz }
+
+    const gmtMatch = tz.match(/GMT\s*([+-])\s*(\d{1,2})/i)
+    if (gmtMatch) {
+      const sign = gmtMatch[1] === '-' ? -1 : 1
+      const hours = Number.parseInt(gmtMatch[2], 10)
+      if (Number.isFinite(hours)) {
+        return { type: 'offset' as const, offsetHours: sign * hours }
+      }
+    }
+
+    return { type: 'local' as const }
+  }, [userTimezoneRaw])
+
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const timeText = useMemo(() => {
+    try {
+      if (tzConfig.type === 'iana') {
+        return new Intl.DateTimeFormat(undefined, {
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+          timeZone: tzConfig.iana
+        }).format(now)
+      }
+
+      if (tzConfig.type === 'offset') {
+        const utcMs = now.getTime() + now.getTimezoneOffset() * 60 * 1000
+        const shifted = new Date(utcMs + tzConfig.offsetHours * 60 * 60 * 1000)
+        return shifted.toLocaleTimeString(undefined, {
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true
+        })
+      }
+
+      return now.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      })
+    } catch {
+      return now.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      })
+    }
+  }, [now, tzConfig])
 
   const displayName = currentUser?.name || currentUser?.email || 'User'
   const roleLabel = currentUser?.role
@@ -44,7 +115,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="flex min-h-[320px] items-center rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-800/60 sm:p-8">
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center text-center">
+        <div className="text-6xl font-extrabold tracking-tight text-gray-900 dark:text-white sm:text-7xl">
+          {timeText}
+        </div>
+        <div className="mt-1 text-sm font-medium text-gray-600 dark:text-gray-300">
+          {timezoneLabel}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border-2 border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800/60 sm:p-8">
         <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-600/10 dark:bg-primary-500/15">
             <Clock className="h-7 w-7 text-primary-600 dark:text-primary-400" />
@@ -65,7 +145,7 @@ export default function Dashboard() {
             </Link>
             <Link
               to="/projects"
-              className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
+              className="inline-flex items-center justify-center gap-2 rounded-md border-2 border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700"
             >
               <FolderKanban className="h-4 w-4" />
               Manage Projects
@@ -77,7 +157,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Link
           to="/tracker"
-          className="group flex min-h-[110px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-800/60"
+          className="group flex min-h-[110px] rounded-xl border-2 border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800/60"
         >
           <div className="flex items-start gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-600/10 dark:bg-primary-500/15">
@@ -95,7 +175,7 @@ export default function Dashboard() {
 
         <Link
           to="/projects"
-          className="group flex min-h-[110px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-800/60"
+          className="group flex min-h-[110px] rounded-xl border-2 border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800/60"
         >
           <div className="flex items-start gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-600/10 dark:bg-green-500/15">
@@ -113,7 +193,7 @@ export default function Dashboard() {
 
         <Link
           to="/reports"
-          className="group flex min-h-[110px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-800/60"
+          className="group flex min-h-[110px] rounded-xl border-2 border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800/60"
         >
           <div className="flex items-start gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-600/10 dark:bg-purple-500/15">
