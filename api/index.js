@@ -173,6 +173,20 @@ const taskSchema = Joi.object({
   teamId: Joi.string().optional()
 });
 
+const taskUpdateSchema = Joi.object({
+  title: Joi.string().optional(),
+  description: Joi.string().optional(),
+  projectId: Joi.string().optional(),
+  status: Joi.string().optional(),
+  priority: Joi.string().optional(),
+  assigneeId: Joi.string().allow('', null).optional(),
+  dueDate: Joi.date().allow('', null).optional(),
+  estimatedHours: Joi.number().min(0).allow(null).optional(),
+  tags: Joi.array().items(Joi.string()).optional(),
+  parentTaskId: Joi.string().allow('', null).optional(),
+  teamId: Joi.string().allow('', null).optional()
+}).min(1);
+
 // Utility functions
 const formatTimeFromSeconds = (seconds) => {
   const hours = Math.floor(seconds / 3600);
@@ -2962,12 +2976,11 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
 app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { error, value } = taskSchema.validate(req.body);
+    const { error, value } = taskUpdateSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
-    
-    const userId = req.user.uid;
+
     const companyId = req.user.companyId;
     
     // Check if task exists and user has access
@@ -3004,10 +3017,6 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         { id: 'priority_3', name: 'Urgent', color: '#DC2626', level: 4 }
       ];
       
-      // Find the actual status and priority objects based on the IDs provided
-      const status = defaultStatuses.find(s => s.id === value.status) || defaultStatuses[0];
-      const priority = defaultPriorities.find(p => p.id === value.priority) || defaultPriorities[0];
-      
       // Update task
       const fields = [];
       const values = [];
@@ -3021,10 +3030,12 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         values.push(value.description);
       }
       if (value.status !== undefined) {
+        const status = defaultStatuses.find(s => s.id === value.status) || defaultStatuses[0];
         fields.push('status_id = ?', 'status_name = ?', 'status_color = ?', 'status_order = ?', 'status_is_completed = ?');
         values.push(status.id, status.name, status.color, status.order, status.isCompleted ? 1 : 0);
       }
       if (value.priority !== undefined) {
+        const priority = defaultPriorities.find(p => p.id === value.priority) || defaultPriorities[0];
         fields.push('priority_id = ?', 'priority_name = ?', 'priority_color = ?', 'priority_level = ?');
         values.push(priority.id, priority.name, priority.color, priority.level);
       }

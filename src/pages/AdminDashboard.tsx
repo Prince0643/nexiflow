@@ -165,12 +165,8 @@ export default function AdminDashboard() {
         const allowedUsers = new Set(usersData.map(u => u.id))
         scopedTimeEntries = timeEntriesData.filter((te: TimeEntry) => te.userId && allowedUsers.has(te.userId))
         scopedRunningTimeEntries = runningTimeEntriesData.filter((te: TimeEntry) => te.userId && allowedUsers.has(te.userId))
-        // Filter by company
-        scopedProjects = projectsData.filter((p: Project) => (p as any).companyId === currentUser?.companyId)
-        scopedClients = clientsData.filter((client: Client) => (client as any).companyId === currentUser?.companyId)
-        scopedTeams = teamsData.filter((team: Team) => (team as any).companyId === currentUser?.companyId)
       }
-
+      
       // Filter out time entries with invalid dates
       const validTimeEntries = scopedTimeEntries.filter((entry: any) => {
         // Use startTime as the date field since that's what exists in the data
@@ -864,9 +860,9 @@ export default function AdminDashboard() {
       {activeTab === 'time-entries' && (
         <div className="space-y-6">
           {/* Filters */}
-          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-4 sm:p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div>
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="min-w-[180px] flex-1">
                 <label htmlFor="user-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   User
                 </label>
@@ -885,7 +881,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div>
+              <div className="min-w-[180px] flex-1">
                 <label htmlFor="client-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Client
                 </label>
@@ -904,7 +900,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div>
+              <div className="min-w-[180px] flex-1">
                 <label htmlFor="project-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Project
                 </label>
@@ -923,7 +919,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div>
+              <div className="min-w-[180px] flex-1">
                 <label htmlFor="team-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Team
                 </label>
@@ -942,7 +938,7 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              <div>
+              <div className="min-w-[180px] flex-1">
                 <label htmlFor="date-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Date Range
                 </label>
@@ -961,7 +957,7 @@ export default function AdminDashboard() {
 
               {dateFilter === 'custom' && (
                 <>
-                  <div>
+                  <div className="min-w-[180px] flex-1">
                     <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Start Date
                     </label>
@@ -973,7 +969,7 @@ export default function AdminDashboard() {
                       onChange={(e) => setCustomStartDate(e.target.value)}
                     />
                   </div>
-                  <div>
+                  <div className="min-w-[180px] flex-1">
                     <label htmlFor="end-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       End Date
                     </label>
@@ -989,7 +985,7 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            <div className="mt-4 flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="relative rounded-md shadow-sm">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

@@ -76,7 +76,7 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
   const navigation = getNavigationItems()
 
   return (
-    <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
+    <div className={`fixed inset-y-0 left-0 z-50 w-64 flex-shrink-0 bg-white dark:bg-gray-800 shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
       open ? 'translate-x-0' : '-translate-x-full'
     }`}>
       <div className="flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700 py-5">

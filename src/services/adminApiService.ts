@@ -245,17 +245,29 @@ export const adminTimeEntriesAPI = {
 export const adminProjectsAPI = {
   // Get projects for company
   async getProjectsForCompany(companyId: string | null): Promise<Project[]> {
+    if (!companyId) return []
+
+    // During Firebase -> MySQL migration, some users/companies may still have Firebase-style IDs.
+    // Backend company-scoped routes reject those. Fall back to non-param endpoints.
+    const endpointBase = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
+
     const response = await apiRequest<{
       success: boolean
       data: Project[]
       count: number
-    }>('/projects')
+    }>(endpointBase)
 
     if (!response.success) {
-      throw new Error('Failed to get projects')
+      throw new Error('Failed to get projects for company')
     }
 
-    return response.data
+    return response.data.map((project: Project) => ({
+      ...project,
+      startDate: (project as any).startDate ? new Date((project as any).startDate) : undefined,
+      endDate: (project as any).endDate ? new Date((project as any).endDate) : undefined,
+      createdAt: new Date((project as any).createdAt),
+      updatedAt: new Date((project as any).updatedAt)
+    }))
   },
 
   // Get clients for company

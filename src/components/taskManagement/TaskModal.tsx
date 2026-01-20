@@ -254,16 +254,32 @@ export default function TaskModal({
         }
       }
 
-      // Clean the taskData to remove undefined values before saving
+      // Build API payload (avoid sending form-only fields like statusId/priorityId)
       const cleanTaskData: any = {
-        ...taskData,
+        title: taskData.title,
+        description: taskData.description,
+        projectId: taskData.projectId,
         status: taskData.status.id,
-        priority: taskData.priority.id
+        priority: taskData.priority.id,
+        assigneeId: taskData.assigneeId,
+        dueDate: taskData.dueDate,
+        estimatedHours: taskData.estimatedHours,
+        actualHours: taskData.actualHours,
+        tags: taskData.tags,
+        parentTaskId: taskData.parentTaskId,
+        teamId: taskData.teamId
       }
       
       // Remove undefined values to ensure data consistency
       Object.keys(cleanTaskData).forEach(key => {
         if (cleanTaskData[key] === undefined) {
+          delete cleanTaskData[key]
+        }
+      })
+
+      // Remove empty strings for optional fields (backend Joi does not accept empty strings)
+      Object.keys(cleanTaskData).forEach(key => {
+        if (typeof cleanTaskData[key] === 'string' && cleanTaskData[key].trim() === '') {
           delete cleanTaskData[key]
         }
       })
