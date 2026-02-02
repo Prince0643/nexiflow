@@ -16,6 +16,7 @@ import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, isS
 import { timeEntryService } from '../services/timeEntryService'
 import { projectService } from '../services/projectService'
 import { pdfSettingsService } from '../services/pdfSettingsService'
+import { invoiceApiService } from '../services/invoiceApiService'
 import { Client, TimeEntry, Project } from '../types'
 import { formatSecondsToHHMMSS, formatCurrency } from '../utils'
 import { generateIndividualClientPDF } from '../utils/pdfExport'
@@ -83,6 +84,11 @@ export default function NewInvoice() {
         setFilteredEntries([])
         return
       }
+
+      if (!currentUser?.uid) {
+        setFilteredEntries([])
+        return
+      }
       
       try {
         const start = new Date(startDate)
@@ -90,7 +96,7 @@ export default function NewInvoice() {
         end.setHours(23, 59, 59, 999) // Include the entire end day
         
         // Load time entries for the date range
-        const entries = await timeEntryService.getAllTimeEntriesByDateRange(start, end)
+        const entries = await timeEntryService.getTimeEntriesByDateRange(currentUser.uid, start, end)
         
         // Filter for the selected client and billable entries
         const clientProjects = projects.filter(project => project.clientId === selectedClient)
@@ -115,7 +121,7 @@ export default function NewInvoice() {
     }
     
     loadTimeEntries()
-  }, [startDate, endDate, selectedClient, projects])
+  }, [startDate, endDate, selectedClient, projects, currentUser])
   
   // Calculate totals
   const calculateTotals = () => {
@@ -323,24 +329,53 @@ export default function NewInvoice() {
       return
     }
     
-    // In a real app, you would save the invoice data here
-    console.log({
-      invoiceNumber,
-      startDate,
-      endDate,
-      clientId: selectedClient,
-      timeEntries: filteredEntries.map(entry => entry.id),
-      totalHours: totals.totalHours,
-      totalAmount: totals.totalAmount,
-      notes,
-      status: action === 'send' ? 'sent' : 'draft'
-    })
-    
-    // Show success message
-    alert(`Invoice ${action === 'send' ? 'sent' : 'saved'} successfully!`)
-    
-    // Navigate back to invoicing page
-    navigate('/invoicing')
+    const saveInvoice = async () => {
+      try {
+        const client = clients.find(c => c.id === selectedClient)
+
+        const hourlyRate = client?.hourlyRate ?? null
+        const currency = client?.currency ?? null
+
+        const status: 'draft' | 'sent' = action === 'send' ? 'sent' : 'draft'
+
+        const payload = {
+          invoiceNumber,
+          clientId: selectedClient,
+          startDate,
+          endDate,
+          status,
+          notes: notes || null,
+          currency,
+          hourlyRate,
+          items: filteredEntries.map(entry => {
+            const duration = entry.duration
+            const rate = typeof hourlyRate === 'number' ? hourlyRate : null
+            const amount = typeof hourlyRate === 'number' ? (duration / 3600) * hourlyRate : null
+
+            return {
+              timeEntryId: entry.id || null,
+              projectId: entry.projectId || null,
+              description: entry.description || null,
+              startTime: entry.startTime,
+              endTime: entry.endTime || null,
+              duration,
+              rate,
+              amount
+            }
+          })
+        }
+
+        await invoiceApiService.createInvoice(payload)
+
+        alert(`Invoice ${action === 'send' ? 'sent' : 'saved'} successfully!`)
+        navigate('/invoicing')
+      } catch (error) {
+        console.error('Error saving invoice:', error)
+        alert('Failed to save invoice')
+      }
+    }
+
+    saveInvoice()
   }
   
   return (
@@ -505,8 +540,8 @@ export default function NewInvoice() {
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {filteredEntries.map((entry) => (
-                        <tr key={entry.id}>
+                      {filteredEntries.map((entry, index) => (
+                        <tr key={`${entry.id || 'missing-id'}-${new Date(entry.startTime).toISOString()}-${entry.projectId || 'no-project'}-${index}`}>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                             {new Date(entry.startTime).toLocaleDateString()}
                           </td>

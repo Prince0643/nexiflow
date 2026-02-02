@@ -95,11 +95,20 @@ export const formatRelativeTime = (date: Date): string => {
   return formatDistance(date, new Date(), { addSuffix: true })
 }
 
-export const formatCurrency = (amount: number, currency: string = 'USD'): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-  }).format(amount)
+export const formatCurrency = (amount: number, currency: string | null | undefined = 'USD'): string => {
+  const resolvedCurrency = currency || 'USD'
+
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: resolvedCurrency,
+    }).format(amount)
+  } catch {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(amount)
+  }
 }
 
 export const generateId = (): string => {

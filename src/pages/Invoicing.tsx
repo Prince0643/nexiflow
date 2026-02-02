@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   FileText, 
@@ -9,73 +9,19 @@ import {
   Eye, 
   Send, 
   MoreVertical,
-  Calendar,
-  DollarSign,
-  User,
   Building2,
   CheckCircle,
-  Clock,
   XCircle
 } from 'lucide-react'
+import { invoiceApiService } from '../services/invoiceApiService'
+import { formatCurrency } from '../utils'
 
 export default function Invoicing() {
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  
-  // Mock data for invoices
-  const invoices = [
-    {
-      id: 'INV-001',
-      client: 'Acme Corporation',
-      clientEmail: 'contact@acme.com',
-      date: '2023-05-15',
-      dueDate: '2023-06-15',
-      amount: 2450.00,
-      status: 'paid',
-      project: 'Website Redesign'
-    },
-    {
-      id: 'INV-002',
-      client: 'Globex Inc.',
-      clientEmail: 'billing@globex.com',
-      date: '2023-05-20',
-      dueDate: '2023-06-20',
-      amount: 1875.50,
-      status: 'sent',
-      project: 'Mobile App Development'
-    },
-    {
-      id: 'INV-003',
-      client: 'Stark Industries',
-      clientEmail: 'accounts@starkindustries.com',
-      date: '2023-05-25',
-      dueDate: '2023-06-25',
-      amount: 3200.00,
-      status: 'draft',
-      project: 'API Integration'
-    },
-    {
-      id: 'INV-004',
-      client: 'Wayne Enterprises',
-      clientEmail: 'finance@wayne.com',
-      date: '2023-04-10',
-      dueDate: '2023-05-10',
-      amount: 5600.75,
-      status: 'overdue',
-      project: 'Cloud Migration'
-    },
-    {
-      id: 'INV-005',
-      client: 'Umbrella Corp',
-      clientEmail: 'billing@umbrella.com',
-      date: '2023-05-28',
-      dueDate: '2023-06-28',
-      amount: 1250.25,
-      status: 'sent',
-      project: 'Security Audit'
-    }
-  ]
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(false)
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -102,10 +48,30 @@ export default function Invoicing() {
     }
   }
 
+  useEffect(() => {
+    const loadInvoices = async () => {
+      setIsLoading(true)
+      try {
+        const response = await invoiceApiService.getInvoices()
+        if (response.success) {
+          setInvoices(response.data)
+        } else {
+          setInvoices([])
+        }
+      } catch (error) {
+        console.error('Error loading invoices:', error)
+        setInvoices([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadInvoices()
+  }, [])
+
   const filteredInvoices = invoices.filter(invoice => {
-    const matchesSearch = invoice.client.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         invoice.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         invoice.project.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = (invoice.client_name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                         (invoice.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter
     
@@ -241,8 +207,7 @@ export default function Invoicing() {
               {filteredInvoices.map((invoice) => (
                 <tr key={invoice.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900 dark:text-white">{invoice.id}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">{invoice.project}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">{invoice.invoice_number}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -250,19 +215,18 @@ export default function Invoicing() {
                         <Building2 className="h-5 w-5 text-gray-600 dark:text-gray-300" />
                       </div>
                       <div className="ml-4">
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">{invoice.client}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">{invoice.clientEmail}</div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">{invoice.client_name || 'Unknown client'}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                    {new Date(invoice.date).toLocaleDateString()}
+                    {invoice.start_date ? new Date(invoice.start_date).toLocaleDateString() : ''}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                    {new Date(invoice.dueDate).toLocaleDateString()}
+                    {invoice.end_date ? new Date(invoice.end_date).toLocaleDateString() : ''}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                    ${invoice.amount.toFixed(2)}
+                    {formatCurrency(Number(invoice.total_amount || 0), invoice.currency)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(invoice.status)}
@@ -286,13 +250,19 @@ export default function Invoicing() {
           </table>
         </div>
         
-        {filteredInvoices.length === 0 && (
+        {(isLoading || filteredInvoices.length === 0) && (
           <div className="text-center py-12">
             <FileText className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No invoices found</h3>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Try adjusting your search or filter criteria
-            </p>
+            {isLoading ? (
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">Loading invoices...</h3>
+            ) : (
+              <>
+                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No invoices found</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  Try adjusting your search or filter criteria
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -302,65 +272,8 @@ export default function Invoicing() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h2>
         <div className="flow-root">
           <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-            <li className="py-4">
-              <div className="flex items-center space-x-4">
-                <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                    <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    Invoice INV-001 marked as paid
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                    Acme Corporation - $2,450.00
-                  </p>
-                </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  2 hours ago
-                </div>
-              </div>
-            </li>
-            <li className="py-4">
-              <div className="flex items-center space-x-4">
-                <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                    <Send className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    Invoice INV-002 sent to Globex Inc.
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                    Mobile App Development - $1,875.50
-                  </p>
-                </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  1 day ago
-                </div>
-              </div>
-            </li>
-            <li className="py-4">
-              <div className="flex items-center space-x-4">
-                <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                    <FileText className="h-5 w-5 text-gray-600 dark:text-gray-300" />
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    Invoice INV-005 created for Umbrella Corp
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                    Security Audit - $1,250.25
-                  </p>
-                </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  2 days ago
-                </div>
-              </div>
+            <li className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              No recent activity
             </li>
           </ul>
         </div>

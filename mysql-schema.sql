@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 02, 2026 at 08:42 AM
+-- Generation Time: Jan 20, 2026 at 08:44 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -131,6 +131,13 @@ CREATE TABLE `company_pdf_settings` (
   `custom_footer_text` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `company_pdf_settings`
+--
+
+INSERT INTO `company_pdf_settings` (`id`, `company_id`, `company_name`, `logo_url`, `primary_color`, `secondary_color`, `show_powered_by`, `custom_footer_text`) VALUES
+(0, '-OcIvOSsBcP5krq0HXvK', 'Tropang Emman', 'https://storage.googleapis.com/msgsndr/nb61f4OQ7o9Wsxx0zOsY/media/68d4be162c411b0e42d2f111.png', '#3B82F6', '#10B981', 1, '');
+
 -- --------------------------------------------------------
 
 --
@@ -228,6 +235,7 @@ INSERT INTO `projects` (`id`, `name`, `description`, `color`, `status`, `priorit
 ('-OgAx2tx4TQKY4e1S8nu', 'Client Meeting', NULL, '#10B981', 'active', 'medium', NULL, NULL, NULL, '-Og-kvT161P6wCwy_38v', NULL, 0, 'IqfD9WycDNYq0K0nL7zoJwQvA323', '2025-12-10 21:48:36', '2025-12-26 04:09:47', '-OaF0Sp0pgZKkfQXuyK8', 17, NULL, NULL),
 ('-OgAx7FIZEXIqg-wr0jI', 'Documentation', NULL, '#10B981', 'active', 'medium', NULL, NULL, NULL, '-Og-kvT161P6wCwy_38v', NULL, 0, 'IqfD9WycDNYq0K0nL7zoJwQvA323', '2025-12-10 21:48:53', '2025-12-26 04:09:47', '-OaF0Sp0pgZKkfQXuyK8', 17, NULL, NULL),
 ('-OgAxWrYMlUuPX1wv5i7', 'Automation', NULL, '#10B981', 'active', 'medium', NULL, NULL, NULL, '-Og-kvT161P6wCwy_38v', NULL, 0, 'IqfD9WycDNYq0K0nL7zoJwQvA323', '2025-12-10 21:50:38', '2025-12-26 04:09:47', '-OaF0Sp0pgZKkfQXuyK8', 17, NULL, NULL),
+('cd680120-fa7a-4e8e-9f06-8405a948fb82', 'Proj1', 'Proj1', '#3B82F6', 'active', 'medium', NULL, NULL, NULL, '-Og9l6DRPhYttqaW0SbY', 'Sarah Martinez', 0, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', '2026-01-20 05:45:03', '2026-01-20 05:45:32', '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL),
 ('fc3a2133-2fc4-4f2a-8644-da3ea7427cef', 'client proj', 'test', '#3B82F6', 'active', 'medium', NULL, NULL, NULL, '076aed3d-5ef4-4b61-9504-5d9ba1bc31dd', 'test id ', 0, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', '2025-12-26 07:32:54', '2025-12-26 07:32:54', '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL);
 
 -- --------------------------------------------------------
@@ -395,10 +403,11 @@ INSERT INTO `tasks` (`id`, `title`, `description`, `notes`, `project_id`, `proje
 ('-Odl_W6pOYH46SoxQiTS', 'core', 'video sa website ioptimize', NULL, '-OaXrOkWMqGQE9d-3fMl', NULL, 'status_0', NULL, NULL, NULL, 0, 'priority_0', NULL, NULL, NULL, 'NftSf9kvaEMwvrlEyWKo1QCDshU2', 'Prince Tolentino', NULL, NULL, NULL, NULL, 0, NULL, 'NftSf9kvaEMwvrlEyWKo1QCDshU2', 'Prince Tolentino', '2025-11-10 22:24:11', '2025-12-10 07:16:28', NULL, '-OaI_CBRxCNUYScosId9', '-OaF0Sp0pgZKkfQXuyK8', NULL, NULL, NULL, NULL),
 ('-Odm-nlz1mRt2amIz-Jk', '40 Contents for Lead Sales Team', '- Created new social media post content for the Sales Team regarding to the Ultimate Roadmap context 17/40.\n- https://drive.google.com/drive/folders/1427xbmNTP711w0XLDXM3w7fRLu51-LgM', NULL, '-Oc9plZouQmrgmCs0udx', 'Graphics / Thumbnail', 'status_1', NULL, NULL, NULL, 0, 'priority_1', NULL, NULL, NULL, 'dYMNyLpVH6XmDVMJk8QQMvj8NWX2', 'Ryan Gonzales', NULL, NULL, NULL, NULL, 0, NULL, 'dYMNyLpVH6XmDVMJk8QQMvj8NWX2', 'Ryan Gonzales', '2025-11-11 00:23:26', '2025-11-17 00:24:38', NULL, '-OaI_CBRxCNUYScosId9', '-OaF0Sp0pgZKkfQXuyK8', NULL, NULL, NULL, NULL),
 ('-Of4SJQXwlj567kbgevq', 'Website of Nexistry Digital Solutions', 'Added Project Portfolio, fix menu, added testmonial videos', NULL, '-Oeaat3-rC4DGpDMsG6p', NULL, 'status_2', NULL, NULL, NULL, 0, 'priority_0', NULL, NULL, NULL, '9gcUwwHP9vRYPW2tUKso2eAscdw1', 'Daniel Rillera', NULL, NULL, NULL, NULL, 0, NULL, '9gcUwwHP9vRYPW2tUKso2eAscdw1', 'Daniel Rillera', '2025-11-27 05:16:28', '2025-11-27 05:16:28', NULL, '-OaI_CBRxCNUYScosId9', '-OaF0Sp0pgZKkfQXuyK8', NULL, NULL, NULL, NULL),
-('-OfWeOz83jcRvMiZhx3Y', 'Website', 'create graphics', 'hello', '-OfWe78LHijCt_VqHPi_', 'Build Website', 'status_0', NULL, NULL, NULL, 0, 'priority_1', NULL, NULL, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', NULL, '2025-12-04', 3.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-02 16:43:00', '2025-12-10 18:52:14', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL, NULL),
+('-OfWeOz83jcRvMiZhx3Y', 'Website', 'createeee', 'hello', '-OfWe78LHijCt_VqHPi_', 'Build Website', 'status_0', 'To Do', '#6B7280', 0, 0, 'priority_1', 'Medium', '#F59E0B', 2, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', NULL, '2025-12-03', 3.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-02 16:43:00', '2026-01-20 06:04:05', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', '[]', NULL, NULL, NULL),
 ('-OgAIDQkFB8ZyyOymAtE', 'John Doe - Project Review', 'Review project scope and deliverables for John Doe\'s account', NULL, '-OfWe78LHijCt_VqHPi_', NULL, 'status_0', NULL, NULL, NULL, 0, 'priority_2', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 4.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-10 18:45:48', '2025-12-10 18:52:33', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL, NULL),
-('-OgAIoNPfH9YxeAE-5Tk', 'Sarah Martinez - Design Feedback', 'Gather and review design feedback from Sarah Martinez for UI/UX improvements', 'test\n', '-Og9lguRfgvd51jbRHEJ', NULL, 'status_0', NULL, NULL, NULL, 0, 'priority_2', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-10 18:48:24', '2025-12-10 18:52:55', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL, NULL),
-('-OgAIWQsRUzyNgXPyCZL', 'Michael Chen - Client Meeting', 'Schedule and conduct meeting with Michael Chen to discuss project progress', NULL, '-Og9ltQNd0oY7q2aGGHR', 'E-Commerce Platform Redesign', 'status_2', NULL, NULL, NULL, 0, 'priority_1', NULL, NULL, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', NULL, NULL, 2.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-10 18:47:06', '2025-12-10 18:51:48', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL, NULL);
+('-OgAIoNPfH9YxeAE-5Tk', 'Sarah Martinez - Design Feedback', 'Gather and review design feedback from Sarah Martinez for UI/UX improvements', 'test\n', '-Og9lguRfgvd51jbRHEJ', NULL, 'status_0', 'To Do', '#6B7280', 0, 0, 'priority_2', 'High', '#EF4444', 3, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', NULL, NULL, '2026-01-21', 3.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-10 18:48:24', '2026-01-20 06:08:39', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', '[]', NULL, NULL, NULL),
+('-OgAIWQsRUzyNgXPyCZL', 'Michael Chen - Client Meeting', 'Schedule and conduct meeting with Michael Chen to discuss project progress', NULL, '-Og9ltQNd0oY7q2aGGHR', 'E-Commerce Platform Redesign', 'status_2', 'Review', '#F59E0B', 2, 0, 'priority_1', NULL, NULL, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', NULL, NULL, 2.00, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2025-12-10 18:47:06', '2026-01-20 05:58:34', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', NULL, NULL, NULL, NULL),
+('task_1768889754678_utduotka1', 'Yow', 'yow', NULL, '-OcIvOSsBcP5krq0HXvK', '', 'status_0', 'To Do', '#6B7280', 0, 0, 'priority_1', 'Medium', '#F59E0B', 2, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', NULL, NULL, '2026-01-21', NULL, NULL, 0, NULL, 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', '2026-01-20 06:15:54', '2026-01-20 06:16:21', NULL, NULL, '-OcIvOSsBcP5krq0HXvK', '[]', '[]', '[]', '[]');
 
 -- --------------------------------------------------------
 
@@ -2742,7 +2751,9 @@ INSERT INTO `time_entries` (`id`, `user_id`, `company_id`, `project_id`, `projec
 ('db9074f9-6f1c-4420-853a-c94249b0d96c', 'QbclXdG1I1craJqYsGcVQSY7i9L2', '-OaF0Sp0pgZKkfQXuyK8', NULL, 'Video Demo', '-OaHdsmqBOMH8PjjyVdp', 'Nexistry Digital Solutions', 'fdsaaaaaaa', '2025-12-22 08:40:17', '2025-12-22 08:40:17', 18, 0, 1, NULL, '2025-12-22 08:39:59', '2025-12-22 08:40:17'),
 ('87f75812-f19d-4f75-9379-5404b921606f', 'QbclXdG1I1craJqYsGcVQSY7i9L2', '-OaF0Sp0pgZKkfQXuyK8', NULL, 'General Task', '-OaHdsmqBOMH8PjjyVdp', 'Nexistry Digital Solutions', 'tags', '2025-12-22 08:41:44', '2025-12-22 08:41:44', 10, 0, 0, NULL, '2025-12-22 08:41:34', '2025-12-22 08:41:44'),
 ('8e5a1c04-17aa-4e35-b4fc-1d5fbf6fc71e', 'QbclXdG1I1craJqYsGcVQSY7i9L2', '-OaF0Sp0pgZKkfQXuyK8', NULL, 'General Task', '-OaHdsmqBOMH8PjjyVdp', 'Nexistry Digital Solutions', 'tags', '2025-12-22 08:50:15', '2025-12-22 08:50:15', 12, 0, 1, '[\"tags\"]', '2025-12-22 08:50:03', '2025-12-22 08:50:15'),
-('3573cb48-1c46-43ca-acff-863dc76fb72b', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', '-OcIvOSsBcP5krq0HXvK', 'fc3a2133-2fc4-4f2a-8644-da3ea7427cef', 'client proj', '076aed3d-5ef4-4b61-9504-5d9ba1bc31dd', 'test id ', 'fdsfds', '2025-12-25 15:43:00', '2025-12-26 04:53:00', 76248, 0, 1, '[\"tag\"]', '2025-12-26 07:43:07', '2025-12-26 07:55:13');
+('3573cb48-1c46-43ca-acff-863dc76fb72b', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', '-OcIvOSsBcP5krq0HXvK', 'fc3a2133-2fc4-4f2a-8644-da3ea7427cef', 'client proj', '076aed3d-5ef4-4b61-9504-5d9ba1bc31dd', 'test id ', 'fdsfds', '2025-12-25 15:43:00', '2025-12-26 04:53:00', 76248, 0, 1, '[\"tag\"]', '2025-12-26 07:43:07', '2025-12-26 07:55:13'),
+('ea9f5550-98db-496a-a383-dd07a712defb', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', '-OcIvOSsBcP5krq0HXvK', NULL, 'Build Website', '-OfWe1PGtnO2BgY8GZZX', 'John Doe', 'yes', '2026-01-20 04:58:07', '2026-01-20 04:58:07', 14, 0, 0, '[]', '2026-01-20 04:57:53', '2026-01-20 04:58:07'),
+('5a60ec5d-bdd8-43e6-a7ee-12f15f5babd1', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', '-OcIvOSsBcP5krq0HXvK', NULL, 'test proj', '-OcIvOSsBcP5krq0HXvK', 'nica gomez', 'dsadsadsa', '2026-01-20 06:47:30', '2026-01-20 06:47:30', 8, 0, 1, '[]', '2026-01-20 06:47:22', '2026-01-20 06:53:05');
 
 -- --------------------------------------------------------
 

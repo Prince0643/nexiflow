@@ -2077,6 +2077,190 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
   }
 });
 
+// Invoices API
+
+const invoiceCreateSchema = Joi.object({
+  invoiceNumber: Joi.string().required(),
+  clientId: Joi.string().required(),
+  startDate: Joi.date().required(),
+  endDate: Joi.date().required(),
+  status: Joi.string().valid('draft', 'sent', 'paid', 'void').default('draft'),
+  notes: Joi.string().allow('', null).optional(),
+  currency: Joi.string().allow('', null).optional(),
+  hourlyRate: Joi.number().min(0).allow(null).optional(),
+  items: Joi.array().items(Joi.object({
+    timeEntryId: Joi.string().allow('', null).optional(),
+    projectId: Joi.string().allow('', null).optional(),
+    description: Joi.string().allow('', null).optional(),
+    startTime: Joi.date().optional(),
+    endTime: Joi.date().allow(null).optional(),
+    duration: Joi.number().min(0).required(),
+    rate: Joi.number().min(0).allow(null).optional(),
+    amount: Joi.number().min(0).allow(null).optional()
+  })).min(1).required()
+});
+
+app.post('/api/invoices', authenticateToken, async (req, res) => {
+  const { error, value } = invoiceCreateSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      error: error.details[0].message
+    });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    const invoiceId = uuidv4();
+
+    const clientId = value.clientId;
+    const invoiceNumber = value.invoiceNumber;
+    const startDate = moment(value.startDate).format('YYYY-MM-DD');
+    const endDate = moment(value.endDate).format('YYYY-MM-DD');
+    const status = value.status || 'draft';
+    const notes = value.notes ?? null;
+    const currency = value.currency ?? null;
+    const hourlyRate = typeof value.hourlyRate === 'number' ? value.hourlyRate : null;
+
+    const createdBy = req.user.uid;
+    const companyId = req.user.companyId || null;
+
+    const totalSeconds = value.items.reduce((sum, item) => sum + (item.duration || 0), 0);
+    const totalAmount = value.items.reduce((sum, item) => {
+      const amount = typeof item.amount === 'number'
+        ? item.amount
+        : ((item.duration || 0) / 3600) * (typeof item.rate === 'number' ? item.rate : (hourlyRate || 0));
+      return sum + (Number.isFinite(amount) ? amount : 0);
+    }, 0);
+
+    await connection.beginTransaction();
+
+    await connection.execute(
+      `INSERT INTO invoices (
+        id, invoice_number, client_id, company_id, created_by,
+        start_date, end_date, status,
+        currency, hourly_rate,
+        total_seconds, total_amount,
+        notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        invoiceId,
+        invoiceNumber,
+        clientId,
+        companyId,
+        createdBy,
+        startDate,
+        endDate,
+        status,
+        currency,
+        hourlyRate,
+        totalSeconds,
+        totalAmount,
+        notes
+      ]
+    );
+
+    for (const item of value.items) {
+      const itemId = uuidv4();
+      const duration = item.duration || 0;
+      const rate = typeof item.rate === 'number' ? item.rate : hourlyRate;
+      const amount = typeof item.amount === 'number'
+        ? item.amount
+        : (duration / 3600) * (typeof rate === 'number' ? rate : 0);
+
+      await connection.execute(
+        `INSERT INTO invoice_items (
+          id, invoice_id, time_entry_id, project_id,
+          description, start_time, end_time, duration,
+          rate, amount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          itemId,
+          invoiceId,
+          item.timeEntryId || null,
+          item.projectId || null,
+          item.description ?? null,
+          item.startTime ? moment(item.startTime).format('YYYY-MM-DD HH:mm:ss') : null,
+          item.endTime ? moment(item.endTime).format('YYYY-MM-DD HH:mm:ss') : null,
+          duration,
+          rate,
+          amount
+        ]
+      );
+    }
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        id: invoiceId,
+        invoiceNumber,
+        status,
+        totalSeconds,
+        totalAmount
+      }
+    });
+  } catch (err) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore rollback errors
+    }
+    console.error('Error creating invoice:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create invoice'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+app.get('/api/invoices', authenticateToken, async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT 
+          i.id,
+          i.invoice_number,
+          i.client_id,
+          c.name AS client_name,
+          i.start_date,
+          i.end_date,
+          i.status,
+          i.currency,
+          i.hourly_rate,
+          i.total_seconds,
+          i.total_amount,
+          i.notes,
+          i.created_at,
+          i.updated_at
+        FROM invoices i
+        LEFT JOIN clients c ON c.id = i.client_id
+        WHERE i.created_by = ?
+        ORDER BY i.created_at DESC`,
+        [req.user.uid]
+      );
+
+      return res.json({
+        success: true,
+        data: rows,
+        count: rows.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (err) {
+    console.error('Error fetching invoices:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch invoices'
+    });
+  }
+});
+
 // Projects API
 const mapProjectRow = (row) => ({
   id: row.id,
