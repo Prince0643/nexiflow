@@ -218,8 +218,10 @@ export default function AdminDashboard() {
         }
       })
 
+      const uniqueTimeEntries = dedupeById<TimeEntry>(enrichedTimeEntries)
+
       setUsers(uniqueUsers)
-      setTimeEntries(enrichedTimeEntries)
+      setTimeEntries(uniqueTimeEntries)
       setRunningTimeEntries(scopedRunningTimeEntries)
       setProjects(uniqueProjects)
       setClients(uniqueClients)
