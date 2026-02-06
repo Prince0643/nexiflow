@@ -11,6 +11,13 @@ export interface CreateInvoiceItemRequest {
   amount?: number | null
 }
 
+export interface SendInvoiceRequest {
+  pdfBase64: string
+  fileName?: string | null
+  subject?: string | null
+  message?: string | null
+}
+
 export interface CreateInvoiceRequest {
   invoiceNumber: string
   clientId: string
@@ -34,6 +41,14 @@ export interface CreateInvoiceResponse {
   }
 }
 
+export interface InvoiceDetailsResponse {
+  success: boolean
+  data: {
+    invoice: any
+    items: any[]
+  }
+}
+
 export const invoiceApiService = {
   async createInvoice(payload: CreateInvoiceRequest): Promise<CreateInvoiceResponse> {
     return apiRequest<CreateInvoiceResponse>('/invoices', {
@@ -44,5 +59,16 @@ export const invoiceApiService = {
 
   async getInvoices(): Promise<{ success: boolean; data: any[]; count: number }> {
     return apiRequest<{ success: boolean; data: any[]; count: number }>('/invoices')
+  },
+
+  async getInvoiceDetails(invoiceId: string): Promise<InvoiceDetailsResponse> {
+    return apiRequest<InvoiceDetailsResponse>(`/invoices/${invoiceId}`)
+  },
+
+  async sendInvoice(invoiceId: string, payload: SendInvoiceRequest): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>(`/invoices/${invoiceId}/send`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
   }
 }

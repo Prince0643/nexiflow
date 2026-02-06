@@ -547,8 +547,9 @@ export const generateIndividualClientPDF = async (
   includeTimeEntryDuration: boolean = true,
   includeTimeEntryProject: boolean = true,
   includeTimeEntryDescription: boolean = true,
-  includeTimeEntryBillableStatus: boolean = true
-): Promise<void> => {
+  includeTimeEntryBillableStatus: boolean = true,
+  returnBlob: boolean = false
+): Promise<void | Blob> => {
   // Create new PDF document
   const pdf = new jsPDF('p', 'mm', 'a4')
   const pageWidth = pdf.internal.pageSize.getWidth()
@@ -994,8 +995,11 @@ export const generateIndividualClientPDF = async (
   // Add footer to last page
   addFooterToPage(pdf, settings, pageWidth, margin, companyName, currentPage, totalPages);
 
-  // Save the PDF
   const fileName = `client-report-${timeFilter}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+  if (returnBlob) {
+    return pdf.output('blob')
+  }
+
   pdf.save(fileName)
 }
 

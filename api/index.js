@@ -9,6 +9,7 @@ const Joi = require('joi');
 const moment = require('moment');
 const { v4: uuidv4 } = require('uuid');
 const mysql = require('mysql2/promise');
+const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
@@ -77,7 +78,7 @@ app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting
@@ -2258,6 +2259,173 @@ app.get('/api/invoices', authenticateToken, async (req, res) => {
       success: false,
       error: 'Failed to fetch invoices'
     });
+  }
+});
+
+app.get('/api/invoices/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const connection = await pool.getConnection();
+  try {
+    const [invoiceRows] = await connection.execute(
+      `SELECT
+        i.id,
+        i.invoice_number,
+        i.client_id,
+        c.name AS client_name,
+        c.email AS client_email,
+        i.start_date,
+        i.end_date,
+        i.status,
+        i.currency,
+        i.hourly_rate,
+        i.total_seconds,
+        i.total_amount,
+        i.notes,
+        i.created_at,
+        i.updated_at
+      FROM invoices i
+      LEFT JOIN clients c ON c.id = i.client_id
+      WHERE i.id = ? AND i.created_by = ?
+      LIMIT 1`,
+      [id, req.user.uid]
+    );
+
+    if (!invoiceRows || invoiceRows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+
+    const invoice = invoiceRows[0];
+
+    const [itemRows] = await connection.execute(
+      `SELECT
+        ii.id,
+        ii.invoice_id,
+        ii.time_entry_id,
+        ii.project_id,
+        p.name AS project_name,
+        ii.description,
+        ii.start_time,
+        ii.end_time,
+        ii.duration,
+        ii.rate,
+        ii.amount,
+        ii.created_at
+      FROM invoice_items ii
+      LEFT JOIN projects p ON p.id = ii.project_id
+      WHERE invoice_id = ?
+      ORDER BY start_time ASC, created_at ASC`,
+      [id]
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        invoice,
+        items: itemRows
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching invoice details:', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch invoice details' });
+  } finally {
+    connection.release();
+  }
+});
+
+const invoiceSendSchema = Joi.object({
+  pdfBase64: Joi.string().required(),
+  fileName: Joi.string().allow('', null).optional(),
+  subject: Joi.string().allow('', null).optional(),
+  message: Joi.string().allow('', null).optional()
+});
+
+app.post('/api/invoices/:id/send', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { error, value } = invoiceSendSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({ success: false, error: error.details[0].message });
+  }
+
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpPort = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : undefined;
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const smtpFrom = process.env.SMTP_FROM;
+
+  if (!smtpHost || !smtpPort || !smtpUser || !smtpPass || !smtpFrom) {
+    return res.status(500).json({
+      success: false,
+      error: 'SMTP is not configured'
+    });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(
+      `SELECT 
+        i.id,
+        i.invoice_number,
+        i.status,
+        i.client_id,
+        c.name AS client_name,
+        c.email AS client_email
+      FROM invoices i
+      LEFT JOIN clients c ON c.id = i.client_id
+      WHERE i.id = ? AND i.created_by = ?
+      LIMIT 1`,
+      [id, req.user.uid]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Invoice not found' });
+    }
+
+    const invoice = rows[0];
+    const to = invoice.client_email;
+    if (!to) {
+      return res.status(400).json({ success: false, error: 'Client email not found' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: String(process.env.SMTP_SECURE).toLowerCase() === 'true',
+      auth: {
+        user: smtpUser,
+        pass: smtpPass
+      }
+    });
+
+    const pdfBuffer = Buffer.from(value.pdfBase64, 'base64');
+    const fileName = value.fileName || `${invoice.invoice_number || 'invoice'}.pdf`;
+    const subject = value.subject || `Invoice ${invoice.invoice_number}`;
+    const message = value.message || `Hi ${invoice.client_name || ''},\n\nPlease see the attached invoice.\n\nThanks.`;
+
+    await transporter.sendMail({
+      from: smtpFrom,
+      to,
+      subject,
+      text: message,
+      attachments: [
+        {
+          filename: fileName,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }
+      ]
+    });
+
+    await connection.execute(
+      `UPDATE invoices SET status = 'sent' WHERE id = ? AND created_by = ?`,
+      [id, req.user.uid]
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Error sending invoice email:', err);
+    return res.status(500).json({ success: false, error: 'Failed to send invoice email' });
+  } finally {
+    connection.release();
   }
 });
 

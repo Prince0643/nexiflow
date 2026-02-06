@@ -14,7 +14,8 @@ import {
   XCircle
 } from 'lucide-react'
 import { invoiceApiService } from '../services/invoiceApiService'
-import { formatCurrency } from '../utils'
+import { formatCurrency, formatSecondsToHHMMSS } from '../utils'
+import { generateIndividualClientPDF } from '../utils/pdfExport'
 
 export default function Invoicing() {
   const navigate = useNavigate()
@@ -22,6 +23,161 @@ export default function Invoicing() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [invoices, setInvoices] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
+
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(new Error('Failed to read PDF blob'))
+      reader.onload = () => {
+        const result = reader.result
+        if (typeof result !== 'string') {
+          reject(new Error('Failed to convert PDF blob'))
+          return
+        }
+        const commaIndex = result.indexOf(',')
+        resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result)
+      }
+      reader.readAsDataURL(blob)
+    })
+  }
+
+  const buildPdfInputs = async (invoiceId: string) => {
+    const details = await invoiceApiService.getInvoiceDetails(invoiceId)
+    if (!details.success) {
+      throw new Error('Failed to load invoice details')
+    }
+
+    const invoice = details.data.invoice
+    const items = details.data.items || []
+
+    const totalSeconds = Number(invoice.total_seconds || 0)
+    const totalAmount = Number(invoice.total_amount || 0)
+
+    const dailyTotals: Record<string, number> = {}
+    for (const item of items) {
+      const dateValue = item.start_time || item.created_at
+      const date = dateValue ? new Date(dateValue) : null
+      const key = date ? date.toISOString().slice(0, 10) : 'unknown'
+      if (!dailyTotals[key]) dailyTotals[key] = 0
+      dailyTotals[key] += Number(item.duration || 0)
+    }
+
+    const dailyTimeData = Object.keys(dailyTotals)
+      .filter(k => k !== 'unknown')
+      .map(dateKey => ({
+        date: dateKey,
+        hours: dailyTotals[dateKey] / 3600,
+        formattedDate: new Date(dateKey).toLocaleDateString(undefined, { weekday: 'short' })
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+    const timeEntriesForPDF = items.map((item: any) => ({
+      id: item.time_entry_id || item.id,
+      description: item.description || '',
+      projectName: item.project_name || item.project_id || 'No project',
+      clientName: invoice.client_name || 'No client',
+      startTime: item.start_time || null,
+      endTime: item.end_time || null,
+      duration: Number(item.duration || 0),
+      formattedDuration: formatSecondsToHHMMSS(Number(item.duration || 0)),
+      isBillable: true
+    }))
+
+    const start = invoice.start_date ? new Date(invoice.start_date) : new Date()
+    const end = invoice.end_date ? new Date(invoice.end_date) : new Date()
+
+    return {
+      invoice,
+      items,
+      start,
+      end,
+      timeEntriesForPDF,
+      dailyTimeData,
+      clientName: invoice.client_name || 'Client'
+    }
+  }
+
+  const generateInvoicePdfBlob = async (invoiceId: string): Promise<Blob> => {
+    const { invoice, start, end, timeEntriesForPDF, dailyTimeData, clientName } = await buildPdfInputs(invoiceId)
+    const blob = await generateIndividualClientPDF(
+      `Invoice Report - ${clientName}`,
+      {
+        name: clientName,
+        hours: Number(invoice.total_seconds || 0) / 3600,
+        amount: Number(invoice.total_amount || 0),
+        formattedTime: formatSecondsToHHMMSS(Number(invoice.total_seconds || 0)),
+        currency: invoice.currency
+      },
+      'custom',
+      start,
+      end,
+      null,
+      undefined,
+      timeEntriesForPDF,
+      dailyTimeData,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    )
+
+    return blob as Blob
+  }
+
+  const handleView = async (invoiceId: string) => {
+    try {
+      const blob = await generateInvoicePdfBlob(invoiceId)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      console.error('Failed to preview invoice PDF:', err)
+      alert('Failed to preview invoice')
+    }
+  }
+
+  const handleDownload = async (invoice: any) => {
+    try {
+      const blob = await generateInvoicePdfBlob(invoice.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${invoice.invoice_number || 'invoice'}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to download invoice PDF:', err)
+      alert('Failed to download invoice')
+    }
+  }
+
+  const handleMore = async (invoice: any) => {
+    const shouldSend = window.confirm('Send/Resend this invoice via email?')
+    if (!shouldSend) return
+
+    try {
+      const blob = await generateInvoicePdfBlob(invoice.id)
+      const pdfBase64 = await blobToBase64(blob)
+      await invoiceApiService.sendInvoice(invoice.id, {
+        pdfBase64,
+        fileName: `${invoice.invoice_number || 'invoice'}.pdf`
+      })
+      alert('Invoice email sent successfully!')
+      const refreshed = await invoiceApiService.getInvoices()
+      if (refreshed.success) setInvoices(refreshed.data)
+    } catch (err) {
+      console.error('Failed to send invoice email:', err)
+      alert('Failed to send invoice')
+    }
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -233,13 +389,25 @@ export default function Invoicing() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">
-                      <button className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300">
+                      <button
+                        onClick={() => handleView(invoice.id)}
+                        className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300"
+                        type="button"
+                      >
                         <Eye className="h-5 w-5" />
                       </button>
-                      <button className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300">
+                      <button
+                        onClick={() => handleDownload(invoice)}
+                        className="text-primary-600 hover:text-primary-900 dark:text-primary-400 dark:hover:text-primary-300"
+                        type="button"
+                      >
                         <Download className="h-5 w-5" />
                       </button>
-                      <button className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300">
+                      <button
+                        onClick={() => handleMore(invoice)}
+                        className="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
+                        type="button"
+                      >
                         <MoreVertical className="h-5 w-5" />
                       </button>
                     </div>

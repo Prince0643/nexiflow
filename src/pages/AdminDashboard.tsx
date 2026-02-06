@@ -716,10 +716,10 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {runningTimeEntries.map((entry) => {
+                      {runningTimeEntries.map((entry, index) => {
                         const user = getUserById(entry.userId)
                         return (
-                          <tr key={entry.id}>
+                          <tr key={`${entry.id || 'missing-id'}-${new Date(entry.startTime).toISOString()}-${entry.userId || 'no-user'}-${index}`}>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                               {user?.name || 'Unknown User'}
                             </td>
@@ -767,7 +767,7 @@ export default function AdminDashboard() {
                 </div>
                 <input
                   type="text"
-                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
+                  className="h-10 focus:ring-primary-500 focus:border-primary-500 block w-full sm:text-sm border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
                   placeholder="Search users..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -1068,10 +1068,10 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredTimeEntries.map((entry) => {
+                  {filteredTimeEntries.map((entry, index) => {
                     const user = getUserById(entry.userId)
                     return (
-                      <tr key={entry.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                      <tr key={`${entry.id || 'missing-id'}-${new Date(entry.startTime).toISOString()}-${entry.userId || 'no-user'}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                           {user?.name || 'Unknown User'}
                         </td>

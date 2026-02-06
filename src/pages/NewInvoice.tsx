@@ -140,6 +140,23 @@ export default function NewInvoice() {
   
   const totals = calculateTotals()
   
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onerror = () => reject(new Error('Failed to read PDF blob'))
+      reader.onload = () => {
+        const result = reader.result
+        if (typeof result !== 'string') {
+          reject(new Error('Failed to convert PDF blob'))
+          return
+        }
+        const commaIndex = result.indexOf(',')
+        resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result)
+      }
+      reader.readAsDataURL(blob)
+    })
+  }
+  
   // Generate invoice number
   useEffect(() => {
     const today = new Date()
@@ -336,7 +353,7 @@ export default function NewInvoice() {
         const hourlyRate = client?.hourlyRate ?? null
         const currency = client?.currency ?? null
 
-        const status: 'draft' | 'sent' = action === 'send' ? 'sent' : 'draft'
+        const status: 'draft' = 'draft'
 
         const payload = {
           invoiceNumber,
@@ -365,16 +382,87 @@ export default function NewInvoice() {
           })
         }
 
-        await invoiceApiService.createInvoice(payload)
+        const created = await invoiceApiService.createInvoice(payload)
 
-        alert(`Invoice ${action === 'send' ? 'sent' : 'saved'} successfully!`)
+        if (action === 'send') {
+          const start = new Date(startDate)
+          const end = new Date(endDate)
+          end.setHours(23, 59, 59, 999)
+
+          const dailyTotals: { [date: string]: number } = {}
+          filteredEntries.forEach(entry => {
+            const entryDate = new Date(entry.startTime)
+            const dateKey = format(entryDate, 'yyyy-MM-dd')
+            if (!dailyTotals[dateKey]) dailyTotals[dateKey] = 0
+            dailyTotals[dateKey] += entry.duration
+          })
+
+          const dailyTimeData = Object.keys(dailyTotals)
+            .map(dateKey => ({
+              date: dateKey,
+              hours: dailyTotals[dateKey] / 3600,
+              formattedDate: format(new Date(dateKey), 'EEE')
+            }))
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+          const timeEntriesForPDF = filteredEntries.map(entry => ({
+            id: entry.id,
+            description: entry.description || '',
+            projectName: entry.projectName || 'No project',
+            clientName: entry.clientName || 'No client',
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            duration: entry.duration,
+            formattedDuration: entry.formattedDuration,
+            isBillable: entry.isBillable
+          }))
+
+          const pdfBlob = await generateIndividualClientPDF(
+            `Invoice Report - ${client?.name || ''}`,
+            {
+              name: client?.name || '',
+              hours: parseFloat(totals.totalHours),
+              amount: parseFloat(totals.totalAmount),
+              formattedTime: formatSecondsToHHMMSS(parseFloat(totals.totalHours) * 3600),
+              currency: client?.currency
+            },
+            'custom',
+            start,
+            end,
+            pdfSettings,
+            currentUser?.companyId || undefined,
+            timeEntriesForPDF,
+            dailyTimeData,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          )
+
+          const pdfBase64 = await blobToBase64(pdfBlob as Blob)
+          await invoiceApiService.sendInvoice(created.data.id, {
+            pdfBase64,
+            fileName: `${invoiceNumber}.pdf`
+          })
+
+          alert('Invoice sent successfully!')
+        } else {
+          alert('Invoice saved successfully!')
+        }
+
         navigate('/invoicing')
       } catch (error) {
         console.error('Error saving invoice:', error)
-        alert('Failed to save invoice')
+        alert(action === 'send' ? 'Failed to send invoice' : 'Failed to save invoice')
       }
     }
-
+    
     saveInvoice()
   }
   
