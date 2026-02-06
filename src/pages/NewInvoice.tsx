@@ -100,10 +100,19 @@ export default function NewInvoice() {
         
         // Load time entries for the date range
         const entries = await timeEntryService.getTimeEntriesByDateRange(currentUser.uid, start, end)
+        console.log('🔍 Debug - All entries in date range:', entries.length, entries)
         
         // Filter for the selected client and billable entries
         const clientProjects = projects.filter(project => project.clientId === selectedClient)
         const clientProjectIds = clientProjects.map(project => project.id)
+        console.log('🔍 Debug - Client projects:', clientProjects.length, clientProjects)
+        console.log('🔍 Debug - Client project IDs:', clientProjectIds)
+        
+        const billableEntries = entries.filter(entry => entry.isBillable)
+        console.log('🔍 Debug - Billable entries:', billableEntries.length, billableEntries)
+        
+        const entriesWithProject = entries.filter(entry => entry.projectId)
+        console.log('🔍 Debug - Entries with project ID:', entriesWithProject.length, entriesWithProject)
         
         const filtered = entries
           .filter(entry => 
@@ -120,6 +129,8 @@ export default function NewInvoice() {
           .filter((entry, index, self) => 
             index === self.findIndex(e => e.id === entry.id)
           )
+        
+        console.log('🔍 Debug - Final filtered entries:', filtered.length, filtered)
         
         setFilteredEntries(filtered)
       } catch (error) {
