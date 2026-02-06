@@ -117,7 +117,7 @@ export default function NewInvoice() {
         const filtered = entries
           .filter(entry => 
             entry.isBillable &&
-            (entry.projectId === null || clientProjectIds.includes(entry.projectId))
+            (entry.projectId === null || (entry.projectId && clientProjectIds.includes(entry.projectId)))
           )
           .map(entry => ({
             ...entry,
