@@ -86,7 +86,7 @@ const isDev = process.env.NODE_ENV !== 'production'
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   // In dev, allow more requests to avoid tripping rate limits during hot reload / polling
-  max: isDev ? 2000 : 100,
+  max: isDev ? 2000 : 1000,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
