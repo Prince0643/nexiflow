@@ -91,6 +91,9 @@ export default function NewInvoice() {
       }
       
       try {
+        // Reset filtered entries to prevent duplicates
+        setFilteredEntries([])
+        
         const start = new Date(startDate)
         const end = new Date(endDate)
         end.setHours(23, 59, 59, 999) // Include the entire end day
@@ -113,10 +116,15 @@ export default function NewInvoice() {
             projectName: entry.projectName || 'No project',
             formattedDuration: formatSecondsToHHMMSS(entry.duration)
           }))
+          // Remove duplicates based on entry ID
+          .filter((entry, index, self) => 
+            index === self.findIndex(e => e.id === entry.id)
+          )
         
         setFilteredEntries(filtered)
       } catch (error) {
         console.error('Error loading time entries:', error)
+        setFilteredEntries([])
       }
     }
     
