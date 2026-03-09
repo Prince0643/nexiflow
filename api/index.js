@@ -104,7 +104,12 @@ app.use(cors({
   credentials: true
 }));
 app.options('*', cors({ origin: allowedOrigins, credentials: true }));
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({
+  limit: '25mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting
@@ -2778,7 +2783,7 @@ app.get('/api/clients/company/:companyId', authenticateToken, async (req, res) =
     const { companyId } = req.params;
 
     // Non-root users can only access their own company
-    if (req.user.role !== 'root' && req.user.companyId && req.user.companyId !== companyId) {
+    if (req.user.role !== 'root' && req.user.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -3662,7 +3667,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
           due_date, estimated_hours, actual_hours, is_completed, completed_at, created_by,
           created_by_name, created_at, updated_at, parent_task_id, team_id, company_id,
           tags, attachments, comments, time_entries
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       // Generate a unique ID for the task
@@ -4066,83 +4071,113 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
 });
 
 // Webhook handler for Paymongo events
-app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+const handlePaymongoWebhook = async (req, res) => {
   try {
-    const payload = JSON.parse(req.body);
     const signature = req.headers['paymongo-signature'];
-    
+    const rawBodyBuffer = req.rawBody
+      ? req.rawBody
+      : Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
+    const rawBodyString = rawBodyBuffer.toString('utf8');
+    const payload = JSON.parse(rawBodyString);
+
     // Optional: Verify webhook signature if PAYMONGO_WEBHOOK_SECRET is set
     if (process.env.PAYMONGO_WEBHOOK_SECRET && signature) {
       const crypto = require('crypto');
-      const timestamp = signature.split(',')[0]?.split('=')[1];
-      const testSig = signature.split(',')[1]?.split('=')[1];
-      const liveSig = signature.split(',')[2]?.split('=')[1];
-      
-      const signedPayload = timestamp + '.' + JSON.stringify(payload);
-      const expectedSig = crypto
-        .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET)
-        .update(signedPayload)
-        .digest('hex');
-      
-      if (expectedSig !== testSig && expectedSig !== liveSig) {
-        console.warn('Webhook signature verification failed');
-        // In test mode, we can be lenient, but log it
+
+      const sigParts = String(signature)
+        .split(',')
+        .map(p => p.trim())
+        .filter(Boolean)
+        .map(p => {
+          const [k, v] = p.split('=');
+          return { k, v };
+        });
+
+      const timestamp = sigParts.find(p => p.k === 't')?.v;
+      const providedSignatures = sigParts
+        .filter(p => p.k === 'v1' || p.k === 'v0')
+        .map(p => p.v)
+        .filter(Boolean);
+
+      if (timestamp && providedSignatures.length > 0) {
+        const signedPayload = `${timestamp}.${rawBodyString}`;
+        const expectedSig = crypto
+          .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET)
+          .update(signedPayload)
+          .digest('hex');
+
+        if (!providedSignatures.includes(expectedSig)) {
+          console.warn('Webhook signature verification failed');
+          if (process.env.NODE_ENV === 'production') {
+            return res.status(401).json({ error: 'Invalid signature' });
+          }
+        }
+      } else {
+        console.warn('Webhook signature header present but missing expected fields');
         if (process.env.NODE_ENV === 'production') {
-          return res.status(401).json({ error: 'Invalid signature' });
+          return res.status(401).json({ error: 'Invalid signature header' });
         }
       }
     }
-    
+
     const eventType = payload.data?.attributes?.type;
-    
     console.log('Paymongo webhook received:', eventType);
-    
+
     if (eventType === 'checkout_session.payment.paid' || eventType === 'payment.paid') {
       const checkoutSession = payload.data?.attributes?.data;
-      const metadata = checkoutSession?.attributes?.metadata;
-      
+      const checkoutSessionAttributes = checkoutSession?.attributes || payload.data?.attributes?.data?.attributes;
+      const metadata = checkoutSessionAttributes?.metadata;
+
       if (!metadata) {
         console.error('No metadata in webhook payload');
         return res.status(200).json({ received: true });
       }
-      
+
       const companyId = metadata.company_id;
       const pricingLevel = metadata.pricing_level;
-      const checkoutSessionId = checkoutSession.id;
-      
-      if (!companyId || !pricingLevel) {
-        console.error('Missing company_id or pricing_level in metadata');
+      const userCount = metadata.user_count;
+      const checkoutSessionId = checkoutSession?.id || payload.data?.attributes?.data?.id;
+
+      if (!companyId || !pricingLevel || !checkoutSessionId) {
+        console.error('Missing company_id, pricing_level, or checkout_session_id in webhook payload');
         return res.status(200).json({ received: true });
       }
-      
+
       const connection = await pool.getConnection();
       try {
-        // Update transaction status
-        await connection.execute(
+        const [txResult] = await connection.execute(
           `UPDATE payment_transactions 
            SET status = 'paid', paid_at = NOW()
            WHERE checkout_session_id = ?`,
           [checkoutSessionId]
         );
-        
-        // Update company pricing_level
-        await connection.execute(
+
+        const [companyResult] = await connection.execute(
           `UPDATE companies 
-           SET pricing_level = ?, subscription_status = 'active', updated_at = NOW()
+           SET pricing_level = ?, max_members = ?, updated_at = NOW()
            WHERE id = ?`,
-          [pricingLevel, companyId]
+          [pricingLevel, parseInt(userCount) || 1, companyId]
         );
-        
-        console.log(`Company ${companyId} upgraded to ${pricingLevel}`);
+
+        console.log('Paymongo paid event processed:', {
+          companyId,
+          pricingLevel,
+          userCount: parseInt(userCount) || 1,
+          checkoutSessionId,
+          transactionsUpdated: txResult?.affectedRows,
+          companiesUpdated: companyResult?.affectedRows
+        });
       } finally {
         connection.release();
       }
     }
-    
+
     if (eventType === 'payment.failed') {
       const checkoutSession = payload.data?.attributes?.data;
       const checkoutSessionId = checkoutSession?.id;
-      
+
       if (checkoutSessionId) {
         const connection = await pool.getConnection();
         try {
@@ -4157,22 +4192,24 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
         }
       }
     }
-    
-    // Acknowledge receipt
-    res.status(200).json({ received: true });
-    
+
+    return res.status(200).json({ received: true });
   } catch (error) {
     console.error('Webhook error:', error);
     // Always return 200 to prevent Paymongo from retrying
-    res.status(200).json({ received: true, error: error.message });
+    return res.status(200).json({ received: true, error: error.message });
   }
-});
+};
+
+// Accept both paths (PayMongo config currently points to /webhook)
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handlePaymongoWebhook);
+app.post('/webhook', express.raw({ type: 'application/json' }), handlePaymongoWebhook);
 
 // Get billing history for company
 app.get('/api/billing/history', authenticateToken, async (req, res) => {
   try {
     const companyId = req.user.companyId;
-    
+
     if (!companyId) {
       return res.status(400).json({ error: 'User must belong to a company' });
     }
