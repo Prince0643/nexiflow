@@ -198,6 +198,7 @@ export default function Clients() {
 
   const handleCreateClient = () => {
     // Check if user is on solo pricing level and has reached the client limit
+    // Office and Enterprise plans have unlimited clients
     if (currentCompany?.pricingLevel === 'solo' && clients.length >= 1) {
       setError('Solo plan is limited to 1 client. Please upgrade to create more clients.')
       return

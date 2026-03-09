@@ -20,6 +20,7 @@ import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { useSearch } from '../contexts/SearchContext'
 import { useNotifications } from '../contexts/NotificationContext'
 import { useTheme } from '../contexts/ThemeContext'
+import { userApiService } from '../services/userApiService'
 import AIChatWidget from './ai/AIChatWidget'
 
 interface HeaderProps {
@@ -32,6 +33,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showUpdates, setShowUpdates] = useState(false)
   const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const searchRef = useRef<HTMLDivElement>(null)
   const notificationRef = useRef<HTMLDivElement>(null)
   const updatesRef = useRef<HTMLDivElement>(null)
@@ -172,6 +174,41 @@ export default function Header({ onMenuClick }: HeaderProps) {
     }
   };
 
+  useEffect(() => {
+    const loadAvatar = async () => {
+      try {
+        if (!currentUser?.uid) {
+          setAvatarUrl(null)
+          return
+        }
+
+        const user = await userApiService.getUserById(currentUser.uid)
+        const rawAvatar = (user as any)?.avatar
+        if (!rawAvatar) {
+          setAvatarUrl(null)
+          return
+        }
+
+        if (typeof rawAvatar === 'string' && rawAvatar.startsWith('/uploads/')) {
+          const apiBase = ((import.meta as any).env?.VITE_API_BASE_URL || '/api').replace(/\/api$/, '')
+          setAvatarUrl(`${apiBase}${rawAvatar}`)
+          return
+        }
+
+        if (typeof rawAvatar === 'string') {
+          setAvatarUrl(rawAvatar)
+          return
+        }
+
+        setAvatarUrl(null)
+      } catch (e) {
+        setAvatarUrl(null)
+      }
+    }
+
+    loadAvatar()
+  }, [currentUser?.uid])
+
   // Filter notifications to show only unread ones in the dropdown
   console.log('=== Header: Filtering unread notifications ===');
   console.log('All notifications:', notifications);
@@ -187,7 +224,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           <div className="flex items-center">
             <button
               type="button"
-              className="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 dark:hover:text-white focus:outline-none"
+              className="lg:hidden p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none"
               onClick={onMenuClick}
             >
               <Menu className="h-6 w-6" />
@@ -262,8 +299,6 @@ export default function Header({ onMenuClick }: HeaderProps) {
                   <Moon className="h-5 w-5 text-gray-600 dark:text-gray-300" />
                 )}
               </button>
-
-
 
               {/* Notifications */}
               <div className="relative" ref={notificationRef}>
@@ -444,8 +479,6 @@ export default function Header({ onMenuClick }: HeaderProps) {
                       {isDarkMode ? 'Light Mode' : 'Dark Mode'}
                     </button>
 
-
-
                     {/* Notifications */}
                     <button
                       onClick={() => {
@@ -505,9 +538,9 @@ export default function Header({ onMenuClick }: HeaderProps) {
                 className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors user-menu-button"
               >
                 <div className="relative">
-                  {currentUser?.avatar ? (
+                  {(avatarUrl || currentUser?.avatar) ? (
                     <img 
-                      src={currentUser.avatar} 
+                      src={avatarUrl ?? currentUser?.avatar ?? undefined} 
                       alt="Profile" 
                       className="h-8 w-8 rounded-full object-cover"
                     />
@@ -516,6 +549,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                       {currentUser?.name?.charAt(0) || currentUser?.email?.charAt(0) || 'U'}
                     </div>
                   )}
+
                   {/* Root user badge */}
                   {currentUser?.role === 'root' && (
                     <div className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 flex items-center justify-center">
@@ -531,9 +565,9 @@ export default function Header({ onMenuClick }: HeaderProps) {
                   <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                     <div className="flex items-center space-x-3">
                       <div className="relative">
-                        {currentUser?.avatar ? (
+                        {(avatarUrl || currentUser?.avatar) ? (
                           <img 
-                            src={currentUser.avatar} 
+                            src={avatarUrl ?? currentUser?.avatar ?? undefined} 
                             alt="Profile" 
                             className="h-10 w-10 rounded-full object-cover"
                           />
@@ -542,6 +576,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                             {currentUser?.name?.charAt(0) || currentUser?.email?.charAt(0) || 'U'}
                           </div>
                         )}
+
                         {/* Root user badge in dropdown */}
                         {currentUser?.role === 'root' && (
                           <div className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 flex items-center justify-center">

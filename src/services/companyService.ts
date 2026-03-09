@@ -2,8 +2,54 @@ import { ref, get, set, push } from 'firebase/database'
 import { database } from '../config/firebase'
 import { PDFSettings, PricingLevel, Company } from '../types'
 
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+
+const getAuthToken = (): string | null => {
+  try {
+    return localStorage.getItem('authToken')
+  } catch {
+    return null
+  }
+}
+
+const apiRequest = async <T>(endpoint: string, options: RequestInit = {}): Promise<T> => {
+  const token = getAuthToken()
+  if (!token) throw new Error('Authentication required')
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      ...(options.headers || {})
+    }
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData?.error || `HTTP error! status: ${response.status}`)
+  }
+
+  return response.json() as Promise<T>
+}
+
 export const companyService = {
   async getCompanies(): Promise<Company[]> {
+    if (!database) {
+      const response = await apiRequest<{ success: boolean; data: any[] }>('/admin/companies')
+      if (!response.success) return []
+      return response.data.map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        isActive: Boolean(row.isActive),
+        pricingLevel: row.pricingLevel || 'solo',
+        maxMembers: row.maxMembers || 1,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        pdfSettings: row.pdfSettings
+      }))
+    }
+
     const companiesRef = ref(database, 'companies')
     const snapshot = await get(companiesRef)
     if (!snapshot.exists()) return []
@@ -22,6 +68,11 @@ export const companyService = {
 
   async getCompanyById(companyId: string): Promise<Company | null> {
     try {
+      if (!database) {
+        const companies = await this.getCompanies()
+        return companies.find(c => c.id === companyId) || null
+      }
+
       const companyRef = ref(database, `companies/${companyId}`)
       const snapshot = await get(companyRef)
       
@@ -47,6 +98,38 @@ export const companyService = {
   },
 
   async createCompany(name: string, pricingLevel: PricingLevel = 'solo'): Promise<Company> {
+    if (!database) {
+      const response = await apiRequest<{ success: boolean; data: any }>('/admin/companies', {
+        method: 'POST',
+        body: JSON.stringify({ name, pricingLevel })
+      })
+
+      if (!response.success) {
+        throw new Error('Failed to create company')
+      }
+
+      const row = response.data
+      const defaultPdfSettings: PDFSettings = {
+        companyName: name,
+        logoUrl: '',
+        primaryColor: '#3B82F6',
+        secondaryColor: '#1E40AF',
+        showPoweredBy: true,
+        customFooterText: ''
+      }
+
+      return {
+        id: row.id,
+        name: row.name,
+        isActive: Boolean(row.isActive),
+        pricingLevel: row.pricingLevel || pricingLevel,
+        maxMembers: row.maxMembers || 1,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        pdfSettings: defaultPdfSettings
+      }
+    }
+
     const companiesRef = ref(database, 'companies')
     const newRef = push(companiesRef)
     const now = new Date().toISOString()
@@ -59,7 +142,6 @@ export const companyService = {
       maxMembers = 100
     }
     
-    // Default PDF settings
     const defaultPdfSettings: PDFSettings = {
       companyName: name,
       logoUrl: '',

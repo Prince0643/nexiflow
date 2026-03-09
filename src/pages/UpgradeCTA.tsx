@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { 
   Crown, 
@@ -11,11 +11,21 @@ import {
   UserCheck,
   DollarSign,
   CheckCircle,
-  ArrowRight
+  ArrowRight,
+  Loader2
 } from 'lucide-react'
 
 export default function UpgradeCTA() {
   const { currentCompany } = useMySQLAuth()
+  const [loading, setLoading] = useState(false)
+  const [userCount, setUserCount] = useState(5)
+
+  // USD to PHP exchange rate and pricing
+  const USD_TO_PHP_RATE = 58
+  const OFFICE_PRICE_USD = 9
+  const ENTERPRISE_PRICE_USD = 12
+  const officeTotalPHP = OFFICE_PRICE_USD * USD_TO_PHP_RATE * userCount
+  const enterpriseTotalPHP = ENTERPRISE_PRICE_USD * USD_TO_PHP_RATE * userCount
 
   // Features comparison data
   const features = [
@@ -156,6 +166,45 @@ export default function UpgradeCTA() {
     }
   ]
 
+  const handleUpgrade = async (plan: 'office' | 'enterprise') => {
+    if (!currentCompany) {
+      alert('You must belong to a company to upgrade')
+      return
+    }
+    
+    setLoading(true)
+    try {
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/billing/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          plan,
+          userCount,
+          successUrl: `${window.location.origin}/billing/success`,
+          cancelUrl: `${window.location.origin}/billing/cancel`
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success && data.checkoutUrl) {
+        // Redirect to Paymongo checkout
+        window.location.href = data.checkoutUrl
+      } else {
+        alert('Failed to initiate upgrade. Please try again.')
+      }
+    } catch (error) {
+      console.error('Upgrade error:', error)
+      alert('Failed to initiate upgrade. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -226,9 +275,28 @@ export default function UpgradeCTA() {
 
       {/* Pricing Plans */}
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 text-center">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4 text-center">
           Choose Your Plan
         </h2>
+        
+        {/* User Count Selector */}
+        <div className="max-w-md mx-auto mb-8 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Number of users: <span className="font-bold text-primary-600">{userCount}</span>
+          </label>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            value={userCount}
+            onChange={(e) => setUserCount(parseInt(e.target.value))}
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+          />
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>1 user</span>
+            <span>100 users</span>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {plans.map((plan, index) => (
             <div
@@ -253,9 +321,21 @@ export default function UpgradeCTA() {
               <div className="text-center mb-6">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">{plan.name}</h3>
                 <div className="mb-2">
-                  <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">{plan.price}</span>
-                  {plan.price !== 'Custom' && (
-                    <span className="text-gray-600 dark:text-gray-400">/{plan.period}</span>
+                  {plan.name === 'Solo' ? (
+                    <>
+                      <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">{plan.price}</span>
+                      <span className="text-gray-600 dark:text-gray-400">/{plan.period}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+                        ₱{(plan.name === 'Office' ? officeTotalPHP : enterpriseTotalPHP).toLocaleString()}
+                      </span>
+                      <span className="text-gray-600 dark:text-gray-400">/month</span>
+                      <p className="text-sm text-gray-500 mt-1">
+                        ${(plan.name === 'Office' ? OFFICE_PRICE_USD : ENTERPRISE_PRICE_USD)} USD × {userCount} users
+                      </p>
+                    </>
                   )}
                 </div>
                 <p className="text-gray-600 dark:text-gray-400 text-sm">{plan.description}</p>
@@ -277,15 +357,31 @@ export default function UpgradeCTA() {
                 >
                   Current Plan
                 </button>
+              ) : plan.name === 'Solo' ? (
+                <button
+                  disabled
+                  className="w-full py-3 px-4 rounded-lg font-semibold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                >
+                  Free Plan
+                </button>
               ) : (
                 <button
-                  className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors ${
+                  onClick={() => handleUpgrade(plan.name.toLowerCase() as 'office' | 'enterprise')}
+                  disabled={loading}
+                  className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center ${
                     plan.popular
                       ? 'bg-primary-600 hover:bg-primary-700 text-white'
                       : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100'
-                  }`}
+                  } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  Upgrade to {plan.name}
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>Upgrade to {plan.name}</>
+                  )}
                 </button>
               )}
             </div>

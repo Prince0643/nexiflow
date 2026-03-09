@@ -181,10 +181,12 @@ app.post('/api/auth/signup', async (req, res) => {
     // Check if user already exists
     const connection = await pool.getConnection();
     try {
+      await connection.beginTransaction();
       const checkUserQuery = `SELECT id FROM users WHERE email = ?`;
       const [existingUsers] = await connection.execute(checkUserQuery, [email]);
       
       if (existingUsers.length > 0) {
+        await connection.rollback();
         return res.status(400).json({ 
           success: false, 
           error: 'User with this email already exists' 
@@ -194,15 +196,18 @@ app.post('/api/auth/signup', async (req, res) => {
       // Hash the password
       const hashedPassword = await bcrypt.hash(password, 12);
       
-      // Create user
+      // Create user (IDs are varchar in schema, so generate a string ID)
       const now = new Date();
+      const userId = uuidv4();
       const userQuery = `
         INSERT INTO users (
-          name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?)
+          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?)
       `;
       
-      const result = await connection.execute(userQuery, [
+      await connection.execute(userQuery, [
+        userId,
+        userId,
         name,
         email,
         hashedPassword,
@@ -213,15 +218,14 @@ app.post('/api/auth/signup', async (req, res) => {
         now
       ]);
       
-      const userId = result[0].insertId;
-      
       // If this is a super admin signup, create a company
       let companyData = null;
       if (role === 'super_admin' && companyName) {
+        const companyId = uuidv4();
         // Create company
         const companyQuery = `
           INSERT INTO companies (
-            name, is_active, pricing_level, max_members, created_at, updated_at, pdf_settings
+            id, name, is_active, pricing_level, max_members, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `;
         
@@ -235,24 +239,22 @@ app.post('/api/auth/signup', async (req, res) => {
           customFooterText: ''
         };
         
-        const companyResult = await connection.execute(companyQuery, [
+        await connection.execute(companyQuery, [
+          companyId,
           companyName,
           1, // is_active
           'solo', // pricing_level
           1, // max_members
           now,
-          now,
-          JSON.stringify(defaultPdfSettings)
+          now
         ]);
-        
-        const companyId = companyResult[0].insertId;
         
         // Update user with company ID
         const updateUserQuery = `UPDATE users SET company_id = ? WHERE id = ?`;
         await connection.execute(updateUserQuery, [companyId, userId]);
         
         companyData = {
-          id: companyId.toString(),
+          id: companyId,
           name: companyName,
           isActive: true,
           pricingLevel: 'solo',
@@ -267,6 +269,8 @@ app.post('/api/auth/signup', async (req, res) => {
       const getUserQuery = `SELECT * FROM users WHERE id = ?`;
       const [userRows] = await connection.execute(getUserQuery, [userId]);
       const user = userRows[0];
+
+      await connection.commit();
       
       const userData = {
         id: user.id,
@@ -487,12 +491,15 @@ app.post('/api/admin/users', async (req, res) => {
     try {
       const query = `
         INSERT INTO users (
-          name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
       
       const now = new Date();
-      const result = await connection.execute(query, [
+      const newUserId = uuidv4();
+      await connection.execute(query, [
+        newUserId,
+        newUserId,
         userData.name,
         userData.email,
         userData.passwordHash || null,
@@ -509,7 +516,7 @@ app.post('/api/admin/users', async (req, res) => {
       ]);
       
       const newUser = {
-        id: result[0].insertId.toString(),
+        id: newUserId,
         name: userData.name,
         email: userData.email,
         role: userData.role,

@@ -30,14 +30,13 @@ import { useTheme } from '../contexts/ThemeContext'
 import { canViewHourlyRates, canEditHourlyRates } from '../utils/permissions'
 import { userApiService } from '../services/userApiService'
 
+import { database } from '../config/firebase'
 import { 
   EmailAuthProvider, 
   reauthenticateWithCredential, 
   updatePassword,
-  reauthenticateWithCredential as reauth 
+  getAuth
 } from 'firebase/auth'
-import { auth, database, storage } from '../config/firebase'
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage'
 import NotificationSettings from '../components/settings/NotificationSettings'
 
 export default function Settings() {
@@ -123,12 +122,27 @@ export default function Settings() {
       const userData = await userApiService.getUserById(currentUser.uid)
 
       if (userData) {
+        // Build full avatar URL if it's a relative path
+        let avatarUrl = (userData as any).avatar || ''
+        console.log('[DEBUG] Raw avatar from DB:', avatarUrl)
+        
+        const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/api$/, '') || 'http://localhost:3001'
+        console.log('[DEBUG] API_BASE_URL:', API_BASE_URL)
+        
+        if (avatarUrl && avatarUrl.startsWith('/uploads/')) {
+          avatarUrl = `${API_BASE_URL}${avatarUrl}`
+        } else if (avatarUrl && avatarUrl.includes('/api/uploads/')) {
+          // Fix incorrectly stored URLs with /api in path
+          avatarUrl = avatarUrl.replace('/api/uploads/', '/uploads/')
+        }
+        console.log('[DEBUG] Final avatar URL:', avatarUrl)
+        
         setProfileData({
           name: userData.name || currentUser.name || '',
           email: userData.email || currentUser.email || '',
           timezone: (userData as any).timezone || 'GMT+0 (Greenwich Mean Time)',
           hourlyRate: (userData as any).hourlyRate || 25,
-          avatar: (userData as any).avatar || ''
+          avatar: avatarUrl
         })
       }
     } catch (error) {
@@ -220,17 +234,28 @@ export default function Settings() {
     try {
       setLoading(true)
       
-      // Create a reference to the file location in Firebase Storage
-      const fileRef = storageRef(storage, `avatars/${currentUser.uid}/${Date.now()}_${avatarFile.name}`)
+      // Create form data for file upload
+      const formData = new FormData()
+      formData.append('avatar', avatarFile)
       
-      // Upload the file
-      await uploadBytes(fileRef, avatarFile)
+      // Upload via API
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/users/${currentUser.uid}/avatar`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: formData
+      })
       
-      // Get the download URL
-      const downloadURL = await getDownloadURL(fileRef)
+      if (!response.ok) {
+        throw new Error('Upload failed')
+      }
+      
+      const result = await response.json()
       
       // Update profile data with the new avatar URL
-      setProfileData(prev => ({ ...prev, avatar: downloadURL }))
+      setProfileData(prev => ({ ...prev, avatar: result.data.avatarUrl }))
       
       // Clear the file input
       setAvatarFile(null)
@@ -294,6 +319,7 @@ export default function Settings() {
   }
   
   const handleChangePassword = async () => {
+    const auth = getAuth()
     if (!currentUser || !auth.currentUser) return
     
     try {
@@ -416,7 +442,8 @@ export default function Settings() {
             { id: 'profile', name: 'Profile', icon: User },
             { id: 'general', name: 'General', icon: SettingsIcon },
             { id: 'notifications', name: 'Notifications', icon: Bell },
-            (currentUser?.role === 'super_admin' || currentUser?.role === 'root') && 
+            ((currentUser?.role === 'super_admin' || currentUser?.role === 'root') || 
+             currentCompany?.pricingLevel === 'office' || currentCompany?.pricingLevel === 'enterprise') && 
               { id: 'pdf', name: 'PDF Settings', icon: FileText }
           ].filter(Boolean).map((tab: any) => (
             <button
@@ -800,7 +827,7 @@ export default function Settings() {
         )}
 
         {/* PDF Settings Link */}
-        {activeTab === 'profile' && (currentUser?.role === 'super_admin' || currentUser?.role === 'root') && (
+        {activeTab === 'profile' && ((currentUser?.role === 'super_admin' || currentUser?.role === 'root') || currentCompany?.pricingLevel === 'office' || currentCompany?.pricingLevel === 'enterprise') && (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">PDF Export Settings</h3>
             {currentCompany?.pricingLevel === 'solo' ? (

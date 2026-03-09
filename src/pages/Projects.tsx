@@ -142,6 +142,7 @@ export default function Projects() {
 
   const handleCreateProject = () => {
     // Check if user is on solo pricing level and has reached the project limit
+    // Office and Enterprise plans have unlimited projects
     if (currentCompany?.pricingLevel === 'solo' && activeProjectsCount >= 1) {
       setError('Solo plan is limited to 1 project. Please upgrade to create more projects.')
       return

@@ -12,6 +12,10 @@ const mysql = require('mysql2/promise');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
@@ -57,7 +61,7 @@ const ensureSystemLogsTable = async () => {
   } finally {
     connection.release();
   }
-};
+}
 
 ensureSystemLogsTable().catch((error) => {
   console.error('Error ensuring system_logs table exists:', error);
@@ -70,14 +74,36 @@ console.log('MySQL config:', {
   database: process.env.MYSQL_DATABASE || 'clockistry'
 });
 
+// Configure uploads directory
+const uploadsDir = path.join(__dirname, 'uploads', 'avatars');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve static files from uploads directory BEFORE helmet (to avoid CORS issues)
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
+
 // Middleware
 app.use(helmet());
 app.use(compression());
 app.use(morgan('combined'));
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000'
+];
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: allowedOrigins,
   credentials: true
 }));
+app.options('*', cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -85,14 +111,153 @@ app.use(express.urlencoded({ extended: true }));
 const isDev = process.env.NODE_ENV !== 'production'
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  // In dev, allow more requests to avoid tripping rate limits during hot reload / polling
   max: isDev ? 2000 : 1000,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
 
+// Configure multer for avatar uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, req.user.uid + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+// Admin Companies API (root only)
+app.get('/api/admin/companies', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'root') {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT id, name, is_active, pricing_level, max_members, created_at, updated_at FROM companies ORDER BY created_at DESC'
+      );
+
+      const companies = rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        isActive: row.is_active === 1,
+        pricingLevel: row.pricing_level,
+        maxMembers: row.max_members,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      }));
+
+      res.json({ success: true, data: companies, count: companies.length });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching companies:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch companies' });
+  }
+});
+
+app.post('/api/admin/companies', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'root') {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const { name, pricingLevel } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Company name is required' });
+    }
+
+    const validPricing = ['solo', 'office', 'enterprise'];
+    const level = validPricing.includes(pricingLevel) ? pricingLevel : 'solo';
+
+    let maxMembers = 1;
+    if (level === 'office') maxMembers = 10;
+    if (level === 'enterprise') maxMembers = 100;
+
+    const now = new Date();
+    const companyId = `-${uuidv4()}`;
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.execute(
+        `INSERT INTO companies (id, name, is_active, pricing_level, max_members, created_at, updated_at)
+         VALUES (?, ?, 1, ?, ?, ?, ?)`,
+        [companyId, name.trim(), level, maxMembers, now, now]
+      );
+
+      // Create default PDF settings row (same pattern as signup)
+      const pdfSettingsId = Math.floor(Date.now() / 1000);
+      await connection.execute(
+        `
+          INSERT INTO company_pdf_settings (
+            id, company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          pdfSettingsId,
+          companyId,
+          name.trim(),
+          '',
+          '#3B82F6',
+          '#1E40AF',
+          1,
+          ''
+        ]
+      );
+
+      await connection.commit();
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: companyId,
+          name: name.trim(),
+          pricingLevel: level,
+          maxMembers,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now
+        }
+      });
+    } catch (e) {
+      try {
+        await connection.rollback();
+      } catch {}
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error creating company:', error);
+    res.status(500).json({ success: false, error: 'Failed to create company' });
+  }
+});
+
+const fileFilter = (req, file, cb) => {
+  // Accept only image files
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
+};
+
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  }
+});
+
 // Authentication middleware
-const authenticateToken = async (req, res, next) => {
+async function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -696,6 +861,59 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Avatar upload endpoint
+app.post('/api/users/:id/avatar', authenticateToken, upload.single('avatar'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requesterId = String(req.user.uid);
+    
+    // Users can only upload their own avatar unless they're admin
+    if (id !== requesterId && !['super_admin', 'root'].includes(req.user.role)) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'You can only upload your own avatar' 
+      });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No file uploaded' 
+      });
+    }
+    
+    // Build the full file URL with host
+    const protocol = req.protocol || 'http';
+    const host = req.get('host') || `localhost:${PORT}`;
+    const fileUrl = `${protocol}://${host}/uploads/avatars/${req.file.filename}`;
+    
+    // Update user avatar in database
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        'UPDATE users SET avatar = ?, updated_at = NOW() WHERE id = ?',
+        [fileUrl, id]
+      );
+      
+      res.json({
+        success: true,
+        data: {
+          avatarUrl: fileUrl,
+          message: 'Avatar uploaded successfully'
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Avatar upload error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to upload avatar' 
+    });
+  }
+});
+
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -1137,15 +1355,18 @@ app.post('/api/auth/signup', async (req, res) => {
       // Hash the password
       const hashedPassword = await bcrypt.hash(password, 12);
       
-      // Create user
+      // Create user with generated UUID
+      const userId = uuidv4();
       const now = new Date();
       const userQuery = `
         INSERT INTO users (
-          name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?)
+          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?)
       `;
       
-      const result = await connection.execute(userQuery, [
+      await connection.execute(userQuery, [
+        userId,
+        userId,
         name,
         email,
         hashedPassword,
@@ -1155,8 +1376,6 @@ app.post('/api/auth/signup', async (req, res) => {
         now,
         now
       ]);
-      
-      const userId = result[0].insertId;
       
       // If this is a super admin signup, create a company
       let companyData = null;
@@ -1192,13 +1411,15 @@ app.post('/api/auth/signup', async (req, res) => {
         const companyId = newCompanyId;
 
         // Create default PDF settings row
+        const pdfSettingsId = Math.floor(Date.now() / 1000); // Generate unique int id
         await connection.execute(
           `
             INSERT INTO company_pdf_settings (
-              company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              id, company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `,
           [
+            pdfSettingsId,
             companyId,
             defaultPdfSettings.companyName,
             defaultPdfSettings.logoUrl,
@@ -2038,10 +2259,26 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
       let query = 'SELECT * FROM users WHERE is_active = 1';
       const params = [];
 
-      // For non-root users, filter by company
-      if (req.user.role !== 'root' && companyId) {
-        query += ' AND company_id = ?';
-        params.push(companyId);
+      // For root users without company, show all users (root dashboard)
+      // For non-root users, always filter by company
+      if (req.user.role === 'root') {
+        // Root users can see all users, or filter by their company if they have one
+        if (companyId) {
+          query += ' AND (company_id = ? OR company_id IS NULL)';
+          params.push(companyId);
+        }
+      } else {
+        // Non-root users MUST have company filtering
+        // If they have a company, show only that company's users
+        // If they don't have a company, show only themselves
+        if (companyId) {
+          query += ' AND company_id = ?';
+          params.push(companyId);
+        } else {
+          // No company assigned - user should only see themselves
+          query += ' AND id = ?';
+          params.push(req.user.uid);
+        }
       }
 
       query += ' ORDER BY created_at DESC';
@@ -3688,6 +3925,285 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting task:', error);
     res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+// ============================================
+// BILLING API - Paymongo Integration
+// ============================================
+
+// Create checkout session for plan upgrade
+app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
+  try {
+    const { plan, userCount, successUrl, cancelUrl } = req.body;
+    const companyId = req.user.companyId;
+    const userId = req.user.uid;
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    if (!plan || !['office', 'enterprise'].includes(plan)) {
+      return res.status(400).json({ error: 'Invalid plan. Must be office or enterprise' });
+    }
+    
+    const count = parseInt(userCount) || 1;
+    if (count < 1) {
+      return res.status(400).json({ error: 'User count must be at least 1' });
+    }
+    
+    // Calculate amount in centavos (PHP)
+    const USD_TO_PHP_RATE = 58;
+    const pricePerUserUSD = plan === 'office' ? 9 : 12; // $9 or $12 per user
+    const pricePerUserCentavos = pricePerUserUSD * USD_TO_PHP_RATE * 100; // Convert to centavos
+    const totalAmount = pricePerUserCentavos * count;
+    
+    console.log('Price calculation:', {
+      plan,
+      userCount: count,
+      pricePerUserUSD,
+      pricePerUserCentavos,
+      totalAmount,
+      totalInPesos: totalAmount / 100
+    });
+    
+    const authString = Buffer.from(process.env.PAYMONGO_SECRET_KEY + ':').toString('base64');
+    console.log('Paymongo Auth Header:', 'Basic ' + authString.substring(0, 20) + '...');
+    console.log('Paymongo Key exists:', !!process.env.PAYMONGO_SECRET_KEY);
+    
+    // Create checkout session with Paymongo
+    const response = await axios.post(
+      'https://api.paymongo.com/v1/checkout_sessions',
+      {
+        data: {
+          attributes: {
+            line_items: [
+              {
+                name: `Nexiflow ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+                amount: totalAmount,
+                currency: 'PHP',
+                description: `Subscription for ${count} user(s)`,
+                quantity: 1
+              }
+            ],
+            payment_method_types: ['card', 'gcash'], // Confirmed working on this account
+            success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/success`,
+            cancel_url: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/cancel`,
+            description: `Upgrade to ${plan} plan`,
+            send_email_receipt: true,
+            show_description: true,
+            show_line_items: true,
+            metadata: {
+              company_id: companyId,
+              user_id: userId,
+              pricing_level: plan,
+              user_count: count,
+              price_per_user: pricePerUserCentavos,
+              internal_transaction_id: uuidv4()
+            }
+          }
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Basic ${authString}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    const checkoutData = response.data.data;
+    
+    // Store transaction in database
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        `INSERT INTO payment_transactions 
+         (id, company_id, checkout_session_id, amount, currency, status, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          checkoutData.attributes.metadata.internal_transaction_id,
+          companyId,
+          checkoutData.id,
+          totalAmount,
+          'PHP',
+          'pending',
+          JSON.stringify({
+            pricing_level: plan,
+            user_count: count,
+            price_per_user: pricePerUserCentavos
+          })
+        ]
+      );
+    } finally {
+      connection.release();
+    }
+    
+    res.json({
+      success: true,
+      checkoutUrl: checkoutData.attributes.checkout_url,
+      checkoutSessionId: checkoutData.id,
+      transactionId: checkoutData.attributes.metadata.internal_transaction_id
+    });
+    
+  } catch (error) {
+    console.error('Paymongo checkout error details:');
+    if (error.response) {
+      // Paymongo returned an error response
+      console.error('Status:', error.response.status);
+      console.error('Data:', JSON.stringify(error.response.data, null, 2));
+    } else if (error.request) {
+      // Request was made but no response received
+      console.error('No response received from Paymongo');
+      console.error('Request:', error.request);
+    } else {
+      // Something else happened
+      console.error('Error message:', error.message);
+    }
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to create checkout session: ' + (error.message || 'Unknown error') });
+  }
+});
+
+// Webhook handler for Paymongo events
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const payload = JSON.parse(req.body);
+    const signature = req.headers['paymongo-signature'];
+    
+    // Optional: Verify webhook signature if PAYMONGO_WEBHOOK_SECRET is set
+    if (process.env.PAYMONGO_WEBHOOK_SECRET && signature) {
+      const crypto = require('crypto');
+      const timestamp = signature.split(',')[0]?.split('=')[1];
+      const testSig = signature.split(',')[1]?.split('=')[1];
+      const liveSig = signature.split(',')[2]?.split('=')[1];
+      
+      const signedPayload = timestamp + '.' + JSON.stringify(payload);
+      const expectedSig = crypto
+        .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET)
+        .update(signedPayload)
+        .digest('hex');
+      
+      if (expectedSig !== testSig && expectedSig !== liveSig) {
+        console.warn('Webhook signature verification failed');
+        // In test mode, we can be lenient, but log it
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(401).json({ error: 'Invalid signature' });
+        }
+      }
+    }
+    
+    const eventType = payload.data?.attributes?.type;
+    
+    console.log('Paymongo webhook received:', eventType);
+    
+    if (eventType === 'checkout_session.payment.paid' || eventType === 'payment.paid') {
+      const checkoutSession = payload.data?.attributes?.data;
+      const metadata = checkoutSession?.attributes?.metadata;
+      
+      if (!metadata) {
+        console.error('No metadata in webhook payload');
+        return res.status(200).json({ received: true });
+      }
+      
+      const companyId = metadata.company_id;
+      const pricingLevel = metadata.pricing_level;
+      const checkoutSessionId = checkoutSession.id;
+      
+      if (!companyId || !pricingLevel) {
+        console.error('Missing company_id or pricing_level in metadata');
+        return res.status(200).json({ received: true });
+      }
+      
+      const connection = await pool.getConnection();
+      try {
+        // Update transaction status
+        await connection.execute(
+          `UPDATE payment_transactions 
+           SET status = 'paid', paid_at = NOW()
+           WHERE checkout_session_id = ?`,
+          [checkoutSessionId]
+        );
+        
+        // Update company pricing_level
+        await connection.execute(
+          `UPDATE companies 
+           SET pricing_level = ?, subscription_status = 'active', updated_at = NOW()
+           WHERE id = ?`,
+          [pricingLevel, companyId]
+        );
+        
+        console.log(`Company ${companyId} upgraded to ${pricingLevel}`);
+      } finally {
+        connection.release();
+      }
+    }
+    
+    if (eventType === 'payment.failed') {
+      const checkoutSession = payload.data?.attributes?.data;
+      const checkoutSessionId = checkoutSession?.id;
+      
+      if (checkoutSessionId) {
+        const connection = await pool.getConnection();
+        try {
+          await connection.execute(
+            `UPDATE payment_transactions 
+             SET status = 'failed', failed_at = NOW()
+             WHERE checkout_session_id = ?`,
+            [checkoutSessionId]
+          );
+        } finally {
+          connection.release();
+        }
+      }
+    }
+    
+    // Acknowledge receipt
+    res.status(200).json({ received: true });
+    
+  } catch (error) {
+    console.error('Webhook error:', error);
+    // Always return 200 to prevent Paymongo from retrying
+    res.status(200).json({ received: true, error: error.message });
+  }
+});
+
+// Get billing history for company
+app.get('/api/billing/history', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, checkout_session_id, amount, currency, status, 
+                metadata, paid_at, failed_at, created_at
+         FROM payment_transactions 
+         WHERE company_id = ? 
+         ORDER BY created_at DESC`,
+        [companyId]
+      );
+      
+      const transactions = rows.map(row => ({
+        ...row,
+        metadata: row.metadata ? JSON.parse(row.metadata) : null
+      }));
+      
+      res.json({
+        success: true,
+        data: transactions,
+        count: transactions.length
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching billing history:', error);
+    res.status(500).json({ error: 'Failed to fetch billing history' });
   }
 });
 

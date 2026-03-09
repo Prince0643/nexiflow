@@ -60,7 +60,7 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
     if (currentCompany?.pricingLevel === 'solo') {
       // Hide certain tabs for Solo users
       allNavigation = allNavigation.filter(item => 
-        !['Task Management', 'Teams', 'Reports'].includes(item.name)
+        !['Task Management', 'Teams', 'Reports', 'Invoicing'].includes(item.name)
       );
       
       // Add Upgrade CTA tab for Solo users
