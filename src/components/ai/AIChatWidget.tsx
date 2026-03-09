@@ -30,10 +30,7 @@ export default function AIChatWidget() {
   const [isResizing, setIsResizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Position state - fixed at bottom right
-  const [position] = useState(() => {
-    // Initial position at bottom right
-    return { x: window.innerWidth - 350, y: window.innerHeight - 450 };
-  });
+  const [position, setPosition] = useState({ x: 0, y: 0 })
   // Visibility state
   const [isHidden, setIsHidden] = useState(false)
   
@@ -90,13 +87,10 @@ export default function AIChatWidget() {
       const widgetHeight = widgetRef.current ? widgetRef.current.offsetHeight : 400;
       
       // Position at bottom right with some margin
-      const newPosition = {
+      setPosition({
         x: window.innerWidth - widgetWidth - 20,
         y: window.innerHeight - widgetHeight - 20
-      };
-      
-      // We're not using this anymore since we removed drag functionality
-      // But keeping it for consistency with existing code structure
+      });
     }, 100);
     
     return () => clearTimeout(timer);

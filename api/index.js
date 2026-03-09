@@ -4074,13 +4074,31 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
 const handlePaymongoWebhook = async (req, res) => {
   try {
     const signature = req.headers['paymongo-signature'];
+    
+    console.log('=== PAYMONGO WEBHOOK RECEIVED ===');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Has rawBody:', !!req.rawBody);
+    console.log('req.body type:', typeof req.body, 'isBuffer:', Buffer.isBuffer(req.body));
+    
     const rawBodyBuffer = req.rawBody
       ? req.rawBody
       : Buffer.isBuffer(req.body)
         ? req.body
         : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
     const rawBodyString = rawBodyBuffer.toString('utf8');
-    const payload = JSON.parse(rawBodyString);
+    
+    console.log('Raw body length:', rawBodyString.length);
+    console.log('Raw body preview:', rawBodyString.substring(0, 500));
+    
+    let payload;
+    try {
+      payload = JSON.parse(rawBodyString);
+      console.log('Payload parsed successfully');
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError.message);
+      console.log('Raw body that failed:', rawBodyString);
+      return res.status(200).json({ received: true, error: 'Invalid JSON' });
+    }
 
     // Optional: Verify webhook signature if PAYMONGO_WEBHOOK_SECRET is set
     if (process.env.PAYMONGO_WEBHOOK_SECRET && signature) {
@@ -4122,17 +4140,24 @@ const handlePaymongoWebhook = async (req, res) => {
       }
     }
 
+    console.log('Full payload:', JSON.stringify(payload, null, 2));
+    
     const eventType = payload.data?.attributes?.type;
-    console.log('Paymongo webhook received:', eventType);
+    console.log('Event type:', eventType);
 
     if (eventType === 'checkout_session.payment.paid' || eventType === 'payment.paid') {
       const checkoutSession = payload.data?.attributes?.data;
+      console.log('Checkout session from payload:', JSON.stringify(checkoutSession, null, 2));
+      
       const checkoutSessionAttributes = checkoutSession?.attributes || payload.data?.attributes?.data?.attributes;
       const metadata = checkoutSessionAttributes?.metadata;
 
+      console.log('Extracted metadata:', JSON.stringify(metadata, null, 2));
+      console.log('checkoutSessionId:', checkoutSession?.id || payload.data?.attributes?.data?.id);
+
       if (!metadata) {
-        console.error('No metadata in webhook payload');
-        return res.status(200).json({ received: true });
+        console.error('No metadata in webhook payload - cannot process upgrade');
+        return res.status(200).json({ received: true, warning: 'No metadata' });
       }
 
       const companyId = metadata.company_id;
@@ -4140,13 +4165,17 @@ const handlePaymongoWebhook = async (req, res) => {
       const userCount = metadata.user_count;
       const checkoutSessionId = checkoutSession?.id || payload.data?.attributes?.data?.id;
 
+      console.log('Extracted values:', { companyId, pricingLevel, userCount, checkoutSessionId });
+
       if (!companyId || !pricingLevel || !checkoutSessionId) {
-        console.error('Missing company_id, pricing_level, or checkout_session_id in webhook payload');
-        return res.status(200).json({ received: true });
+        console.error('Missing required fields:', { companyId, pricingLevel, checkoutSessionId });
+        return res.status(200).json({ received: true, warning: 'Missing fields' });
       }
 
       const connection = await pool.getConnection();
       try {
+        console.log('Attempting to update transaction for checkout_session_id:', checkoutSessionId);
+        
         const [txResult] = await connection.execute(
           `UPDATE payment_transactions 
            SET status = 'paid', paid_at = NOW()
@@ -4154,6 +4183,10 @@ const handlePaymongoWebhook = async (req, res) => {
           [checkoutSessionId]
         );
 
+        console.log('Transaction update result:', { affectedRows: txResult?.affectedRows });
+
+        console.log('Attempting to update company:', { companyId, pricingLevel, userCount });
+        
         const [companyResult] = await connection.execute(
           `UPDATE companies 
            SET pricing_level = ?, max_members = ?, updated_at = NOW()
@@ -4161,7 +4194,9 @@ const handlePaymongoWebhook = async (req, res) => {
           [pricingLevel, parseInt(userCount) || 1, companyId]
         );
 
-        console.log('Paymongo paid event processed:', {
+        console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
+
+        console.log('=== PAYMONGO PAID EVENT PROCESSED ===', {
           companyId,
           pricingLevel,
           userCount: parseInt(userCount) || 1,
@@ -4172,6 +4207,8 @@ const handlePaymongoWebhook = async (req, res) => {
       } finally {
         connection.release();
       }
+    } else {
+      console.log('Event type not handled for upgrade:', eventType);
     }
 
     if (eventType === 'payment.failed') {
@@ -4179,23 +4216,27 @@ const handlePaymongoWebhook = async (req, res) => {
       const checkoutSessionId = checkoutSession?.id;
 
       if (checkoutSessionId) {
+        console.log('Processing payment.failed for:', checkoutSessionId);
         const connection = await pool.getConnection();
         try {
-          await connection.execute(
+          const [result] = await connection.execute(
             `UPDATE payment_transactions 
              SET status = 'failed', failed_at = NOW()
              WHERE checkout_session_id = ?`,
             [checkoutSessionId]
           );
+          console.log('Failed status update result:', { affectedRows: result?.affectedRows });
         } finally {
           connection.release();
         }
       }
     }
 
+    console.log('=== WEBHOOK PROCESSING COMPLETE ===');
     return res.status(200).json({ received: true });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('=== WEBHOOK ERROR ===', error);
+    console.error('Error stack:', error.stack);
     // Always return 200 to prevent Paymongo from retrying
     return res.status(200).json({ received: true, error: error.message });
   }
