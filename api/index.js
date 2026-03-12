@@ -3963,12 +3963,12 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
     let customerName = '';
     try {
       const [userRows] = await connection.execute(
-        'SELECT email, full_name FROM users WHERE id = ?',
+        'SELECT email, name FROM users WHERE id = ?',
         [userId]
       );
       if (userRows.length > 0) {
         customerEmail = userRows[0].email;
-        customerName = userRows[0].full_name || '';
+        customerName = userRows[0].name || '';
       }
     } finally {
       connection.release();
