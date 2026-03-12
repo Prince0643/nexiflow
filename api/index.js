@@ -3937,7 +3937,7 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
 // BILLING API - Paymongo Integration
 // ============================================
 
-// Create checkout session for plan upgrade
+// Create checkout session for plan upgrade via external PayMongo backend
 app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
   try {
     const { plan, userCount, successUrl, cancelUrl } = req.body;
@@ -3957,112 +3957,101 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
       return res.status(400).json({ error: 'User count must be at least 1' });
     }
     
-    // Calculate amount in centavos (PHP)
-    const USD_TO_PHP_RATE = 58;
-    const pricePerUserUSD = plan === 'office' ? 9 : 12; // $9 or $12 per user
-    const pricePerUserCentavos = pricePerUserUSD * USD_TO_PHP_RATE * 100; // Convert to centavos
-    const totalAmount = pricePerUserCentavos * count;
+    // Get user details for customer info
+    const connection = await pool.getConnection();
+    let customerEmail = '';
+    let customerName = '';
+    try {
+      const [userRows] = await connection.execute(
+        'SELECT email, full_name FROM users WHERE id = ?',
+        [userId]
+      );
+      if (userRows.length > 0) {
+        customerEmail = userRows[0].email;
+        customerName = userRows[0].full_name || '';
+      }
+    } finally {
+      connection.release();
+    }
     
-    console.log('Price calculation:', {
-      plan,
-      userCount: count,
-      pricePerUserUSD,
-      pricePerUserCentavos,
-      totalAmount,
-      totalInPesos: totalAmount / 100
-    });
+    // Call external PayMongo backend
+    const externalApiUrl = process.env.EXTERNAL_PAYMONGO_API_URL || 'https://api.nexistrydigitalsolutions.com';
     
-    const authString = Buffer.from(process.env.PAYMONGO_SECRET_KEY + ':').toString('base64');
-    console.log('Paymongo Auth Header:', 'Basic ' + authString.substring(0, 20) + '...');
-    console.log('Paymongo Key exists:', !!process.env.PAYMONGO_SECRET_KEY);
+    console.log('Calling external PayMongo API:', `${externalApiUrl}/api/clockistry/create-payment-intent`);
+    console.log('Request data:', { companyId, userId, plan, userCount: count });
     
-    // Create checkout session with Paymongo
     const response = await axios.post(
-      'https://api.paymongo.com/v1/checkout_sessions',
+      `${externalApiUrl}/api/clockistry/create-payment-intent`,
       {
-        data: {
-          attributes: {
-            line_items: [
-              {
-                name: `Nexiflow ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-                amount: totalAmount,
-                currency: 'PHP',
-                description: `Subscription for ${count} user(s)`,
-                quantity: 1
-              }
-            ],
-            payment_method_types: ['card', 'gcash'], // Confirmed working on this account
-            success_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/success`,
-            cancel_url: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/cancel`,
-            description: `Upgrade to ${plan} plan`,
-            send_email_receipt: true,
-            show_description: true,
-            show_line_items: true,
-            metadata: {
-              company_id: companyId,
-              user_id: userId,
-              pricing_level: plan,
-              user_count: count,
-              price_per_user: pricePerUserCentavos,
-              internal_transaction_id: uuidv4()
-            }
-          }
-        }
+        companyId: companyId,
+        userId: userId,
+        plan: plan,
+        userCount: count,
+        successUrl: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/success`,
+        cancelUrl: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/cancel`,
+        customerEmail: customerEmail,
+        customerName: customerName
       },
       {
         headers: {
-          'Authorization': `Basic ${authString}`,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: 30000
       }
     );
     
-    const checkoutData = response.data.data;
+    const data = response.data;
     
-    // Store transaction in database
-    const connection = await pool.getConnection();
+    if (!data.success) {
+      throw new Error(data.error || 'External API returned unsuccessful response');
+    }
+    
+    // Store transaction in local database
+    const conn = await pool.getConnection();
     try {
-      await connection.execute(
+      // Calculate price for local record (same formula as external backend)
+      const USD_TO_PHP_RATE = 58;
+      const pricePerUserUSD = plan === 'office' ? 9 : 12;
+      const pricePerUserCentavos = pricePerUserUSD * USD_TO_PHP_RATE * 100;
+      
+      await conn.execute(
         `INSERT INTO payment_transactions 
          (id, company_id, checkout_session_id, amount, currency, status, metadata, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
         [
-          checkoutData.attributes.metadata.internal_transaction_id,
+          data.transactionId,
           companyId,
-          checkoutData.id,
-          totalAmount,
+          data.checkoutSessionId,
+          data.amount,
           'PHP',
           'pending',
           JSON.stringify({
             pricing_level: plan,
             user_count: count,
-            price_per_user: pricePerUserCentavos
+            price_per_user: pricePerUserCentavos,
+            source: 'external_api'
           })
         ]
       );
     } finally {
-      connection.release();
+      conn.release();
     }
     
     res.json({
       success: true,
-      checkoutUrl: checkoutData.attributes.checkout_url,
-      checkoutSessionId: checkoutData.id,
-      transactionId: checkoutData.attributes.metadata.internal_transaction_id
+      checkoutUrl: data.checkoutUrl,
+      checkoutSessionId: data.checkoutSessionId,
+      transactionId: data.transactionId
     });
     
   } catch (error) {
-    console.error('Paymongo checkout error details:');
+    console.error('External PayMongo API error:');
     if (error.response) {
-      // Paymongo returned an error response
       console.error('Status:', error.response.status);
       console.error('Data:', JSON.stringify(error.response.data, null, 2));
     } else if (error.request) {
-      // Request was made but no response received
-      console.error('No response received from Paymongo');
-      console.error('Request:', error.request);
+      console.error('No response received from external API');
     } else {
-      // Something else happened
       console.error('Error message:', error.message);
     }
     console.error('Full error:', error);
@@ -4070,16 +4059,13 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
   }
 });
 
-// Webhook handler for Paymongo events
+// Webhook handler for Paymongo events (from external backend or direct)
 const handlePaymongoWebhook = async (req, res) => {
   try {
-    const signature = req.headers['paymongo-signature'];
-    
-    console.log('=== PAYMONGO WEBHOOK RECEIVED ===');
+    console.log('=== WEBHOOK RECEIVED ===');
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Has rawBody:', !!req.rawBody);
-    console.log('req.body type:', typeof req.body, 'isBuffer:', Buffer.isBuffer(req.body));
     
+    // Parse the body - handle both rawBody and regular body
     const rawBodyBuffer = req.rawBody
       ? req.rawBody
       : Buffer.isBuffer(req.body)
@@ -4087,7 +4073,6 @@ const handlePaymongoWebhook = async (req, res) => {
         : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
     const rawBodyString = rawBodyBuffer.toString('utf8');
     
-    console.log('Raw body length:', rawBodyString.length);
     console.log('Raw body preview:', rawBodyString.substring(0, 500));
     
     let payload;
@@ -4096,65 +4081,43 @@ const handlePaymongoWebhook = async (req, res) => {
       console.log('Payload parsed successfully');
     } catch (parseError) {
       console.error('JSON parse error:', parseError.message);
-      console.log('Raw body that failed:', rawBodyString);
       return res.status(200).json({ received: true, error: 'Invalid JSON' });
     }
 
-    // Optional: Verify webhook signature if PAYMONGO_WEBHOOK_SECRET is set
-    if (process.env.PAYMONGO_WEBHOOK_SECRET && signature) {
-      const crypto = require('crypto');
+    // Check if this is from external backend (forwarded format) or direct PayMongo
+    // External backend format has: { eventType, checkoutSessionId, metadata, status }
+    // PayMongo format has: { data: { attributes: { type, data: { id, attributes: { metadata } } } } }
+    const isExternalBackendFormat = payload.eventType !== undefined && payload.metadata !== undefined;
+    const isPaymongoFormat = payload.data?.attributes?.type !== undefined;
+    
+    console.log('Webhook format detected:', { isExternalBackendFormat, isPaymongoFormat });
+    console.log('Full payload:', JSON.stringify(payload, null, 2));
 
-      const sigParts = String(signature)
-        .split(',')
-        .map(p => p.trim())
-        .filter(Boolean)
-        .map(p => {
-          const [k, v] = p.split('=');
-          return { k, v };
-        });
+    let eventType, checkoutSessionId, metadata, status;
 
-      const timestamp = sigParts.find(p => p.k === 't')?.v;
-      const providedSignatures = sigParts
-        .filter(p => p.k === 'v1' || p.k === 'v0')
-        .map(p => p.v)
-        .filter(Boolean);
-
-      if (timestamp && providedSignatures.length > 0) {
-        const signedPayload = `${timestamp}.${rawBodyString}`;
-        const expectedSig = crypto
-          .createHmac('sha256', process.env.PAYMONGO_WEBHOOK_SECRET)
-          .update(signedPayload)
-          .digest('hex');
-
-        if (!providedSignatures.includes(expectedSig)) {
-          console.warn('Webhook signature verification failed');
-          if (process.env.NODE_ENV === 'production') {
-            return res.status(401).json({ error: 'Invalid signature' });
-          }
-        }
-      } else {
-        console.warn('Webhook signature header present but missing expected fields');
-        if (process.env.NODE_ENV === 'production') {
-          return res.status(401).json({ error: 'Invalid signature header' });
-        }
-      }
+    if (isExternalBackendFormat) {
+      // External backend forwarded format
+      console.log('Processing external backend webhook format');
+      eventType = payload.eventType;
+      checkoutSessionId = payload.checkoutSessionId;
+      metadata = payload.metadata;
+      status = payload.status;
+    } else if (isPaymongoFormat) {
+      // Direct PayMongo format
+      console.log('Processing direct PayMongo webhook format');
+      eventType = payload.data?.attributes?.type;
+      const checkoutSession = payload.data?.attributes?.data;
+      checkoutSessionId = checkoutSession?.id;
+      metadata = checkoutSession?.attributes?.metadata;
+    } else {
+      console.error('Unknown webhook format - cannot process');
+      return res.status(200).json({ received: true, warning: 'Unknown format' });
     }
 
-    console.log('Full payload:', JSON.stringify(payload, null, 2));
-    
-    const eventType = payload.data?.attributes?.type;
-    console.log('Event type:', eventType);
+    console.log('Extracted values:', { eventType, checkoutSessionId, metadata, status });
 
+    // Handle payment success
     if (eventType === 'checkout_session.payment.paid' || eventType === 'payment.paid') {
-      const checkoutSession = payload.data?.attributes?.data;
-      console.log('Checkout session from payload:', JSON.stringify(checkoutSession, null, 2));
-      
-      const checkoutSessionAttributes = checkoutSession?.attributes || payload.data?.attributes?.data?.attributes;
-      const metadata = checkoutSessionAttributes?.metadata;
-
-      console.log('Extracted metadata:', JSON.stringify(metadata, null, 2));
-      console.log('checkoutSessionId:', checkoutSession?.id || payload.data?.attributes?.data?.id);
-
       if (!metadata) {
         console.error('No metadata in webhook payload - cannot process upgrade');
         return res.status(200).json({ received: true, warning: 'No metadata' });
@@ -4163,9 +4126,8 @@ const handlePaymongoWebhook = async (req, res) => {
       const companyId = metadata.company_id;
       const pricingLevel = metadata.pricing_level;
       const userCount = metadata.user_count;
-      const checkoutSessionId = checkoutSession?.id || payload.data?.attributes?.data?.id;
 
-      console.log('Extracted values:', { companyId, pricingLevel, userCount, checkoutSessionId });
+      console.log('Processing payment success:', { companyId, pricingLevel, userCount, checkoutSessionId });
 
       if (!companyId || !pricingLevel || !checkoutSessionId) {
         console.error('Missing required fields:', { companyId, pricingLevel, checkoutSessionId });
@@ -4174,7 +4136,7 @@ const handlePaymongoWebhook = async (req, res) => {
 
       const connection = await pool.getConnection();
       try {
-        console.log('Attempting to update transaction for checkout_session_id:', checkoutSessionId);
+        console.log('Updating transaction status for checkout_session_id:', checkoutSessionId);
         
         const [txResult] = await connection.execute(
           `UPDATE payment_transactions 
@@ -4185,7 +4147,7 @@ const handlePaymongoWebhook = async (req, res) => {
 
         console.log('Transaction update result:', { affectedRows: txResult?.affectedRows });
 
-        console.log('Attempting to update company:', { companyId, pricingLevel, userCount });
+        console.log('Updating company plan:', { companyId, pricingLevel, userCount });
         
         const [companyResult] = await connection.execute(
           `UPDATE companies 
@@ -4196,7 +4158,7 @@ const handlePaymongoWebhook = async (req, res) => {
 
         console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
 
-        console.log('=== PAYMONGO PAID EVENT PROCESSED ===', {
+        console.log('=== PAYMENT SUCCESS PROCESSED ===', {
           companyId,
           pricingLevel,
           userCount: parseInt(userCount) || 1,
@@ -4207,16 +4169,12 @@ const handlePaymongoWebhook = async (req, res) => {
       } finally {
         connection.release();
       }
-    } else {
-      console.log('Event type not handled for upgrade:', eventType);
-    }
-
-    if (eventType === 'payment.failed') {
-      const checkoutSession = payload.data?.attributes?.data;
-      const checkoutSessionId = checkoutSession?.id;
-
+    } 
+    // Handle payment failure
+    else if (eventType === 'payment.failed' || status === 'failed') {
+      console.log('Processing payment failure for:', checkoutSessionId);
+      
       if (checkoutSessionId) {
-        console.log('Processing payment.failed for:', checkoutSessionId);
         const connection = await pool.getConnection();
         try {
           const [result] = await connection.execute(
@@ -4230,6 +4188,9 @@ const handlePaymongoWebhook = async (req, res) => {
           connection.release();
         }
       }
+    } 
+    else {
+      console.log('Event type not handled:', eventType);
     }
 
     console.log('=== WEBHOOK PROCESSING COMPLETE ===');
@@ -4237,7 +4198,7 @@ const handlePaymongoWebhook = async (req, res) => {
   } catch (error) {
     console.error('=== WEBHOOK ERROR ===', error);
     console.error('Error stack:', error.stack);
-    // Always return 200 to prevent Paymongo from retrying
+    // Always return 200 to prevent retries
     return res.status(200).json({ received: true, error: error.message });
   }
 };

@@ -40,6 +40,9 @@ import RootDashboard from './pages/RootDashboard'
 // Import the new Invoicing page
 import Invoicing from './pages/Invoicing'
 import NewInvoice from './pages/NewInvoice'
+// Import billing pages
+import BillingSuccess from './pages/billing/BillingSuccess'
+import BillingCancel from './pages/billing/BillingCancel'
 import { soundManager } from './utils/soundManager'
 
 function AppContent() {
@@ -203,6 +206,16 @@ function AppContent() {
                 <Route path="/upgrade" element={
                   <ProtectedRoute>
                     <UpgradeCTA />
+                  </ProtectedRoute>
+                } />
+                <Route path="/billing/success" element={
+                  <ProtectedRoute>
+                    <BillingSuccess />
+                  </ProtectedRoute>
+                } />
+                <Route path="/billing/cancel" element={
+                  <ProtectedRoute>
+                    <BillingCancel />
                   </ProtectedRoute>
                 } />
               </>

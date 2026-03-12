@@ -28,33 +28,33 @@ const pool = mysql.createPool({
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-  
+
   if (!token) {
-    return res.status(401).json({ 
-      success: false, 
-      error: 'Access token required' 
+    return res.status(401).json({
+      success: false,
+      error: 'Access token required'
     });
   }
-  
+
   // In a real implementation, you would verify the JWT token here
   // For now, we'll accept any non-empty token as valid for demonstration purposes
   // In production, you should verify the JWT signature and expiration
   try {
     // Simple validation - check if token exists and is not empty
     if (!token.trim()) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Invalid or expired token' 
+      return res.status(403).json({
+        success: false,
+        error: 'Invalid or expired token'
       });
     }
-    
+
     // In a real implementation, you would decode the token and attach user info to req.user
     // req.user = decodedUser;
     next();
   } catch (error) {
-    return res.status(403).json({ 
-      success: false, 
-      error: 'Invalid token' 
+    return res.status(403).json({
+      success: false,
+      error: 'Invalid token'
     });
   }
 };
@@ -68,45 +68,45 @@ app.get('/api/health', (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     if (!email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Email and password are required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Email and password are required'
       });
     }
-    
+
     // Get database connection
     const connection = await pool.getConnection();
     try {
       // Look up user by email
       const userQuery = `SELECT * FROM users WHERE email = ? AND is_active = 1`;
       const [userRows] = await connection.execute(userQuery, [email]);
-      
+
       if (userRows.length === 0) {
-        return res.status(401).json({ 
-          success: false, 
-          error: 'Invalid email or password' 
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid email or password'
         });
       }
-      
+
       const user = userRows[0];
-      
+
       // Verify the password
       const isPasswordValid = await bcrypt.compare(password, user.password_hash);
       if (!isPasswordValid) {
-        return res.status(401).json({ 
-          success: false, 
-          error: 'Invalid email or password' 
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid email or password'
         });
       }
-      
+
       // Get company information if user has a company
       let companyData = null;
       if (user.company_id) {
         const companyQuery = `SELECT * FROM companies WHERE id = ?`;
         const [companyRows] = await connection.execute(companyQuery, [user.company_id]);
-        
+
         if (companyRows.length > 0) {
           const company = companyRows[0];
           companyData = {
@@ -121,7 +121,7 @@ app.post('/api/auth/login', async (req, res) => {
           };
         }
       }
-      
+
       // Create user object without sensitive data
       const userData = {
         id: user.id,
@@ -138,65 +138,60 @@ app.post('/api/auth/login', async (req, res) => {
         createdAt: user.created_at,
         updatedAt: user.updated_at
       };
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         user: userData,
         company: companyData
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Login failed. Please try again.' 
+    res.status(500).json({
+      success: false,
+      error: 'Login failed. Please try again.'
     });
   }
 });
 
-// Signup endpoint
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password, confirmPassword, role, companyName } = req.body;
-    
-    // Basic validation
+
     if (!name || !email || !password || !confirmPassword) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'All fields are required' 
+      return res.status(400).json({
+        success: false,
+        error: 'All fields are required'
       });
     }
-    
+
     if (password !== confirmPassword) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Passwords do not match' 
+      return res.status(400).json({
+        success: false,
+        error: 'Passwords do not match'
       });
     }
-    
-    // Check if user already exists
+
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
       const checkUserQuery = `SELECT id FROM users WHERE email = ?`;
       const [existingUsers] = await connection.execute(checkUserQuery, [email]);
-      
+
       if (existingUsers.length > 0) {
         await connection.rollback();
-        return res.status(400).json({ 
-          success: false, 
-          error: 'User with this email already exists' 
+        return res.status(400).json({
+          success: false,
+          error: 'User with this email already exists'
         });
       }
-      
-      // Hash the password
+
       const hashedPassword = await bcrypt.hash(password, 12);
-      
-      // Create user (IDs are varchar in schema, so generate a string ID)
+
       const now = new Date();
       const userId = uuidv4();
       const userQuery = `
@@ -204,7 +199,7 @@ app.post('/api/auth/signup', async (req, res) => {
           id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?)
       `;
-      
+
       await connection.execute(userQuery, [
         userId,
         userId,
@@ -212,24 +207,21 @@ app.post('/api/auth/signup', async (req, res) => {
         email,
         hashedPassword,
         role,
-        'America/New_York', // Default timezone
-        25, // Default hourly rate
+        'America/New_York',
+        25,
         now,
         now
       ]);
-      
-      // If this is a super admin signup, create a company
+
       let companyData = null;
       if (role === 'super_admin' && companyName) {
         const companyId = uuidv4();
-        // Create company
         const companyQuery = `
           INSERT INTO companies (
             id, name, is_active, pricing_level, max_members, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `;
-        
-        // Default PDF settings
+
         const defaultPdfSettings = {
           companyName: companyName,
           logoUrl: '',
@@ -238,21 +230,20 @@ app.post('/api/auth/signup', async (req, res) => {
           showPoweredBy: true,
           customFooterText: ''
         };
-        
+
         await connection.execute(companyQuery, [
           companyId,
           companyName,
-          1, // is_active
-          'solo', // pricing_level
-          1, // max_members
+          1,
+          'solo',
+          1,
           now,
           now
         ]);
-        
-        // Update user with company ID
+
         const updateUserQuery = `UPDATE users SET company_id = ? WHERE id = ?`;
         await connection.execute(updateUserQuery, [companyId, userId]);
-        
+
         companyData = {
           id: companyId,
           name: companyName,
@@ -264,14 +255,14 @@ app.post('/api/auth/signup', async (req, res) => {
           pdfSettings: defaultPdfSettings
         };
       }
-      
+
       // Get the created user
       const getUserQuery = `SELECT * FROM users WHERE id = ?`;
       const [userRows] = await connection.execute(getUserQuery, [userId]);
       const user = userRows[0];
 
       await connection.commit();
-      
+
       const userData = {
         id: user.id,
         name: user.name,
@@ -287,22 +278,22 @@ app.post('/api/auth/signup', async (req, res) => {
         createdAt: user.created_at,
         updatedAt: user.updated_at
       };
-      
-      res.status(201).json({ 
-        success: true, 
+
+      res.status(201).json({
+        success: true,
         user: userData,
         company: companyData
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Signup failed. Please try again.' 
+    res.status(500).json({
+      success: false,
+      error: 'Signup failed. Please try again.'
     });
   }
 });
@@ -311,27 +302,27 @@ app.post('/api/auth/signup', async (req, res) => {
 app.get('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const userQuery = `SELECT * FROM users WHERE id = ? AND is_active = 1`;
       const [userRows] = await connection.execute(userQuery, [id]);
-      
+
       if (userRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'User not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
         });
       }
-      
+
       const user = userRows[0];
-      
+
       // Get company information if user has a company
       let companyData = null;
       if (user.company_id) {
         const companyQuery = `SELECT * FROM companies WHERE id = ?`;
         const [companyRows] = await connection.execute(companyQuery, [user.company_id]);
-        
+
         if (companyRows.length > 0) {
           const company = companyRows[0];
           companyData = {
@@ -346,7 +337,7 @@ app.get('/api/users/:id', async (req, res) => {
           };
         }
       }
-      
+
       const userData = {
         id: user.id,
         name: user.name,
@@ -362,22 +353,22 @@ app.get('/api/users/:id', async (req, res) => {
         createdAt: user.created_at,
         updatedAt: user.updated_at
       };
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         user: userData,
         company: companyData
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get user error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get user data' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get user data'
     });
   }
 });
@@ -388,7 +379,7 @@ app.get('/api/admin/users', async (req, res) => {
   try {
     // In a real implementation, you would verify the user is an admin
     // For now, we'll just get all users
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -396,7 +387,7 @@ app.get('/api/admin/users', async (req, res) => {
         WHERE is_active = 1
         ORDER BY name ASC
       `;
-      
+
       const [rows] = await connection.execute(query);
       const users = rows.map(row => ({
         id: row.id,
@@ -413,22 +404,22 @@ app.get('/api/admin/users', async (req, res) => {
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: users,
         count: users.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get all users error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get users' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get users'
     });
   }
 });
@@ -437,7 +428,7 @@ app.get('/api/admin/users', async (req, res) => {
 app.get('/api/admin/users/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -445,7 +436,7 @@ app.get('/api/admin/users/company/:companyId', async (req, res) => {
         WHERE company_id = ? AND is_active = 1
         ORDER BY name ASC
       `;
-      
+
       const [rows] = await connection.execute(query, [companyId]);
       const users = rows.map(row => ({
         id: row.id,
@@ -462,22 +453,22 @@ app.get('/api/admin/users/company/:companyId', async (req, res) => {
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: users,
         count: users.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get users for company error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get users for company' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get users for company'
     });
   }
 });
@@ -486,7 +477,7 @@ app.get('/api/admin/users/company/:companyId', async (req, res) => {
 app.post('/api/admin/users', async (req, res) => {
   try {
     const userData = req.body;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -494,7 +485,7 @@ app.post('/api/admin/users', async (req, res) => {
           id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      
+
       const now = new Date();
       const newUserId = uuidv4();
       await connection.execute(query, [
@@ -514,7 +505,7 @@ app.post('/api/admin/users', async (req, res) => {
         now,
         now
       ]);
-      
+
       const newUser = {
         id: newUserId,
         name: userData.name,
@@ -530,22 +521,22 @@ app.post('/api/admin/users', async (req, res) => {
         createdAt: now,
         updatedAt: now
       };
-      
-      res.status(201).json({ 
-        success: true, 
+
+      res.status(201).json({
+        success: true,
         data: newUser,
         message: 'User created successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Create user error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to create user' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create user'
     });
   }
 });
@@ -555,12 +546,12 @@ app.put('/api/admin/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const updates = req.body;
-    
+
     const connection = await pool.getConnection();
     try {
       const fields = [];
       const values = [];
-      
+
       if (updates.name !== undefined) {
         fields.push('name = ?');
         values.push(updates.name);
@@ -596,33 +587,33 @@ app.put('/api/admin/users/:userId', async (req, res) => {
       // Always update the timestamp
       fields.push('updated_at = ?');
       values.push(new Date());
-      
+
       if (fields.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'No updates provided' 
+        return res.status(400).json({
+          success: false,
+          error: 'No updates provided'
         });
       }
-      
+
       values.push(userId); // For the WHERE clause
-      
+
       const query = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
       await connection.execute(query, values);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'User updated successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Update user error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update user' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update user'
     });
   }
 });
@@ -631,26 +622,26 @@ app.put('/api/admin/users/:userId', async (req, res) => {
 app.delete('/api/admin/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `UPDATE users SET is_active = 0, updated_at = ? WHERE id = ?`;
       await connection.execute(query, [new Date(), userId]);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'User deleted successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Delete user error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to delete user' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete user'
     });
   }
 });
@@ -664,7 +655,7 @@ app.get('/api/admin/time-entries', async (req, res) => {
         SELECT * FROM time_entries 
         ORDER BY created_at DESC
       `;
-      
+
       const [rows] = await connection.execute(query);
       const timeEntries = rows.map(row => ({
         id: row.id,
@@ -684,22 +675,22 @@ app.get('/api/admin/time-entries', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: timeEntries,
         count: timeEntries.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get all time entries error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get time entries' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get time entries'
     });
   }
 });
@@ -708,7 +699,7 @@ app.get('/api/admin/time-entries', async (req, res) => {
 app.get('/api/admin/time-entries/running', async (req, res) => {
   try {
     const { companyId } = req.query;
-    
+
     const connection = await pool.getConnection();
     try {
       let query = `
@@ -717,7 +708,7 @@ app.get('/api/admin/time-entries/running', async (req, res) => {
         ORDER BY created_at DESC
       `;
       let params = [];
-      
+
       if (companyId) {
         query = `
           SELECT te.* FROM time_entries te
@@ -727,7 +718,7 @@ app.get('/api/admin/time-entries/running', async (req, res) => {
         `;
         params = [companyId];
       }
-      
+
       const [rows] = await connection.execute(query, params);
       const timeEntries = rows.map(row => ({
         id: row.id,
@@ -746,22 +737,22 @@ app.get('/api/admin/time-entries/running', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: timeEntries,
         count: timeEntries.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get running time entries error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get running time entries' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get running time entries'
     });
   }
 });
@@ -770,26 +761,26 @@ app.get('/api/admin/time-entries/running', async (req, res) => {
 app.delete('/api/admin/time-entries/:entryId', async (req, res) => {
   try {
     const { entryId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `DELETE FROM time_entries WHERE id = ?`;
       await connection.execute(query, [entryId]);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Time entry deleted successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Delete time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to delete time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete time entry'
     });
   }
 });
@@ -798,44 +789,44 @@ app.delete('/api/admin/time-entries/:entryId', async (req, res) => {
 app.post('/api/admin/time-entries/:entryId/stop', async (req, res) => {
   try {
     const { entryId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       // First get the entry to calculate duration
       const selectQuery = `SELECT start_time FROM time_entries WHERE id = ?`;
       const [rows] = await connection.execute(selectQuery, [entryId]);
-      
+
       if (rows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Time entry not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Time entry not found'
         });
       }
-      
+
       const startTime = new Date(rows[0].start_time);
       const endTime = new Date();
       const duration = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
-      
+
       const updateQuery = `
         UPDATE time_entries 
         SET end_time = ?, duration = ?, is_running = 0, updated_at = ?
         WHERE id = ?
       `;
-      
+
       await connection.execute(updateQuery, [endTime, duration, new Date(), entryId]);
-      
+
       // Fetch the updated entry to return it
       const [updatedRows] = await connection.execute('SELECT * FROM time_entries WHERE id = ?', [entryId]);
-      
+
       if (updatedRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Time entry not found after update' 
+        return res.status(404).json({
+          success: false,
+          error: 'Time entry not found after update'
         });
       }
-      
+
       const updatedRow = updatedRows[0];
-      
+
       const updatedEntry = {
         id: updatedRow.id,
         userId: updatedRow.user_id,
@@ -854,25 +845,25 @@ app.post('/api/admin/time-entries/:entryId/stop', async (req, res) => {
         createdAt: new Date(updatedRow.created_at),
         updatedAt: new Date(updatedRow.updated_at)
       };
-      
+
       // Populate tags
       updatedEntry.tags = await getTagsForTimeEntry(connection, updatedEntry.id);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Time entry stopped successfully',
         data: updatedEntry
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Stop time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to stop time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to stop time entry'
     });
   }
 });
@@ -882,12 +873,12 @@ app.put('/api/admin/time-entries/:entryId', async (req, res) => {
   try {
     const { entryId } = req.params;
     const updates = req.body;
-    
+
     const connection = await pool.getConnection();
     try {
       const fields = [];
       const values = [];
-      
+
       if (updates.projectId !== undefined) {
         fields.push('project_id = ?');
         values.push(updates.projectId || null);
@@ -919,33 +910,33 @@ app.put('/api/admin/time-entries/:entryId', async (req, res) => {
       // Always update the timestamp
       fields.push('updated_at = ?');
       values.push(new Date());
-      
+
       if (fields.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'No updates provided' 
+        return res.status(400).json({
+          success: false,
+          error: 'No updates provided'
         });
       }
-      
+
       values.push(entryId); // For the WHERE clause
-      
+
       const query = `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`;
       await connection.execute(query, values);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Time entry updated successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Update time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update time entry'
     });
   }
 });
@@ -954,7 +945,7 @@ app.put('/api/admin/time-entries/:entryId', async (req, res) => {
 app.get('/api/admin/projects/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -962,7 +953,7 @@ app.get('/api/admin/projects/company/:companyId', async (req, res) => {
         WHERE company_id = ? AND is_archived = 0
         ORDER BY created_at DESC
       `;
-      
+
       const [rows] = await connection.execute(query, [companyId]);
       const projects = rows.map(row => ({
         id: row.id,
@@ -981,22 +972,22 @@ app.get('/api/admin/projects/company/:companyId', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: projects,
         count: projects.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get projects for company error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get projects for company' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get projects for company'
     });
   }
 });
@@ -1005,7 +996,7 @@ app.get('/api/admin/projects/company/:companyId', async (req, res) => {
 app.get('/api/admin/clients/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -1013,7 +1004,7 @@ app.get('/api/admin/clients/company/:companyId', async (req, res) => {
         WHERE company_id = ? AND is_archived = 0
         ORDER BY created_at DESC
       `;
-      
+
       const [rows] = await connection.execute(query, [companyId]);
       const clients = rows.map(row => ({
         id: row.id,
@@ -1035,22 +1026,22 @@ app.get('/api/admin/clients/company/:companyId', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: clients,
         count: clients.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get clients for company error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get clients for company' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get clients for company'
     });
   }
 });
@@ -1059,7 +1050,7 @@ app.get('/api/admin/clients/company/:companyId', async (req, res) => {
 app.get('/api/admin/teams/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -1067,7 +1058,7 @@ app.get('/api/admin/teams/company/:companyId', async (req, res) => {
         WHERE is_active = 1 AND company_id = ?
         ORDER BY created_at DESC
       `;
-      
+
       const [rows] = await connection.execute(query, [companyId]);
       const teams = rows.map(row => ({
         id: row.id,
@@ -1084,44 +1075,45 @@ app.get('/api/admin/teams/company/:companyId', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: teams,
         count: teams.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get teams for company error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get teams for company' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get teams for company'
     });
   }
 });
 
 // Time Entry API endpoints
 // Create a new time entry
-app.post('/api/time-entries', authenticateToken, async (req, res) => {  try {
+app.post('/api/time-entries', authenticateToken, async (req, res) => {
+  try {
     const entryData = req.body;
     const { userId, projectName, companyId, clientName } = req.query;
-    
+
     const connection = await pool.getConnection();
     try {
       const now = new Date();
       const entryId = uuidv4(); // Generate a unique ID for the time entry
-      
+
       // Debug logging
       console.log('Create timer debug info:', {
         entryId,
         startTime: now.toISOString(),
         startTimeMs: now.getTime()
       });
-      
+
       const query = `
         INSERT INTO time_entries (
           id, user_id, company_id, project_id, project_name, client_id, client_name,
@@ -1145,7 +1137,7 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {  try {
         now,
         now
       ]);
-      
+
       // Handle tags if provided
       if (entryData.tags && Array.isArray(entryData.tags) && entryData.tags.length > 0) {
         // Insert each tag into the time_entry_tags table
@@ -1156,30 +1148,31 @@ app.post('/api/time-entries', authenticateToken, async (req, res) => {  try {
           );
         }
       }
-      
-      res.status(201).json({ 
-        success: true, 
+
+      res.status(201).json({
+        success: true,
         data: { id: entryId },
         message: 'Time entry created successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Create time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to create time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create time entry'
     });
   }
 });
 
 // Get all time entries for a user
-app.get('/api/time-entries/user/:userId', authenticateToken, async (req, res) => {  try {
+app.get('/api/time-entries/user/:userId', authenticateToken, async (req, res) => {
+  try {
     const { userId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -1207,27 +1200,27 @@ app.get('/api/time-entries/user/:userId', authenticateToken, async (req, res) =>
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
+
       // Populate tags for each time entry
       for (const timeEntry of timeEntries) {
         timeEntry.tags = await getTagsForTimeEntry(connection, timeEntry.id);
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: timeEntries,
         count: timeEntries.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get time entries error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get time entries' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get time entries'
     });
   }
 });
@@ -1236,7 +1229,7 @@ app.get('/api/time-entries/user/:userId', authenticateToken, async (req, res) =>
 app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -1248,14 +1241,14 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
 
       const [rows] = await connection.execute(query, [userId]);
       if (rows.length === 0) {
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           data: null
         });
       }
 
       const row = rows[0];
-      
+
       // Debug logging
       console.log('Get running timer debug info:', {
         entryId: row.id,
@@ -1263,7 +1256,7 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
         parsedStartTime: new Date(row.start_time).toISOString(),
         parsedStartTimeMs: new Date(row.start_time).getTime()
       });
-      
+
       const timeEntry = {
         id: row.id,
         userId: row.user_id,
@@ -1282,24 +1275,24 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       };
-      
+
       // Populate tags
       timeEntry.tags = await getTagsForTimeEntry(connection, timeEntry.id);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: timeEntry
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get running time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get running time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get running time entry'
     });
   }
 });
@@ -1308,7 +1301,7 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
 app.post('/api/time-entries/:entryId/stop', authenticateToken, async (req, res) => {
   try {
     const { entryId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       // First get the entry to calculate duration
@@ -1316,9 +1309,9 @@ app.post('/api/time-entries/:entryId/stop', authenticateToken, async (req, res) 
       const [rows] = await connection.execute(selectQuery, [entryId]);
 
       if (rows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Time entry not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Time entry not found'
         });
       }
 
@@ -1333,7 +1326,7 @@ app.post('/api/time-entries/:entryId/stop', authenticateToken, async (req, res) 
       const startTime = new Date(rows[0].start_time);
       const endTime = new Date();
       const duration = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
-      
+
       // Debug logging
       console.log('Stop timer debug info:', {
         entryId,
@@ -1351,19 +1344,19 @@ app.post('/api/time-entries/:entryId/stop', authenticateToken, async (req, res) 
       `;
 
       await connection.execute(updateQuery, [endTime, duration, new Date(), entryId]);
-      
+
       // Fetch the updated entry to return it
       const [updatedRows] = await connection.execute('SELECT * FROM time_entries WHERE id = ?', [entryId]);
-      
+
       if (updatedRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Time entry not found after update' 
+        return res.status(404).json({
+          success: false,
+          error: 'Time entry not found after update'
         });
       }
-      
+
       const updatedRow = updatedRows[0];
-      
+
       const updatedEntry = {
         id: updatedRow.id,
         userId: updatedRow.user_id,
@@ -1382,25 +1375,25 @@ app.post('/api/time-entries/:entryId/stop', authenticateToken, async (req, res) 
         createdAt: new Date(updatedRow.created_at),
         updatedAt: new Date(updatedRow.updated_at)
       };
-      
+
       // Populate tags
       updatedEntry.tags = await getTagsForTimeEntry(connection, updatedEntry.id);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Time entry stopped successfully',
         data: updatedEntry
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Stop time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to stop time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to stop time entry'
     });
   }
 });
@@ -1410,20 +1403,20 @@ app.put('/api/time-entries/:entryId', authenticateToken, async (req, res) => {
   try {
     const { entryId } = req.params;
     const updates = req.body;
-    
+
     // Validate entryId
     if (!entryId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Entry ID is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Entry ID is required'
       });
     }
-    
+
     const connection = await pool.getConnection();
     try {
       const fields = [];
       const values = [];
-      
+
       if (updates.projectId !== undefined) {
         fields.push('project_id = ?');
         values.push(updates.projectId || null);
@@ -1451,45 +1444,45 @@ app.put('/api/time-entries/:entryId', authenticateToken, async (req, res) => {
       // Always update the timestamp
       fields.push('updated_at = ?');
       values.push(new Date());
-      
+
       if (fields.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'No updates provided' 
+        return res.status(400).json({
+          success: false,
+          error: 'No updates provided'
         });
       }
-      
+
       values.push(entryId); // For the WHERE clause
-      
+
       const query = `UPDATE time_entries SET ${fields.join(', ')} WHERE id = ?`;
       const [result] = await connection.execute(query, values);
-      
+
       // Handle tags update if provided
       if (updates.tags !== undefined) {
         await updateTimeEntryTags(connection, entryId, updates.tags);
       }
-      
+
       if (result.affectedRows === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Time entry not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Time entry not found'
         });
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Time entry updated successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Update time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update time entry'
     });
   }
 });
@@ -1498,34 +1491,34 @@ app.put('/api/time-entries/:entryId', authenticateToken, async (req, res) => {
 app.delete('/api/time-entries/:entryId', authenticateToken, async (req, res) => {
   try {
     const { entryId } = req.params;
-    
+
     // Validate entryId
     if (!entryId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Entry ID is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Entry ID is required'
       });
     }
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `DELETE FROM time_entries WHERE id = ?`;
       await connection.execute(query, [entryId]);
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Time entry deleted successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Delete time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to delete time entry' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete time entry'
     });
   }
 });
@@ -1535,7 +1528,7 @@ app.delete('/api/time-entries/:entryId', authenticateToken, async (req, res) => 
 app.get('/api/projects/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -1562,22 +1555,22 @@ app.get('/api/projects/company/:companyId', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: projects,
         count: projects.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get projects error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get projects' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get projects'
     });
   }
 });
@@ -1587,7 +1580,7 @@ app.get('/api/projects/company/:companyId', async (req, res) => {
 app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
     const { projectId, userId } = req.query;
-    
+
     const connection = await pool.getConnection();
     try {
       let query = `
@@ -1595,21 +1588,21 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
         WHERE 1=1
       `;
       const params = [];
-      
+
       // Filter by project
       if (projectId) {
         query += ` AND project_id = ?`;
         params.push(projectId);
       }
-      
+
       // Filter by user
       if (userId) {
         query += ` AND assignee_id = ?`;
         params.push(userId);
       }
-      
+
       query += ` ORDER BY created_at DESC`;
-      
+
       const [rows] = await connection.execute(query, params);
       const tasks = rows.map(row => ({
         id: row.id,
@@ -1651,22 +1644,22 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
         comments: row.comments ? JSON.parse(row.comments) : [],
         timeEntries: row.time_entries ? JSON.parse(row.time_entries) : []
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: tasks,
         count: tasks.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get tasks error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get tasks' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get tasks'
     });
   }
 });
@@ -1675,12 +1668,12 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
 app.post('/api/tasks', authenticateToken, async (req, res) => {
   try {
     const taskData = req.body;
-    
+
     const connection = await pool.getConnection();
     try {
       const now = new Date().toISOString();
       const taskId = uuidv4(); // Generate a unique ID for the task
-      
+
       const query = `
         INSERT INTO tasks (
           id, title, description, notes, project_id, project_name, status_id, status_name,
@@ -1691,7 +1684,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
           tags, attachments, comments, time_entries
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      
+
       await connection.execute(query, [
         taskId,
         taskData.title,
@@ -1728,7 +1721,7 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
         taskData.comments ? JSON.stringify(taskData.comments) : JSON.stringify([]),
         taskData.timeEntries ? JSON.stringify(taskData.timeEntries) : JSON.stringify([])
       ]);
-      
+
       const newTask = {
         id: taskId,
         title: taskData.title,
@@ -1758,22 +1751,22 @@ app.post('/api/tasks', authenticateToken, async (req, res) => {
         comments: taskData.comments || [],
         timeEntries: taskData.timeEntries || []
       };
-      
-      res.status(201).json({ 
-        success: true, 
+
+      res.status(201).json({
+        success: true,
         data: newTask,
         message: 'Task created successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Create task error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to create task' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create task'
     });
   }
 });
@@ -1783,20 +1776,20 @@ app.put('/api/tasks/:taskId', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
     const updates = req.body;
-    
+
     // Validate taskId
     if (!taskId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Task ID is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Task ID is required'
       });
     }
-    
+
     const connection = await pool.getConnection();
     try {
       const fields = [];
       const values = [];
-      
+
       if (updates.title !== undefined) {
         fields.push('title = ?');
         values.push(updates.title);
@@ -1863,7 +1856,7 @@ app.put('/api/tasks/:taskId', authenticateToken, async (req, res) => {
       if (updates.isCompleted !== undefined) {
         fields.push('is_completed = ?');
         values.push(updates.isCompleted ? 1 : 0);
-        
+
         if (updates.isCompleted) {
           fields.push('completed_at = ?');
           values.push(new Date().toISOString());
@@ -1909,44 +1902,44 @@ app.put('/api/tasks/:taskId', authenticateToken, async (req, res) => {
         fields.push('time_entries = ?');
         values.push(JSON.stringify(updates.timeEntries));
       }
-      
+
       // Always update the timestamp
       fields.push('updated_at = ?');
       values.push(new Date().toISOString());
-      
+
       if (fields.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'No updates provided' 
+        return res.status(400).json({
+          success: false,
+          error: 'No updates provided'
         });
       }
-      
+
       values.push(taskId); // For the WHERE clause
-      
+
       const query = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`;
       const [result] = await connection.execute(query, values);
-      
+
       if (result.affectedRows === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Task not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Task not found'
         });
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Task updated successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Update task error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update task' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update task'
     });
   }
 });
@@ -1955,41 +1948,41 @@ app.put('/api/tasks/:taskId', authenticateToken, async (req, res) => {
 app.delete('/api/tasks/:taskId', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
-    
+
     // Validate taskId
     if (!taskId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Task ID is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'Task ID is required'
       });
     }
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `DELETE FROM tasks WHERE id = ?`;
       const [result] = await connection.execute(query, [taskId]);
-      
+
       if (result.affectedRows === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Task not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Task not found'
         });
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: 'Task deleted successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Delete task error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to delete task' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete task'
     });
   }
 });
@@ -2005,7 +1998,7 @@ app.get('/api/task-statuses', async (req, res) => {
       { id: 'status_2', name: 'Review', color: '#F59E0B', order: 2, isCompleted: false },
       { id: 'status_3', name: 'Done', color: '#10B981', order: 3, isCompleted: true }
     ];
-    
+
     res.json({
       success: true,
       data: statuses
@@ -2027,7 +2020,7 @@ app.get('/api/task-priorities', async (req, res) => {
       { id: 'priority_2', name: 'High', color: '#EF4444', level: 3 },
       { id: 'priority_3', name: 'Urgent', color: '#DC2626', level: 4 }
     ];
-    
+
     res.json({
       success: true,
       data: priorities
@@ -2042,7 +2035,7 @@ app.get('/api/task-priorities', async (req, res) => {
 app.get('/api/projects/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -2069,22 +2062,22 @@ app.get('/api/projects/company/:companyId', async (req, res) => {
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: projects,
         count: projects.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get projects error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get projects' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get projects'
     });
   }
 });
@@ -2092,7 +2085,7 @@ app.get('/api/projects/company/:companyId', async (req, res) => {
 app.get('/api/clients/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -2131,12 +2124,12 @@ app.get('/api/clients/company/:companyId', async (req, res) => {
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get clients error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get clients' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get clients'
     });
   }
 });
@@ -2364,9 +2357,9 @@ app.get('/api/clients', async (req, res) => {
 
   } catch (error) {
     console.error('Get clients error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get clients' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get clients'
     });
   }
 });
@@ -2376,14 +2369,14 @@ async function getTimeEntryTags(connection, timeEntryIds) {
   if (!timeEntryIds || timeEntryIds.length === 0) {
     return {};
   }
-  
+
   // Create placeholders for the IN clause
   const placeholders = timeEntryIds.map(() => '?').join(',');
   const query = `SELECT time_entry_id, tag FROM time_entry_tags WHERE time_entry_id IN (${placeholders})`;
-  
+
   try {
     const [rows] = await connection.execute(query, timeEntryIds);
-    
+
     // Group tags by time_entry_id
     const tagsMap = {};
     rows.forEach(row => {
@@ -2392,7 +2385,7 @@ async function getTimeEntryTags(connection, timeEntryIds) {
       }
       tagsMap[row.time_entry_id].push(row.tag);
     });
-    
+
     return tagsMap;
   } catch (error) {
     console.error('Error fetching time entry tags:', error);
@@ -2405,13 +2398,13 @@ async function getTagsForTimeEntry(connection, timeEntryId) {
   if (!timeEntryId) {
     return [];
   }
-  
+
   try {
     const [rows] = await connection.execute(
       'SELECT tag FROM time_entry_tags WHERE time_entry_id = ?',
       [timeEntryId]
     );
-    
+
     return rows.map(row => row.tag);
   } catch (error) {
     console.error('Error fetching tags for time entry:', error);
@@ -2424,14 +2417,14 @@ async function updateTimeEntryTags(connection, timeEntryId, tags) {
   if (!timeEntryId) {
     return;
   }
-  
+
   try {
     // First, delete all existing tags for this time entry
     await connection.execute(
       'DELETE FROM time_entry_tags WHERE time_entry_id = ?',
       [timeEntryId]
     );
-    
+
     // Then insert new tags if provided
     if (tags && Array.isArray(tags) && tags.length > 0) {
       for (const tag of tags) {
@@ -2464,7 +2457,7 @@ app.get('/api/admin/teams', authenticateToken, authorizeAdmin, async (req, res) 
         WHERE is_active = 1
         ORDER BY created_at DESC
       `;
-      
+
       const [rows] = await connection.execute(query);
       const teams = rows.map(row => ({
         id: row.id,
@@ -2481,22 +2474,22 @@ app.get('/api/admin/teams', authenticateToken, authorizeAdmin, async (req, res) 
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: teams,
         count: teams.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get all teams error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get teams' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get teams'
     });
   }
 });
@@ -2505,7 +2498,7 @@ app.get('/api/admin/teams', authenticateToken, authorizeAdmin, async (req, res) 
 app.get('/api/admin/teams/company/:companyId', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { companyId } = req.params;
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
@@ -2513,7 +2506,7 @@ app.get('/api/admin/teams/company/:companyId', authenticateToken, authorizeAdmin
         WHERE is_active = 1 AND company_id = ?
         ORDER BY created_at DESC
       `;
-      
+
       const [rows] = await connection.execute(query, [companyId]);
       const teams = rows.map(row => ({
         id: row.id,
@@ -2530,22 +2523,22 @@ app.get('/api/admin/teams/company/:companyId', authenticateToken, authorizeAdmin
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: teams,
         count: teams.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get teams for company error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get teams for company' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get teams for company'
     });
   }
 });
@@ -2555,7 +2548,7 @@ app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
   try {
     const { teamId } = req.params;
     const userId = req.user.id;
-    
+
     const connection = await pool.getConnection();
     try {
       // Check if user is a member of the team or an admin
@@ -2564,25 +2557,25 @@ app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
         WHERE team_id = ? AND user_id = ? AND is_active = 1
       `;
       const [memberRows] = await connection.execute(memberQuery, [teamId, userId]);
-      
+
       const isAdmin = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'root';
       const isTeamMember = memberRows.length > 0;
-      
+
       if (!isTeamMember && !isAdmin) {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'Access denied. You must be a team member or administrator to view team members.' 
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. You must be a team member or administrator to view team members.'
         });
       }
-      
+
       const query = `
         SELECT * FROM team_members 
         WHERE team_id = ? AND is_active = 1
         ORDER BY team_role = 'leader' DESC, joined_at ASC
       `;
-      
+
       const [rows] = await connection.execute(query, [teamId]);
-      
+
       const members = rows.map(row => ({
         id: row.id,
         teamId: row.team_id,
@@ -2593,22 +2586,22 @@ app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
         joinedAt: new Date(row.joined_at),
         isActive: row.is_active === 1
       }));
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         data: members,
         count: members.length
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Get team members error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get team members' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get team members'
     });
   }
 });
@@ -2620,73 +2613,73 @@ app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
     const { userId: newUserId, role } = req.body;
     const requestingUserId = req.user.id;
     const requestingUserRole = req.user.role;
-    
+
     // Validate required fields
     if (!newUserId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'userId is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required'
       });
     }
-    
+
     const connection = await pool.getConnection();
     try {
       // Check if requesting user is the team leader or an admin
       const teamQuery = `SELECT leader_id FROM teams WHERE id = ? AND is_active = 1`;
       const [teamRows] = await connection.execute(teamQuery, [teamId]);
-      
+
       if (teamRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Team not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Team not found'
         });
       }
-      
+
       const team = teamRows[0];
       const isAdmin = requestingUserRole === 'admin' || requestingUserRole === 'super_admin' || requestingUserRole === 'root';
       const isTeamLeader = team.leader_id === requestingUserId;
-      
+
       if (!isTeamLeader && !isAdmin) {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'Access denied. Only team leaders and administrators can add team members.' 
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. Only team leaders and administrators can add team members.'
         });
       }
-      
+
       // Check if user is already a member
       const checkQuery = `
         SELECT * FROM team_members 
         WHERE team_id = ? AND user_id = ? AND is_active = 1
       `;
       const [checkRows] = await connection.execute(checkQuery, [teamId, newUserId]);
-      
+
       if (checkRows.length > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'User is already a member of this team' 
+        return res.status(400).json({
+          success: false,
+          error: 'User is already a member of this team'
         });
       }
-      
+
       // Get user details
       const userQuery = `SELECT name, email FROM users WHERE id = ?`;
       const [userRows] = await connection.execute(userQuery, [newUserId]);
-      
+
       if (userRows.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'User not found' 
+        return res.status(400).json({
+          success: false,
+          error: 'User not found'
         });
       }
-      
+
       const user = userRows[0];
-      
+
       const now = new Date().toISOString();
       const query = `
         INSERT INTO team_members (
           team_id, user_id, user_name, user_email, team_role, joined_at, is_active
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `;
-      
+
       const result = await connection.execute(query, [
         teamId,
         newUserId,
@@ -2696,9 +2689,9 @@ app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
         now,
         1 // is_active
       ]);
-      
+
       const memberId = result[0].insertId.toString();
-      
+
       // Update team member count
       const countQuery = `
         SELECT COUNT(*) as count FROM team_members 
@@ -2706,18 +2699,18 @@ app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
       `;
       const [countRows] = await connection.execute(countQuery, [teamId]);
       const memberCount = countRows[0].count;
-      
+
       const updateQuery = `
         UPDATE teams 
         SET member_count = ?, updated_at = ?
         WHERE id = ?
       `;
       await connection.execute(updateQuery, [memberCount, now, teamId]);
-      
+
       // Get the created member
       const selectQuery = `SELECT * FROM team_members WHERE id = ?`;
       const [memberRows] = await connection.execute(selectQuery, [memberId]);
-      
+
       const row = memberRows[0];
       const member = {
         id: row.id,
@@ -2729,25 +2722,25 @@ app.post('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
         joinedAt: new Date(row.joined_at),
         isActive: row.is_active === 1
       };
-      
-      res.status(201).json({ 
-        success: true, 
+
+      res.status(201).json({
+        success: true,
         data: member,
         message: 'Team member added successfully'
       });
-      
+
     } finally {
       connection.release();
     }
-    
+
   } catch (error) {
     console.error('Add team member error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to add team member' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add team member'
     });
   }
-});  
+});
 
 // Update team member role
 app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, res) => {
@@ -2759,9 +2752,9 @@ app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, r
 
     // Validate required fields
     if (!role) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'role is required' 
+      return res.status(400).json({
+        success: false,
+        error: 'role is required'
       });
     }
 
@@ -2772,9 +2765,9 @@ app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, r
       const [teamRows] = await connection.execute(teamQuery, [teamId]);
 
       if (teamRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Team not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Team not found'
         });
       }
 
@@ -2783,9 +2776,9 @@ app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, r
       const isTeamLeader = team.leader_id === userId;
 
       if (!isTeamLeader && !isAdmin) {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'Access denied. Only team leaders and administrators can update team members.' 
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. Only team leaders and administrators can update team members.'
         });
       }
 
@@ -2797,9 +2790,9 @@ app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, r
       const [memberRows] = await connection.execute(memberQuery, [memberId, teamId]);
 
       if (memberRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Team member not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Team member not found'
         });
       }
 
@@ -2832,8 +2825,8 @@ app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, r
       `;
       await connection.execute(query, [role, memberId]);
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: 'Team member updated successfully'
       });
 
@@ -2843,9 +2836,9 @@ app.put('/api/teams/:teamId/members/:memberId', authenticateToken, async (req, r
 
   } catch (error) {
     console.error('Update team member error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to update team member' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update team member'
     });
   }
 });
@@ -2864,9 +2857,9 @@ app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req
       const [teamRows] = await connection.execute(teamQuery, [teamId]);
 
       if (teamRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Team not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Team not found'
         });
       }
 
@@ -2875,9 +2868,9 @@ app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req
       const isTeamLeader = team.leader_id === userId;
 
       if (!isTeamLeader && !isAdmin) {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'Access denied. Only team leaders and administrators can remove team members.' 
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. Only team leaders and administrators can remove team members.'
         });
       }
 
@@ -2889,9 +2882,9 @@ app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req
       const [memberRows] = await connection.execute(memberQuery, [memberId, teamId]);
 
       if (memberRows.length === 0) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Team member not found' 
+        return res.status(404).json({
+          success: false,
+          error: 'Team member not found'
         });
       }
 
@@ -2899,9 +2892,9 @@ app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req
 
       // Prevent removing the team leader
       if (memberUserId === team.leader_id) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Cannot remove team leader. Transfer leadership first or delete the team.' 
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot remove team leader. Transfer leadership first or delete the team.'
         });
       }
 
@@ -2928,8 +2921,8 @@ app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req
       `;
       await connection.execute(updateQuery, [memberCount, new Date().toISOString(), teamId]);
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: 'Team member removed successfully'
       });
 
@@ -2939,9 +2932,9 @@ app.delete('/api/teams/:teamId/members/:memberId', authenticateToken, async (req
 
   } catch (error) {
     console.error('Remove team member error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to remove team member' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to remove team member'
     });
   }
 });
