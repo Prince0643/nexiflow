@@ -97,7 +97,9 @@ app.use(compression());
 app.use(morgan('combined'));
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
   'http://localhost:3000',
-  'http://127.0.0.1:3000'
+  'http://127.0.0.1:3000',
+  'https://nexi-flow.com',
+  'https://www.nexi-flow.com'
 ];
 app.use(cors({
   origin: allowedOrigins,
