@@ -43,6 +43,7 @@ import NewInvoice from './pages/NewInvoice'
 // Import billing pages
 import BillingSuccess from './pages/billing/BillingSuccess'
 import BillingCancel from './pages/billing/BillingCancel'
+import BillingStatusBanner from './components/billing/BillingStatusBanner'
 import { soundManager } from './utils/soundManager'
 
 function AppContent() {
@@ -82,7 +83,7 @@ function AppContent() {
       
       <div className="flex-1 flex flex-col">
         <Header onMenuClick={() => setSidebarOpen(true)} />
-        
+        <BillingStatusBanner />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
           <Routes>
             {/* Root user routes */}

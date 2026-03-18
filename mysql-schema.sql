@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Feb 06, 2026 at 01:32 PM
+-- Generation Time: Mar 18, 2026 at 01:24 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -100,19 +100,23 @@ CREATE TABLE `companies` (
   `pricing_level` enum('solo','office','enterprise') DEFAULT 'solo',
   `max_members` int(11) DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `billing_email` varchar(255) DEFAULT NULL,
+  `billing_address` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`billing_address`)),
+  `subscription_status` varchar(50) DEFAULT 'active'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `companies`
 --
 
-INSERT INTO `companies` (`id`, `name`, `is_active`, `pricing_level`, `max_members`, `created_at`, `updated_at`) VALUES
-('-OaF0Sp0pgZKkfQXuyK8', 'Nexistry Digital Solutions', 1, 'enterprise', 1, '2025-09-28 03:12:06', '2025-10-19 21:10:47'),
-('-OcIvOSsBcP5krq0HXvK', 'Tropang Emman', 1, 'enterprise', 1, '2025-10-23 17:55:29', '2025-10-29 18:53:54'),
-('-OfgQZU_bWr0SSrzNBHB', 'Tolentino Solutions', 1, 'solo', 1, '2025-12-04 18:54:01', '2025-12-04 18:54:01'),
-('-OfhARyICDGNeRFqHKGv', 'hemishne@gmail.com', 1, 'solo', 1, '2025-12-04 22:23:12', '2025-12-04 22:23:12'),
-('-OfjWxwDm_g2QFtQA_LI', 'irvindale@40gmail.com', 1, 'solo', 1, '2025-12-05 09:22:03', '2025-12-05 09:22:03');
+INSERT INTO `companies` (`id`, `name`, `is_active`, `pricing_level`, `max_members`, `created_at`, `updated_at`, `billing_email`, `billing_address`, `subscription_status`) VALUES
+('-OaF0Sp0pgZKkfQXuyK8', 'Nexistry Digital Solutions', 1, 'enterprise', 1, '2025-09-28 03:12:06', '2025-10-19 21:10:47', NULL, NULL, 'active'),
+('-OcIvOSsBcP5krq0HXvK', 'Tropang Emman', 1, 'enterprise', 1, '2025-10-23 17:55:29', '2025-10-29 18:53:54', NULL, NULL, 'active'),
+('-OfgQZU_bWr0SSrzNBHB', 'Tolentino Solutions', 1, 'solo', 1, '2025-12-04 18:54:01', '2026-03-06 12:21:59', NULL, NULL, 'active'),
+('-OfhARyICDGNeRFqHKGv', 'hemishne@gmail.com', 1, 'solo', 1, '2025-12-04 22:23:12', '2025-12-04 22:23:12', NULL, NULL, 'active'),
+('-OfjWxwDm_g2QFtQA_LI', 'irvindale@40gmail.com', 1, 'solo', 1, '2025-12-05 09:22:03', '2025-12-05 09:22:03', NULL, NULL, 'active'),
+('1234324', 'PJ Tech', 1, 'solo', 1, '2025-09-28 03:12:06', '2025-10-19 21:10:47', NULL, NULL, 'active');
 
 -- --------------------------------------------------------
 
@@ -221,6 +225,44 @@ INSERT INTO `invoice_items` (`id`, `invoice_id`, `time_entry_id`, `project_id`, 
 ('ea741964-6141-406b-bbfa-bba390581abc', '1dc147fc-c090-4f48-baf8-aad7455433ed', '3dbe60df-90e8-468d-b7ff-b5a06261418e', '-Oc0-NZcR-JmSiJWPY00', 'fdsfassss', '2025-12-22 07:29:36', '2025-12-22 07:29:36', 6, 25.00, 0.04, '2026-02-02 11:56:06'),
 ('ebd1d97a-81aa-4c0e-a533-73324164867c', '805bcd15-c30f-4175-8032-dc973e655272', NULL, '-OaT0cTic_9BfOLzp2mv', 'fdsfds', '2025-12-22 07:26:40', '2025-12-22 07:26:40', 0, 25.00, 0.00, '2026-02-02 12:02:40'),
 ('f1ddcb7b-5cb8-49c8-9586-6e66764b12fc', '75336d7d-cb94-45f4-a314-a3f10dfd352a', NULL, '-OaT0cTic_9BfOLzp2mv', 'fdsfds', '2025-12-22 07:26:34', '2025-12-22 07:26:34', 0, 25.00, 0.00, '2026-02-02 12:28:48');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `payment_transactions`
+--
+
+CREATE TABLE `payment_transactions` (
+  `id` varchar(255) NOT NULL,
+  `company_id` varchar(255) NOT NULL,
+  `checkout_session_id` varchar(255) DEFAULT NULL,
+  `amount` int(11) NOT NULL,
+  `currency` varchar(3) DEFAULT 'PHP',
+  `status` varchar(50) NOT NULL,
+  `metadata` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`metadata`)),
+  `plan` varchar(50) DEFAULT NULL,
+  `paid_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `payment_transactions`
+--
+
+INSERT INTO `payment_transactions` (`id`, `company_id`, `checkout_session_id`, `amount`, `currency`, `status`, `metadata`, `plan`, `paid_at`, `created_at`) VALUES
+('0489141a-3cfe-4d66-8e66-b5bd9841018c', '-OfgQZU_bWr0SSrzNBHB', 'cs_a37d4221972af08d396c43c0', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:50:01', '2026-03-06 13:50:01'),
+('1006fc35-fe2c-40f5-b574-d4e845a8cf25', '-OfgQZU_bWr0SSrzNBHB', 'cs_afbc2624133b3a554b92ff9a', 6000, 'PHP', 'pending', '{\"pricing_level\":\"enterprise\",\"user_count\":5,\"price_per_user\":1200}', NULL, '2026-03-06 13:13:36', '2026-03-06 13:13:36'),
+('14e46f1b-9bf5-4779-87bc-addd57f9cdc5', '-OfgQZU_bWr0SSrzNBHB', 'cs_6de6cc962dacaa00ca89c0fb', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:13:26', '2026-03-06 13:13:26'),
+('25110ac1-0f0f-4b31-9e02-3c8df3a64fa6', '-OfhARyICDGNeRFqHKGv', 'cs_119cf38d77cdcc688f053237', 261000, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":52200}', NULL, '2026-03-09 12:27:35', '2026-03-09 12:27:35'),
+('6ae2c86d-d540-4d56-9c11-b2ce9b89b6fc', '-OfgQZU_bWr0SSrzNBHB', 'cs_a45cd1f71020e439a6b8afef', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:13:44', '2026-03-06 13:13:44'),
+('8a5114ce-206c-4cb3-a81e-c96e3a739ade', '-OfgQZU_bWr0SSrzNBHB', 'cs_78bd469dc335d257e4df6a86', 348000, 'PHP', 'pending', '{\"pricing_level\":\"enterprise\",\"user_count\":5,\"price_per_user\":69600}', NULL, '2026-03-06 13:54:58', '2026-03-06 13:54:58'),
+('92468997-9b7f-4977-829e-c3c8f4028245', '-OfgQZU_bWr0SSrzNBHB', 'cs_733dd19111167535cdfdecb8', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:49:27', '2026-03-06 13:49:27'),
+('a0a79e43-910b-4527-9806-e269a2e157c0', '-OfgQZU_bWr0SSrzNBHB', 'cs_a1c0f1bffe0c4af9b40aacfe', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:51:42', '2026-03-06 13:51:42'),
+('baa4239a-152a-41f9-8355-c4ec24e86b1c', '-OfgQZU_bWr0SSrzNBHB', 'cs_2e4da70de420080928aa2f38', 261000, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":52200}', NULL, '2026-03-06 13:53:21', '2026-03-06 13:53:21'),
+('cad0ed5e-5f4d-4760-94a4-2eb9d7f33637', '-OfgQZU_bWr0SSrzNBHB', 'cs_0300da6ab9a92741d6b463fb', 1200, 'PHP', 'pending', '{\"pricing_level\":\"enterprise\",\"user_count\":1,\"price_per_user\":1200}', NULL, '2026-03-06 13:49:48', '2026-03-06 13:49:48'),
+('e1475a60-30f4-482e-995a-4851c627e87a', '-OfgQZU_bWr0SSrzNBHB', 'cs_345310f208a4c11cad38f8ac', 900, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":1,\"price_per_user\":900}', NULL, '2026-03-06 13:17:06', '2026-03-06 13:17:06'),
+('ea818f25-7187-4979-91cd-75452e9f00a3', '-OfgQZU_bWr0SSrzNBHB', 'cs_241e5e15fc3d55d5e522f46b', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:49:54', '2026-03-06 13:49:54'),
+('f0e4d56d-2c5c-462a-a56c-979d0c82bf95', '-OfgQZU_bWr0SSrzNBHB', 'cs_74c939d403708710ba97436e', 4500, 'PHP', 'pending', '{\"pricing_level\":\"office\",\"user_count\":5,\"price_per_user\":900}', NULL, '2026-03-06 13:49:34', '2026-03-06 13:49:34');
 
 -- --------------------------------------------------------
 
@@ -350,7 +392,14 @@ INSERT INTO `system_logs` (`id`, `timestamp`, `level`, `message`, `user_id`, `us
 (1, '2026-02-02 11:11:20', 'success', 'User login successful', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-02-02 11:11:20'),
 (2, '2026-02-02 11:25:14', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-02-02 11:25:14'),
 (3, '2026-02-03 12:12:28', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-02-03 12:12:28'),
-(4, '2026-02-06 12:09:48', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-02-06 12:09:48');
+(4, '2026-02-06 12:09:48', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36', '2026-02-06 12:09:48'),
+(5, '2026-03-06 11:38:13', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-06 11:38:13'),
+(6, '2026-03-06 11:51:30', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-06 11:51:30'),
+(7, '2026-03-06 12:04:51', 'success', 'User login successful', 'GjFHgFuxE2U8EdXnSAeE9itjhvA2', 'Nexistry Digital Solutions', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-06 12:04:51'),
+(8, '2026-03-06 12:19:20', 'success', 'User login successful', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-06 12:19:20'),
+(9, '2026-03-06 12:22:04', 'success', 'User login successful', 'x5T0rJIwLbhwAQKyXDeS72A2BSu1', 'Prince Christiane Tolentino Test', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-06 12:22:04'),
+(10, '2026-03-09 12:27:30', 'success', 'User login successful', 'APC5roJFj0XFJ9Z07G0xZvBvTv32', 'Paolo Espero', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-09 12:27:30'),
+(11, '2026-03-18 12:23:56', 'success', 'User login successful', 'x5T0rJIwLbhwAQKyXDeS72A2BSu1', 'Prince Christiane Tolentino Test', 'AUTH_LOGIN', NULL, '127.0.0.1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36', '2026-03-18 12:23:56');
 
 -- --------------------------------------------------------
 
@@ -2901,7 +2950,7 @@ INSERT INTO `users` (`id`, `uid`, `name`, `email`, `password_hash`, `role`, `com
 ('kqOgX8f0rMfyt2GjBk1ozlHey3V2', 'kqOgX8f0rMfyt2GjBk1ozlHey3V2', 'Godwin Taningco', 'godwin@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', NULL, NULL, NULL, NULL, 'GMT+0 (Greenwich Mean Time)', 0.00, 1, '2025-10-29 22:25:23', '2025-12-12 03:58:45'),
 ('NftSf9kvaEMwvrlEyWKo1QCDshU2', 'NftSf9kvaEMwvrlEyWKo1QCDshU2', 'Prince Tolentino', 'nexistrydigitalsolutionsva3@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'employee', '-OaF0Sp0pgZKkfQXuyK8', '-Oab_XqY1Dzr24DDGp0v', 'member', 'https://firebasestorage.googleapis.com/v0/b/time-tracker-system-d5cca.firebasestorage.app/o/avatars%2FNftSf9kvaEMwvrlEyWKo1QCDshU2%2F1761542673910_profile.jpg?alt=media&token=16f48b47-ff0b-4e87-aed9-03f911f7ac08', 'UTC', 25.00, 1, '2025-09-28 03:53:43', '2025-12-12 03:58:45'),
 ('PWkMtMlTeQQkXKcRet6WTfjabb83', 'PWkMtMlTeQQkXKcRet6WTfjabb83', 'Test Admin', 'princetestadmin@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'admin', '-OaF0Sp0pgZKkfQXuyK8', NULL, NULL, NULL, 'America/New_York', 25.00, 1, '2025-09-29 19:50:07', '2025-12-12 03:58:45'),
-('QbclXdG1I1craJqYsGcVQSY7i9L2', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'princetest@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', '-OaF0Sp0pgZKkfQXuyK8', '-Oab_XqY1Dzr24DDGp0v', 'leader', 'https://firebasestorage.googleapis.com/v0/b/time-tracker-system-d5cca.firebasestorage.app/o/avatars%2FQbclXdG1I1craJqYsGcVQSY7i9L2%2F1763425060258_498047695_2137650080031409_8651505392066349753_n.jpg?alt=media&token=7c5c2cc0-e7ca-4762-8692-26d18ea2cdc0', 'GMT+8 (China Standard Time)', 25.00, 1, '2025-09-28 05:45:45', '2025-12-12 03:58:45'),
+('QbclXdG1I1craJqYsGcVQSY7i9L2', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'princetest@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', '-OaF0Sp0pgZKkfQXuyK8', '-Oab_XqY1Dzr24DDGp0v', 'leader', '/uploads/avatars/QbclXdG1I1craJqYsGcVQSY7i9L2-1772797917253-255226097.jpg', 'GMT+8 (China Standard Time)', 25.00, 1, '2025-09-28 05:45:45', '2026-03-06 11:51:57'),
 ('RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', 'emman@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', '-OcIvOSsBcP5krq0HXvK', '-OgA8REv7sIzHuzQIP_z', 'leader', 'https://firebasestorage.googleapis.com/v0/b/time-tracker-system-d5cca.firebasestorage.app/o/avatars%2FRnnCeKlaWhe7QjFeYNQzNYxb9xp2%2F1761869965439_Screenshot%202025-09-02%20082749.png?alt=media&token=237f9106-d71e-4e62-8892-69eec3eb9aa3', 'GMT+8 (China Standard Time)', 25.00, 1, '2025-10-23 17:59:49', '2026-01-20 08:28:29'),
 ('rPYKipBcdXUhEd3qpdjEzjNw70m2', 'rPYKipBcdXUhEd3qpdjEzjNw70m2', 'Jing Iñigo', 'billing@nexistrydigitalsolutions.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'hr', '-OaF0Sp0pgZKkfQXuyK8', '-OacK3cU2528jc24Lvrs', 'member', NULL, 'UTC', 25.00, 1, '2025-09-28 03:21:04', '2025-12-12 03:58:45'),
 ('UzY6A27FBYSJbDkjy9suM4aEdZ02', 'UzY6A27FBYSJbDkjy9suM4aEdZ02', 'Emman Sadiang-abay', 'digimumsquarter.va12@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'employee', '-OaF0Sp0pgZKkfQXuyK8', '-OaIfz45eh6AiY6zQchu', 'member', NULL, 'America/New_York', 25.00, 1, '2025-09-29 16:12:13', '2025-12-12 03:58:45'),
@@ -2928,7 +2977,7 @@ INSERT INTO `users` (`id`, `uid`, `name`, `email`, `password_hash`, `role`, `com
 ('kqOgX8f0rMfyt2GjBk1ozlHey3V2', 'kqOgX8f0rMfyt2GjBk1ozlHey3V2', 'Godwin Taningco', 'godwin@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', NULL, NULL, NULL, NULL, 'GMT+0 (Greenwich Mean Time)', 0.00, 1, '2025-10-29 22:25:23', '2025-12-12 03:58:45'),
 ('NftSf9kvaEMwvrlEyWKo1QCDshU2', 'NftSf9kvaEMwvrlEyWKo1QCDshU2', 'Prince Tolentino', 'nexistrydigitalsolutionsva3@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'employee', '-OaF0Sp0pgZKkfQXuyK8', '-Oab_XqY1Dzr24DDGp0v', 'member', 'https://firebasestorage.googleapis.com/v0/b/time-tracker-system-d5cca.firebasestorage.app/o/avatars%2FNftSf9kvaEMwvrlEyWKo1QCDshU2%2F1761542673910_profile.jpg?alt=media&token=16f48b47-ff0b-4e87-aed9-03f911f7ac08', 'UTC', 25.00, 1, '2025-09-28 03:53:43', '2025-12-12 03:58:45'),
 ('PWkMtMlTeQQkXKcRet6WTfjabb83', 'PWkMtMlTeQQkXKcRet6WTfjabb83', 'Test Admin', 'princetestadmin@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'admin', '-OaF0Sp0pgZKkfQXuyK8', NULL, NULL, NULL, 'America/New_York', 25.00, 1, '2025-09-29 19:50:07', '2025-12-12 03:58:45'),
-('QbclXdG1I1craJqYsGcVQSY7i9L2', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'princetest@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', '-OaF0Sp0pgZKkfQXuyK8', '-Oab_XqY1Dzr24DDGp0v', 'leader', 'https://firebasestorage.googleapis.com/v0/b/time-tracker-system-d5cca.firebasestorage.app/o/avatars%2FQbclXdG1I1craJqYsGcVQSY7i9L2%2F1763425060258_498047695_2137650080031409_8651505392066349753_n.jpg?alt=media&token=7c5c2cc0-e7ca-4762-8692-26d18ea2cdc0', 'GMT+8 (China Standard Time)', 25.00, 1, '2025-09-28 05:45:45', '2025-12-12 03:58:45'),
+('QbclXdG1I1craJqYsGcVQSY7i9L2', 'QbclXdG1I1craJqYsGcVQSY7i9L2', 'Test Super Admin', 'princetest@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', '-OaF0Sp0pgZKkfQXuyK8', '-Oab_XqY1Dzr24DDGp0v', 'leader', '/uploads/avatars/QbclXdG1I1craJqYsGcVQSY7i9L2-1772797917253-255226097.jpg', 'GMT+8 (China Standard Time)', 25.00, 1, '2025-09-28 05:45:45', '2026-03-06 11:51:57'),
 ('RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'RnnCeKlaWhe7QjFeYNQzNYxb9xp2', 'Emman', 'emman@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'super_admin', '-OcIvOSsBcP5krq0HXvK', '-OgA8REv7sIzHuzQIP_z', 'leader', 'https://firebasestorage.googleapis.com/v0/b/time-tracker-system-d5cca.firebasestorage.app/o/avatars%2FRnnCeKlaWhe7QjFeYNQzNYxb9xp2%2F1761869965439_Screenshot%202025-09-02%20082749.png?alt=media&token=237f9106-d71e-4e62-8892-69eec3eb9aa3', 'GMT+8 (China Standard Time)', 25.00, 1, '2025-10-23 17:59:49', '2026-01-20 08:28:29'),
 ('rPYKipBcdXUhEd3qpdjEzjNw70m2', 'rPYKipBcdXUhEd3qpdjEzjNw70m2', 'Jing Iñigo', 'billing@nexistrydigitalsolutions.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'hr', '-OaF0Sp0pgZKkfQXuyK8', '-OacK3cU2528jc24Lvrs', 'member', NULL, 'UTC', 25.00, 1, '2025-09-28 03:21:04', '2025-12-12 03:58:45'),
 ('UzY6A27FBYSJbDkjy9suM4aEdZ02', 'UzY6A27FBYSJbDkjy9suM4aEdZ02', 'Emman Sadiang-abay', 'digimumsquarter.va12@gmail.com', '$2b$12$NTjYZ2QFT.QOQD9TnQX90OTJUFh9QMC9/mplMR8.m/QUnFB/cFHoe', 'employee', '-OaF0Sp0pgZKkfQXuyK8', '-OaIfz45eh6AiY6zQchu', 'member', NULL, 'America/New_York', 25.00, 1, '2025-09-29 16:12:13', '2025-12-12 03:58:45'),
@@ -2989,6 +3038,13 @@ ALTER TABLE `invoice_items`
   ADD KEY `idx_invoice_items_invoice_id` (`invoice_id`),
   ADD KEY `idx_invoice_items_time_entry_id` (`time_entry_id`),
   ADD KEY `idx_invoice_items_project_id` (`project_id`);
+
+--
+-- Indexes for table `payment_transactions`
+--
+ALTER TABLE `payment_transactions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `company_id` (`company_id`);
 
 --
 -- Indexes for table `projects`
@@ -3080,7 +3136,7 @@ ALTER TABLE `clients`
 -- AUTO_INCREMENT for table `system_logs`
 --
 ALTER TABLE `system_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
 
 --
 -- Constraints for dumped tables
@@ -3091,6 +3147,12 @@ ALTER TABLE `system_logs`
 --
 ALTER TABLE `invoice_items`
   ADD CONSTRAINT `fk_invoice_items_invoice` FOREIGN KEY (`invoice_id`) REFERENCES `invoices` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `payment_transactions`
+--
+ALTER TABLE `payment_transactions`
+  ADD CONSTRAINT `payment_transactions_ibfk_1` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`);
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

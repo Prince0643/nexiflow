@@ -152,3 +152,8 @@ sudo tail -n 200 /var/log/nginx/error.log
 # DB rebuild (ONLY when you want to wipe data)
 mysql -u root -p -e "DROP DATABASE IF EXISTS clockistry; CREATE DATABASE clockistry CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci; GRANT ALL PRIVILEGES ON clockistry.* TO 'clockistry_user'@'%'; FLUSH PRIVILEGES;"
 mysql -u clockistry_user -p clockistry < /var/www/nexiflow/mysql-schema.sql
+
+cd /var/www/nexiflow && git pull
+npm ci && npm run build
+sudo chown -R www-data:www-data dist
+sudo systemctl reload nginx

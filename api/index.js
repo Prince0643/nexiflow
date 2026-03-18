@@ -4140,22 +4140,38 @@ const handlePaymongoWebhook = async (req, res) => {
       try {
         console.log('Updating transaction status for checkout_session_id:', checkoutSessionId);
         
+        // Calculate billing period (30 days from now)
+        const now = new Date();
+        const nextBillingDate = new Date(now);
+        nextBillingDate.setDate(nextBillingDate.getDate() + 30);
+        
         const [txResult] = await connection.execute(
           `UPDATE payment_transactions 
-           SET status = 'paid', paid_at = NOW()
+           SET status = 'paid', 
+               paid_at = NOW(),
+               billing_period_start = CURDATE(),
+               billing_period_end = ?,
+               is_renewal = 1
            WHERE checkout_session_id = ?`,
-          [checkoutSessionId]
+          [nextBillingDate, checkoutSessionId]
         );
 
         console.log('Transaction update result:', { affectedRows: txResult?.affectedRows });
 
-        console.log('Updating company plan:', { companyId, pricingLevel, userCount });
+        console.log('Updating company plan and billing dates:', { companyId, pricingLevel, userCount, nextBillingDate });
         
         const [companyResult] = await connection.execute(
           `UPDATE companies 
-           SET pricing_level = ?, max_members = ?, updated_at = NOW()
+           SET pricing_level = ?, 
+               max_members = ?, 
+               last_payment_date = CURDATE(),
+               next_billing_date = ?,
+               billing_status = 'active',
+               is_in_grace_period = 0,
+               grace_period_end_date = NULL,
+               updated_at = NOW()
            WHERE id = ?`,
-          [pricingLevel, parseInt(userCount) || 1, companyId]
+          [pricingLevel, parseInt(userCount) || 1, nextBillingDate, companyId]
         );
 
         console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
@@ -4245,6 +4261,285 @@ app.get('/api/billing/history', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching billing history:', error);
     res.status(500).json({ error: 'Failed to fetch billing history' });
+  }
+});
+
+// Get current billing status for company
+app.get('/api/billing/status', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, name, pricing_level, max_members, 
+                next_billing_date, last_payment_date, 
+                grace_period_end_date, is_in_grace_period, 
+                billing_status, payment_reminder_sent_at
+         FROM companies 
+         WHERE id = ? 
+         LIMIT 1`,
+        [companyId]
+      );
+      
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Company not found' });
+      }
+      
+      const company = rows[0];
+      const now = new Date();
+      const nextBilling = company.next_billing_date ? new Date(company.next_billing_date) : null;
+      const graceEnd = company.grace_period_end_date ? new Date(company.grace_period_end_date) : null;
+      
+      // Calculate days until due
+      let daysUntilDue = null;
+      let isOverdue = false;
+      let isInGracePeriod = company.is_in_grace_period === 1;
+      
+      if (nextBilling) {
+        const diffTime = nextBilling - now;
+        daysUntilDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        isOverdue = daysUntilDue < 0;
+      }
+      
+      // Determine status message
+      let statusMessage = '';
+      let statusType = 'info'; // info, warning, danger
+      
+      if (company.pricing_level === 'solo') {
+        statusMessage = 'Free plan - no billing required';
+        statusType = 'info';
+      } else if (isInGracePeriod) {
+        const graceDaysLeft = graceEnd ? Math.ceil((graceEnd - now) / (1000 * 60 * 60 * 24)) : 0;
+        statusMessage = `Payment overdue. Grace period expires in ${graceDaysLeft} days. Downgrade to Solo will occur after grace period.`;
+        statusType = 'danger';
+      } else if (isOverdue) {
+        statusMessage = 'Payment is overdue. Please pay now to avoid service interruption.';
+        statusType = 'warning';
+      } else if (daysUntilDue <= 3) {
+        statusMessage = `Payment due in ${daysUntilDue} days`;
+        statusType = 'warning';
+      } else if (daysUntilDue <= 7) {
+        statusMessage = `Payment due in ${daysUntilDue} days`;
+        statusType = 'info';
+      } else {
+        statusMessage = `Next payment due in ${daysUntilDue} days`;
+        statusType = 'info';
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          companyId: company.id,
+          companyName: company.name,
+          pricingLevel: company.pricing_level,
+          maxMembers: company.max_members,
+          nextBillingDate: company.next_billing_date,
+          lastPaymentDate: company.last_payment_date,
+          gracePeriodEndDate: company.grace_period_end_date,
+          isInGracePeriod: isInGracePeriod,
+          billingStatus: company.billing_status,
+          daysUntilDue: daysUntilDue,
+          isOverdue: isOverdue,
+          statusMessage: statusMessage,
+          statusType: statusType,
+          canUpgrade: company.pricing_level !== 'enterprise',
+          needsPayment: company.pricing_level !== 'solo' && (isOverdue || isInGracePeriod || daysUntilDue <= 7)
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching billing status:', error);
+    res.status(500).json({ error: 'Failed to fetch billing status' });
+  }
+});
+
+// Trigger payment reminder (for testing or manual trigger)
+app.post('/api/billing/remind', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const userId = req.user.uid;
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    // Only super_admin can trigger reminders
+    if (req.user.role !== 'super_admin' && req.user.role !== 'root') {
+      return res.status(403).json({ error: 'Only super admins can trigger payment reminders' });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      // Get company and super admin details
+      const [companyRows] = await connection.execute(
+        `SELECT c.*, u.email as super_admin_email, u.name as super_admin_name
+         FROM companies c
+         JOIN users u ON u.company_id = c.id
+         WHERE c.id = ? AND u.role = 'super_admin'
+         LIMIT 1`,
+        [companyId]
+      );
+      
+      if (companyRows.length === 0) {
+        return res.status(404).json({ error: 'Company or super admin not found' });
+      }
+      
+      const company = companyRows[0];
+      
+      // TODO: Send actual email notification here
+      // For now, just log the reminder
+      console.log(`Payment reminder for ${company.name} (${company.pricing_level} plan)`);
+      console.log(`Next billing date: ${company.next_billing_date}`);
+      console.log(`Super admin: ${company.super_admin_email}`);
+      
+      // Update reminder sent timestamp
+      await connection.execute(
+        `UPDATE companies SET payment_reminder_sent_at = NOW() WHERE id = ?`,
+        [companyId]
+      );
+      
+      res.json({
+        success: true,
+        message: 'Payment reminder triggered',
+        data: {
+          companyName: company.name,
+          nextBillingDate: company.next_billing_date,
+          pricingLevel: company.pricing_level,
+          sentTo: company.super_admin_email
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error triggering payment reminder:', error);
+    res.status(500).json({ error: 'Failed to trigger payment reminder' });
+  }
+});
+
+// ============================================
+// BILLING SCHEDULER - Background tasks
+// ============================================
+
+// Check for companies that need to enter grace period
+// This should be called by a cron job daily
+app.post('/api/billing/check-overdue', async (req, res) => {
+  try {
+    // Authenticate via ROOT_API_KEY header (for cron jobs) or JWT token (for root users)
+    const apiKey = req.headers.authorization?.replace('Bearer ', '');
+    const rootApiKey = process.env.ROOT_API_KEY;
+    
+    if (apiKey !== rootApiKey) {
+      // Fallback to JWT authentication - check if root user
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      
+      const token = authHeader.substring(7);
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded.role !== 'root') {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      // Find companies that are overdue (past next_billing_date) and not in grace period
+      const [overdueRows] = await connection.execute(
+        `SELECT id, name, pricing_level, next_billing_date, grace_period_end_date
+         FROM companies 
+         WHERE pricing_level IN ('office', 'enterprise')
+         AND next_billing_date < CURDATE()
+         AND is_in_grace_period = 0
+         AND billing_status = 'active'`
+      );
+      
+      const companiesEnteredGracePeriod = [];
+      
+      for (const company of overdueRows) {
+        // Set grace period (7 days from now)
+        const graceEndDate = new Date();
+        graceEndDate.setDate(graceEndDate.getDate() + 7);
+        
+        await connection.execute(
+          `UPDATE companies 
+           SET is_in_grace_period = 1,
+               grace_period_end_date = ?,
+               billing_status = 'overdue',
+               updated_at = NOW()
+           WHERE id = ?`,
+          [graceEndDate, company.id]
+        );
+        
+        companiesEnteredGracePeriod.push({
+          id: company.id,
+          name: company.name,
+          pricingLevel: company.pricing_level,
+          gracePeriodEndDate: graceEndDate
+        });
+        
+        // TODO: Send grace period notification email
+        console.log(`Company ${company.name} entered grace period. Downgrade on ${graceEndDate}`);
+      }
+      
+      // Find companies whose grace period has ended - downgrade them
+      const [graceExpiredRows] = await connection.execute(
+        `SELECT id, name, pricing_level
+         FROM companies 
+         WHERE is_in_grace_period = 1
+         AND grace_period_end_date < CURDATE()`
+      );
+      
+      const companiesDowngraded = [];
+      
+      for (const company of graceExpiredRows) {
+        // Downgrade to solo
+        await connection.execute(
+          `UPDATE companies 
+           SET pricing_level = 'solo',
+               max_members = 1,
+               billing_status = 'suspended',
+               is_in_grace_period = 0,
+               grace_period_end_date = NULL,
+               next_billing_date = NULL,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [company.id]
+        );
+        
+        companiesDowngraded.push({
+          id: company.id,
+          name: company.name,
+          previousPricingLevel: company.pricing_level,
+          newPricingLevel: 'solo'
+        });
+        
+        // TODO: Send downgrade notification email
+        console.log(`Company ${company.name} downgraded to solo due to non-payment`);
+      }
+      
+      res.json({
+        success: true,
+        data: {
+          companiesEnteredGracePeriod,
+          companiesDowngraded,
+          totalProcessed: overdueRows.length + graceExpiredRows.length
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error checking overdue companies:', error);
+    res.status(500).json({ error: 'Failed to check overdue companies' });
   }
 });
 
