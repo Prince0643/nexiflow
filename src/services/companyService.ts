@@ -163,5 +163,17 @@ export const companyService = {
     }
     await set(newRef, company)
     return company
+  },
+
+  async downgradeCompany(companyId: string, reason?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    if (!database) {
+      return apiRequest<{ success: boolean; data: any }>(`/admin/companies/${companyId}/downgrade`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason || 'Manual downgrade by root' })
+      })
+    }
+    throw new Error('Downgrade not available in Firebase mode')
   }
 }
+
+export type { Company }

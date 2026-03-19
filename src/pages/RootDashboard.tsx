@@ -13,7 +13,9 @@ import {
   UserCheck,
   LayoutDashboard,
   Building,
-  Crown
+  Crown,
+  ArrowDownCircle,
+  AlertTriangle
 } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { companyService } from '../services/companyService'
@@ -35,6 +37,9 @@ export default function RootDashboard() {
     password: ''
   })
   const [loading, setLoading] = useState(true)
+  const [downgradingCompanyId, setDowngradingCompanyId] = useState<string | null>(null)
+  const [showDowngradeModal, setShowDowngradeModal] = useState(false)
+  const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string; pricingLevel: string } | null>(null)
 
   // Only allow root users to access this page
   if (currentUser?.role !== 'root') {
@@ -58,6 +63,38 @@ export default function RootDashboard() {
   useEffect(() => {
     loadData()
   }, [])
+
+  const handleDowngrade = async (company: { id: string; name: string; pricingLevel: string }) => {
+    if (company.pricingLevel === 'solo') {
+      alert('Company is already on solo plan')
+      return
+    }
+    setSelectedCompany(company)
+    setShowDowngradeModal(true)
+  }
+
+  const confirmDowngrade = async () => {
+    if (!selectedCompany) return
+    
+    setDowngradingCompanyId(selectedCompany.id)
+    try {
+      const result = await companyService.downgradeCompany(selectedCompany.id, 'Manual downgrade by root')
+      if (result.success) {
+        alert(`Successfully downgraded ${selectedCompany.name} to solo plan`)
+        const companiesList = await companyService.getCompanies()
+        setCompanies(companiesList)
+      } else {
+        alert(`Failed to downgrade: ${result.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error downgrading company:', error)
+      alert('Failed to downgrade company')
+    } finally {
+      setDowngradingCompanyId(null)
+      setShowDowngradeModal(false)
+      setSelectedCompany(null)
+    }
+  }
 
   const loadData = async () => {
     try {
@@ -332,17 +369,46 @@ export default function RootDashboard() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Plan</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Users</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {companies.map((company) => {
+                  {companies.map((company: any) => {
                     const companyUsers = users.filter(user => user.companyId === company.id).length
+                    const isDowngrading = downgradingCompanyId === company.id
                     return (
                       <tr key={company.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{company.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{company.id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            company.pricingLevel === 'enterprise' ? 'bg-purple-100 text-purple-800' :
+                            company.pricingLevel === 'office' ? 'bg-blue-100 text-blue-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {company.pricingLevel || 'solo'}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{companyUsers}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          {company.pricingLevel !== 'solo' && (
+                            <button
+                              onClick={() => handleDowngrade(company)}
+                              disabled={isDowngrading}
+                              className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center"
+                              title="Downgrade to solo plan"
+                            >
+                              {isDowngrading ? (
+                                <Activity className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ArrowDownCircle className="h-4 w-4" />
+                              )}
+                              <span className="ml-1 text-xs">Downgrade</span>
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     )
                   })}
@@ -390,6 +456,59 @@ export default function RootDashboard() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Downgrade Confirmation Modal */}
+      {showDowngradeModal && selectedCompany && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <AlertTriangle className="h-6 w-6 text-red-500 mr-2" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Confirm Downgrade
+              </h3>
+            </div>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              Are you sure you want to downgrade <strong>{selectedCompany.name}</strong> to the <strong>solo plan</strong>?
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              This will:
+              <ul className="list-disc ml-5 mt-2">
+                <li>Reduce max members to 1</li>
+                <li>Send downgrade notification emails to all super admins</li>
+                <li>This action cannot be undone easily</li>
+              </ul>
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowDowngradeModal(false)
+                  setSelectedCompany(null)
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDowngrade}
+                disabled={downgradingCompanyId !== null}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 flex items-center"
+              >
+                {downgradingCompanyId === selectedCompany.id ? (
+                  <>
+                    <Activity className="h-4 w-4 animate-spin mr-2" />
+                    Downgrading...
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownCircle className="h-4 w-4 mr-2" />
+                    Confirm Downgrade
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

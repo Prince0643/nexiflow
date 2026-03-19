@@ -248,6 +248,84 @@ app.post('/api/admin/companies', authenticateToken, async (req, res) => {
   }
 });
 
+app.post('/api/admin/companies/:id/downgrade', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'root') {
+      return res.status(403).json({ success: false, error: 'Access denied. Root only.' });
+    }
+
+    const { id } = req.params;
+    const { reason } = req.body || {};
+
+    const connection = await pool.getConnection();
+    try {
+      // Get company details
+      const [companyRows] = await connection.execute(
+        'SELECT * FROM companies WHERE id = ? LIMIT 1',
+        [id]
+      );
+
+      if (companyRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Company not found' });
+      }
+
+      const company = companyRows[0];
+      const previousPricingLevel = company.pricing_level;
+
+      if (previousPricingLevel === 'solo') {
+        return res.status(400).json({ success: false, error: 'Company is already on solo plan' });
+      }
+
+      // Downgrade to solo
+      await connection.execute(
+        `UPDATE companies 
+         SET pricing_level = 'solo', 
+             max_members = 1,
+             billing_status = 'downgraded',
+             is_in_grace_period = 0,
+             grace_period_end_date = NULL,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [id]
+      );
+
+      // Get all super admins for email notification
+      const [adminRows] = await connection.execute(
+        `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin'`,
+        [id]
+      );
+
+      // Send downgrade notification emails
+      for (const admin of adminRows) {
+        await billingEmailService.sendDowngradeNotification(
+          { ...company, pricing_level: 'solo', max_members: 1 },
+          admin
+        );
+      }
+
+      console.log(`Root manually downgraded company ${company.name} (${id}) from ${previousPricingLevel} to solo`);
+
+      res.json({
+        success: true,
+        message: 'Company downgraded to solo plan',
+        data: {
+          companyId: id,
+          companyName: company.name,
+          previousPricingLevel,
+          newPricingLevel: 'solo',
+          reason: reason || 'Manual downgrade by root',
+          notifiedAdmins: adminRows.map(a => a.email)
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error downgrading company:', error);
+    res.status(500).json({ success: false, error: 'Failed to downgrade company' });
+  }
+});
+
 const fileFilter = (req, file, cb) => {
   // Accept only image files
   if (file.mimetype.startsWith('image/')) {
