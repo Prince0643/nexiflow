@@ -16,6 +16,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const billingEmailService = require('./services/billingEmailService');
 require('dotenv').config();
 
 const app = express();
@@ -4393,8 +4394,22 @@ app.post('/api/billing/remind', authenticateToken, async (req, res) => {
       
       const company = companyRows[0];
       
-      // TODO: Send actual email notification here
-      // For now, just log the reminder
+      // Calculate days until due
+      const now = new Date();
+      const nextBilling = company.next_billing_date ? new Date(company.next_billing_date) : null;
+      let daysUntilDue = null;
+      if (nextBilling) {
+        const diffTime = nextBilling - now;
+        daysUntilDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      }
+      
+      // Send actual email notification
+      await billingEmailService.sendPaymentReminder(
+        company,
+        { email: company.super_admin_email, name: company.super_admin_name },
+        daysUntilDue || 0
+      );
+      
       console.log(`Payment reminder for ${company.name} (${company.pricing_level} plan)`);
       console.log(`Next billing date: ${company.next_billing_date}`);
       console.log(`Super admin: ${company.super_admin_email}`);
@@ -4486,7 +4501,20 @@ app.post('/api/billing/check-overdue', async (req, res) => {
           gracePeriodEndDate: graceEndDate
         });
         
-        // TODO: Send grace period notification email
+        // Get super admin details for email notification
+        const [adminRows] = await connection.execute(
+          `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin' LIMIT 1`,
+          [company.id]
+        );
+        
+        if (adminRows.length > 0) {
+          await billingEmailService.sendGracePeriodNotification(
+            { ...company, max_members: company.pricing_level === 'office' ? 10 : 100 },
+            adminRows[0],
+            graceEndDate
+          );
+        }
+        
         console.log(`Company ${company.name} entered grace period. Downgrade on ${graceEndDate}`);
       }
       
@@ -4522,7 +4550,19 @@ app.post('/api/billing/check-overdue', async (req, res) => {
           newPricingLevel: 'solo'
         });
         
-        // TODO: Send downgrade notification email
+        // Get super admin details for email notification
+        const [adminRows] = await connection.execute(
+          `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin' LIMIT 1`,
+          [company.id]
+        );
+        
+        if (adminRows.length > 0) {
+          await billingEmailService.sendDowngradeNotification(
+            { ...company, max_members: 1 },
+            adminRows[0]
+          );
+        }
+        
         console.log(`Company ${company.name} downgraded to solo due to non-payment`);
       }
       

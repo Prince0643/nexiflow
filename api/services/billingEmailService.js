@@ -1,0 +1,236 @@
+const nodemailer = require('nodemailer');
+
+// Create transporter from environment variables
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+/**
+ * Send payment reminder email
+ */
+async function sendPaymentReminder(company, superAdmin, daysUntilDue) {
+  const subject = daysUntilDue <= 0 
+    ? `Payment Overdue - ${company.name}`
+    : `Payment Due in ${daysUntilDue} Days - ${company.name}`;
+
+  const urgencyText = daysUntilDue <= 0 
+    ? 'Your payment is <strong>OVERDUE</strong>.'
+    : `Your payment is due in <strong>${daysUntilDue} days</strong>.`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Payment Reminder</h2>
+      <p>Hello ${superAdmin.name},</p>
+      <p>${urgencyText}</p>
+      
+      <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin-top: 0;">Company: ${company.name}</h3>
+        <p><strong>Plan:</strong> ${company.pricing_level}</p>
+        <p><strong>Next Billing Date:</strong> ${new Date(company.next_billing_date).toLocaleDateString()}</p>
+        ${company.max_members ? `<p><strong>Team Size:</strong> ${company.max_members} members</p>` : ''}
+      </div>
+      
+      <p>To avoid service interruption, please complete your payment:</p>
+      <a href="${process.env.FRONTEND_URL}/upgrade" 
+         style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+        Pay Now
+      </a>
+      
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        If you have any questions, please contact support at ${process.env.SMTP_FROM || 'support@nexiflow.com'}
+      </p>
+    </div>
+  `;
+
+  const text = `
+Payment Reminder
+
+Hello ${superAdmin.name},
+
+${urgencyText}
+
+Company: ${company.name}
+Plan: ${company.pricing_level}
+Next Billing Date: ${new Date(company.next_billing_date).toLocaleDateString()}
+
+To avoid service interruption, please complete your payment:
+${process.env.FRONTEND_URL}/upgrade
+
+If you have any questions, please contact support.
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: superAdmin.email,
+      subject: subject,
+      text: text,
+      html: html
+    });
+    
+    console.log(`Payment reminder sent to ${superAdmin.email} for ${company.name}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send payment reminder email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send grace period notification email
+ */
+async function sendGracePeriodNotification(company, superAdmin, graceEndDate) {
+  const daysLeft = Math.ceil((new Date(graceEndDate) - new Date()) / (1000 * 60 * 60 * 24));
+  
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #DC2626;">Payment Overdue - Grace Period Active</h2>
+      <p>Hello ${superAdmin.name},</p>
+      <p>Your payment for <strong>${company.name}</strong> is overdue.</p>
+      
+      <div style="background: #FEF2F2; border: 1px solid #FECACA; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #DC2626; margin-top: 0;">Action Required</h3>
+        <p><strong>Grace Period Ends:</strong> ${new Date(graceEndDate).toLocaleDateString()} (${daysLeft} days remaining)</p>
+        <p style="margin-bottom: 0;"><strong>If payment is not received by this date, your account will be downgraded to the Solo plan (1 user only).</strong></p>
+      </div>
+      
+      <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Current Plan:</strong> ${company.pricing_level}</p>
+        <p style="margin: 5px 0 0 0;"><strong>Team Size:</strong> ${company.max_members} members</p>
+      </div>
+      
+      <p>Please complete your payment immediately to avoid service disruption:</p>
+      <a href="${process.env.FRONTEND_URL}/upgrade" 
+         style="display: inline-block; background: #DC2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+        Pay Now to Keep Your Plan
+      </a>
+      
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        Need help? Contact support at ${process.env.SMTP_FROM || 'support@nexiflow.com'}
+      </p>
+    </div>
+  `;
+
+  const text = `
+Payment Overdue - Grace Period Active
+
+Hello ${superAdmin.name},
+
+Your payment for ${company.name} is overdue.
+
+*** ACTION REQUIRED ***
+Grace Period Ends: ${new Date(graceEndDate).toLocaleDateString()} (${daysLeft} days remaining)
+
+If payment is not received by this date, your account will be downgraded to the Solo plan (1 user only).
+
+Current Plan: ${company.pricing_level}
+Team Size: ${company.max_members} members
+
+Please complete your payment immediately:
+${process.env.FRONTEND_URL}/upgrade
+
+Need help? Contact support.
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: superAdmin.email,
+      subject: `URGENT: Payment Overdue - Account Downgrade in ${daysLeft} Days`,
+      text: text,
+      html: html
+    });
+    
+    console.log(`Grace period notification sent to ${superAdmin.email} for ${company.name}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send grace period notification:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send downgrade notification email
+ */
+async function sendDowngradeNotification(company, superAdmin) {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #DC2626;">Account Downgraded to Solo Plan</h2>
+      <p>Hello ${superAdmin.name},</p>
+      <p>Due to non-payment, your account for <strong>${company.name}</strong> has been downgraded to the <strong>Solo plan</strong>.</p>
+      
+      <div style="background: #FEF2F2; border: 1px solid #FECACA; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <h3 style="color: #DC2626; margin-top: 0;">What This Means</h3>
+        <ul style="margin: 0; padding-left: 20px;">
+          <li>Your team is now limited to <strong>1 member</strong> (you)</li>
+          <li>Additional team members have been deactivated</li>
+          <li>Your data is safe and accessible</li>
+        </ul>
+      </div>
+      
+      <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Previous Plan:</strong> ${company.pricing_level}</p>
+        <p style="margin: 5px 0 0 0;"><strong>New Plan:</strong> Solo (1 user)</p>
+      </div>
+      
+      <p>To restore full access for your team, please upgrade your plan:</p>
+      <a href="${process.env.FRONTEND_URL}/upgrade" 
+         style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+        Upgrade Now
+      </a>
+      
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        Questions? Contact support at ${process.env.SMTP_FROM || 'support@nexiflow.com'}
+      </p>
+    </div>
+  `;
+
+  const text = `
+Account Downgraded to Solo Plan
+
+Hello ${superAdmin.name},
+
+Due to non-payment, your account for ${company.name} has been downgraded to the Solo plan.
+
+What This Means:
+- Your team is now limited to 1 member (you)
+- Additional team members have been deactivated
+- Your data is safe and accessible
+
+Previous Plan: ${company.pricing_level}
+New Plan: Solo (1 user)
+
+To restore full access for your team:
+${process.env.FRONTEND_URL}/upgrade
+
+Questions? Contact support.
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: superAdmin.email,
+      subject: `Account Downgraded - ${company.name}`,
+      text: text,
+      html: html
+    });
+    
+    console.log(`Downgrade notification sent to ${superAdmin.email} for ${company.name}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send downgrade notification:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+module.exports = {
+  sendPaymentReminder,
+  sendGracePeriodNotification,
+  sendDowngradeNotification
+};
