@@ -1,4 +1,6 @@
 console.log('Starting API server...');
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -17,7 +19,6 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const billingEmailService = require('./services/billingEmailService');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
