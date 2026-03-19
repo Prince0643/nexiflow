@@ -4378,21 +4378,28 @@ app.post('/api/billing/remind', authenticateToken, async (req, res) => {
     
     const connection = await pool.getConnection();
     try {
-      // Get company and super admin details
-      const [companyRows] = await connection.execute(
-        `SELECT c.*, u.email as super_admin_email, u.name as super_admin_name
-         FROM companies c
-         JOIN users u ON u.company_id = c.id
-         WHERE c.id = ? AND u.role = 'super_admin'
-         LIMIT 1`,
+      // Get company and ALL super admin details
+      const [adminRows] = await connection.execute(
+        `SELECT u.email, u.name
+         FROM users u
+         WHERE u.company_id = ? AND u.role = 'super_admin'`,
         [companyId]
       );
       
-      if (companyRows.length === 0) {
-        return res.status(404).json({ error: 'Company or super admin not found' });
+      if (adminRows.length === 0) {
+        return res.status(404).json({ error: 'No super admin found for this company' });
       }
       
-      const company = companyRows[0];
+      const [companyData] = await connection.execute(
+        `SELECT * FROM companies WHERE id = ? LIMIT 1`,
+        [companyId]
+      );
+      
+      if (companyData.length === 0) {
+        return res.status(404).json({ error: 'Company not found' });
+      }
+      
+      const company = companyData[0];
       
       // Calculate days until due
       const now = new Date();
@@ -4403,16 +4410,20 @@ app.post('/api/billing/remind', authenticateToken, async (req, res) => {
         daysUntilDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       }
       
-      // Send actual email notification
-      await billingEmailService.sendPaymentReminder(
-        company,
-        { email: company.super_admin_email, name: company.super_admin_name },
-        daysUntilDue || 0
-      );
+      // Send email to ALL super admins
+      const sentTo = [];
+      for (const admin of adminRows) {
+        await billingEmailService.sendPaymentReminder(
+          company,
+          admin,
+          daysUntilDue || 0
+        );
+        sentTo.push(admin.email);
+      }
       
       console.log(`Payment reminder for ${company.name} (${company.pricing_level} plan)`);
       console.log(`Next billing date: ${company.next_billing_date}`);
-      console.log(`Super admin: ${company.super_admin_email}`);
+      console.log(`Super admins: ${sentTo.join(', ')}`);
       
       // Update reminder sent timestamp
       await connection.execute(
@@ -4422,12 +4433,13 @@ app.post('/api/billing/remind', authenticateToken, async (req, res) => {
       
       res.json({
         success: true,
-        message: 'Payment reminder triggered',
+        message: 'Payment reminder sent to all super admins',
         data: {
           companyName: company.name,
           nextBillingDate: company.next_billing_date,
           pricingLevel: company.pricing_level,
-          sentTo: company.super_admin_email
+          sentTo: sentTo,
+          superAdminCount: sentTo.length
         }
       });
     } finally {
@@ -4501,16 +4513,16 @@ app.post('/api/billing/check-overdue', async (req, res) => {
           gracePeriodEndDate: graceEndDate
         });
         
-        // Get super admin details for email notification
+        // Get ALL super admin details for email notification
         const [adminRows] = await connection.execute(
-          `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin' LIMIT 1`,
+          `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin'`,
           [company.id]
         );
         
-        if (adminRows.length > 0) {
+        for (const admin of adminRows) {
           await billingEmailService.sendGracePeriodNotification(
             { ...company, max_members: company.pricing_level === 'office' ? 10 : 100 },
-            adminRows[0],
+            admin,
             graceEndDate
           );
         }
@@ -4550,16 +4562,16 @@ app.post('/api/billing/check-overdue', async (req, res) => {
           newPricingLevel: 'solo'
         });
         
-        // Get super admin details for email notification
+        // Get ALL super admin details for email notification
         const [adminRows] = await connection.execute(
-          `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin' LIMIT 1`,
+          `SELECT email, name FROM users WHERE company_id = ? AND role = 'super_admin'`,
           [company.id]
         );
         
-        if (adminRows.length > 0) {
+        for (const admin of adminRows) {
           await billingEmailService.sendDowngradeNotification(
             { ...company, max_members: 1 },
-            adminRows[0]
+            admin
           );
         }
         
