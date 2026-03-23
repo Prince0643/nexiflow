@@ -40,6 +40,7 @@ import TimeEntryEditModal from '../components/admin/TimeEntryEditModal'
 import UserCreateModal from '../components/admin/UserCreateModal'
 import UserEditModal from '../components/admin/UserEditModal'
 import StopTimerModal from '../components/admin/StopTimerModal'
+import SeatLimitModal from '../components/billing/SeatLimitModal'
 import SimpleChart from '../components/charts/SimpleChart'
 import { formatDurationToHHMMSS } from '../utils'
 import { getRoleDisplayName, canAccessFeature } from '../utils/permissions'
@@ -92,12 +93,45 @@ export default function AdminDashboard() {
   const [undoActions, setUndoActions] = useState<UndoAction[]>([])
   const [showUndoNotification, setShowUndoNotification] = useState(false)
   const [currentUndoAction, setCurrentUndoAction] = useState<UndoAction | null>(null)
+  const [seatLimitData, setSeatLimitData] = useState<{currentUsers: number; maxMembers: number; atLimit: boolean; pricingLevel: string} | null>(null)
+  const [isSeatLimitModalOpen, setIsSeatLimitModalOpen] = useState(false)
 
   useEffect(() => {
     if (currentUser?.role && ['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) {
       loadData()
     }
   }, [currentUser])
+
+  // Fetch seat limit data
+  useEffect(() => {
+    const fetchSeatLimit = async () => {
+      if (!currentUser?.companyId || currentUser.role === 'root') {
+        setSeatLimitData(null)
+        return
+      }
+      try {
+        const token = localStorage.getItem('authToken')
+        const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:3001/api'
+        const response = await fetch(`${API_BASE_URL}/billing/seat-limit`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        const data = await response.json()
+        if (data.success) {
+          setSeatLimitData({
+            currentUsers: data.data.currentUsers,
+            maxMembers: data.data.maxMembers,
+            atLimit: data.data.atLimit,
+            pricingLevel: data.data.pricingLevel
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching seat limit:', error)
+      }
+    }
+    fetchSeatLimit()
+  }, [currentUser?.companyId, currentUser?.role])
 
   // Periodically refresh running timers
   useEffect(() => {
@@ -533,8 +567,8 @@ export default function AdminDashboard() {
         </div>
         <div className="mt-4 md:mt-0">
           <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800"
+            onClick={() => seatLimitData?.atLimit ? setIsSeatLimitModalOpen(true) : setIsCreateModalOpen(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="h-4 w-4 mr-2" />
             Add User
@@ -781,8 +815,8 @@ export default function AdminDashboard() {
             </div>
             <div className="sm:flex-none">
               <button
-                onClick={() => setIsCreateModalOpen(true)}
-                className="h-10 w-full sm:w-auto inline-flex items-center justify-center px-4 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800"
+                onClick={() => seatLimitData?.atLimit ? setIsSeatLimitModalOpen(true) : setIsCreateModalOpen(true)}
+                className="h-10 w-full sm:w-auto inline-flex items-center justify-center px-4 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add User
@@ -1351,6 +1385,15 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* Seat Limit Modal */}
+      <SeatLimitModal
+        isOpen={isSeatLimitModalOpen}
+        onClose={() => setIsSeatLimitModalOpen(false)}
+        currentUsers={seatLimitData?.currentUsers || 0}
+        maxMembers={seatLimitData?.maxMembers || 0}
+        pricingLevel={seatLimitData?.pricingLevel || 'solo'}
+      />
     </div>
   )
 }

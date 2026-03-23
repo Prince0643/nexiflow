@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
-import { X, CreditCard, AlertTriangle } from 'lucide-react'
+import React from 'react'
+import { X, ArrowUpRight, AlertTriangle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 interface SeatLimitModalProps {
   isOpen: boolean
@@ -7,7 +8,6 @@ interface SeatLimitModalProps {
   currentUsers: number
   maxMembers: number
   pricingLevel: string
-  onPurchaseSeats: (seats: number) => Promise<void>
 }
 
 export default function SeatLimitModal({ 
@@ -15,25 +15,13 @@ export default function SeatLimitModal({
   onClose, 
   currentUsers, 
   maxMembers, 
-  pricingLevel,
-  onPurchaseSeats
+  pricingLevel
 }: SeatLimitModalProps) {
-  const [loading, setLoading] = useState(false)
-  const [additionalSeats, setAdditionalSeats] = useState(5)
+  const navigate = useNavigate()
 
-  const pricePerSeat = pricingLevel === 'enterprise' ? 12 : 9
-  const totalCost = additionalSeats * pricePerSeat
-
-  const handlePurchaseSeats = async () => {
-    setLoading(true)
-    try {
-      await onPurchaseSeats(additionalSeats)
-    } catch (error) {
-      console.error('Seat purchase error:', error)
-      alert('Failed to initiate purchase. Please try again.')
-    } finally {
-      setLoading(false)
-    }
+  const handleUpgrade = () => {
+    onClose()
+    navigate('/upgrade')
   }
 
   if (!isOpen) return null
@@ -57,62 +45,24 @@ export default function SeatLimitModal({
             Seat Limit Reached
           </h3>
           <p className="text-gray-600 dark:text-gray-400">
-            Your {pricingLevel.charAt(0).toUpperCase() + pricingLevel.slice(1)} plan includes {maxMembers} seats. 
-            You currently have {currentUsers} active users.
+            Your {pricingLevel.charAt(0).toUpperCase() + pricingLevel.slice(1)} plan includes {maxMembers} seat{maxMembers !== 1 ? 's' : ''}. 
+            You currently have {currentUsers} active user{currentUsers !== 1 ? 's' : ''}.
           </p>
-        </div>
-
-        <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Additional seats:
-            </label>
-            <span className="font-bold text-primary-600">{additionalSeats}</span>
-          </div>
-          <input
-            type="range"
-            min="1"
-            max="50"
-            value={additionalSeats}
-            onChange={(e) => setAdditionalSeats(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>1 seat</span>
-            <span>50 seats</span>
-          </div>
-        </div>
-
-        <div className="text-center mb-6">
-          <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-            ${totalCost}
-            <span className="text-sm font-normal text-gray-500">/month</span>
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            ${pricePerSeat} × {additionalSeats} seats
+          <p className="text-gray-500 dark:text-gray-500 mt-4 text-sm">
+            Upgrade your plan to add more users and unlock additional features.
           </p>
         </div>
 
         <button
-          onClick={handlePurchaseSeats}
-          disabled={loading}
-          className="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={handleUpgrade}
+          className="w-full py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-center"
         >
-          {loading ? (
-            <>
-              <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
-              Processing...
-            </>
-          ) : (
-            <>
-              <CreditCard className="h-4 w-4 mr-2" />
-              Purchase {additionalSeats} Seat{additionalSeats > 1 ? 's' : ''}
-            </>
-          )}
+          <ArrowUpRight className="h-4 w-4 mr-2" />
+          Upgrade Plan
         </button>
 
         <p className="text-center text-xs text-gray-500 mt-4">
-          Only super admins can purchase additional seats.
+          Only super admins can upgrade the plan.
         </p>
       </div>
     </div>

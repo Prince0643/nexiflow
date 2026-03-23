@@ -2439,6 +2439,37 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
 
     const connection = await pool.getConnection();
     try {
+      if (createCompanyId && requesterRole !== 'root') {
+        const [companyRows] = await connection.execute(
+          'SELECT max_members, pricing_level FROM companies WHERE id = ? LIMIT 1',
+          [createCompanyId]
+        );
+
+        if (!companyRows.length) {
+          return res.status(404).json({
+            success: false,
+            error: 'Company not found'
+          });
+        }
+
+        const company = companyRows[0];
+
+        const [userCountRows] = await connection.execute(
+          'SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_active = 1',
+          [createCompanyId]
+        );
+
+        const currentUsers = Number(userCountRows[0]?.count || 0);
+        const maxMembers = Number(company.max_members || 0);
+
+        if (Number.isFinite(maxMembers) && maxMembers > 0 && currentUsers >= maxMembers) {
+          return res.status(403).json({
+            success: false,
+            error: `Seat limit reached for ${company.pricing_level || 'current'} plan. Please upgrade to add more users.`
+          });
+        }
+      }
+
       const [existingUsers] = await connection.execute(
         'SELECT id FROM users WHERE email = ? LIMIT 1',
         [value.email]
@@ -2507,6 +2538,71 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to create user'
+    });
+  }
+});
+
+app.delete('/api/admin/users/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requesterRole = req.user.role;
+    const requesterCompanyId = req.user.companyId || null;
+
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(requesterRole);
+    if (!isPrivileged) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT id, company_id, is_active FROM users WHERE (id = ? OR uid = ?) LIMIT 1',
+        [userId, userId]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      const user = rows[0];
+
+      if (requesterRole !== 'root' && requesterCompanyId && user.company_id !== requesterCompanyId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+      }
+
+      const [result] = await connection.execute(
+        'UPDATE users SET is_active = 0, updated_at = ? WHERE id = ? AND is_active = 1',
+        [new Date(), user.id]
+      );
+
+      if (!result.affectedRows) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'User deleted successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error deleting admin user:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to delete user'
     });
   }
 });
