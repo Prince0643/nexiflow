@@ -20,12 +20,10 @@ export default function UpgradeCTA() {
   const [loading, setLoading] = useState(false)
   const [userCount, setUserCount] = useState(5)
 
-  // USD to PHP exchange rate and pricing
-  const USD_TO_PHP_RATE = 58
   const OFFICE_PRICE_USD = 9
   const ENTERPRISE_PRICE_USD = 12
-  const officeTotalPHP = OFFICE_PRICE_USD * USD_TO_PHP_RATE * userCount
-  const enterpriseTotalPHP = ENTERPRISE_PRICE_USD * USD_TO_PHP_RATE * userCount
+  const officeTotalUSD = OFFICE_PRICE_USD * userCount
+  const enterpriseTotalUSD = ENTERPRISE_PRICE_USD * userCount
 
   // Features comparison data
   const features = [
@@ -329,7 +327,7 @@ export default function UpgradeCTA() {
                   ) : (
                     <>
                       <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                        ₱{(plan.name === 'Office' ? officeTotalPHP : enterpriseTotalPHP).toLocaleString()}
+                        ${plan.name === 'Office' ? officeTotalUSD : enterpriseTotalUSD}
                       </span>
                       <span className="text-gray-600 dark:text-gray-400">/month</span>
                       <p className="text-sm text-gray-500 mt-1">

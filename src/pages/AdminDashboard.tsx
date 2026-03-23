@@ -468,7 +468,10 @@ export default function AdminDashboard() {
     
     const days = eachDayOfInterval({ start: startDate, end: endDate })
     
-    const data = days.map(day => {
+    // Limit to maximum 7 days for better UI
+    const limitedDays = days.length > 7 ? days.slice(-7) : days
+    
+    const data = limitedDays.map(day => {
       const dayEntries = filteredEntries.filter(entry => {
         const entryDate = new Date(entry.startTime)
         return entryDate.toDateString() === day.toDateString()
@@ -1033,6 +1036,31 @@ export default function AdminDashboard() {
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Daily Time Tracking Chart */}
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Daily Time Tracking</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Time tracked by {selectedUser ? users.find(u => u.id === selectedUser)?.name || 'selected user' : 'all users'} for {dateFilter === 'week' ? 'this week' : dateFilter === 'month' ? 'this month' : dateFilter === 'custom' ? 'selected period' : 'all time'}
+            </p>
+            <SimpleChart data={chartData} type="bar" height={280} />
+          </div>
+
+          {/* Total Hours Summary */}
+          <div className="bg-gradient-to-r from-primary-600 to-primary-700 rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-primary-100 text-sm font-medium">Total Time for Selected Filters</p>
+                <p className="text-primary-200 text-xs mt-1">{filteredTimeEntries.length} time entr{filteredTimeEntries.length === 1 ? 'y' : 'ies'}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-bold text-white">
+                  {formatDurationToHHMMSS(totalDuration)}
+                </p>
+                <p className="text-primary-200 text-sm">Total Hours</p>
               </div>
             </div>
           </div>

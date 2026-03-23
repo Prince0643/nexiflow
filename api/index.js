@@ -4092,9 +4092,8 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
     const conn = await pool.getConnection();
     try {
       // Calculate price for local record (same formula as external backend)
-      const USD_TO_PHP_RATE = 58;
       const pricePerUserUSD = plan === 'office' ? 9 : 12;
-      const pricePerUserCentavos = pricePerUserUSD * USD_TO_PHP_RATE * 100;
+      const pricePerUserCents = pricePerUserUSD * 100;
       
       await conn.execute(
         `INSERT INTO payment_transactions 
@@ -4105,12 +4104,12 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
           companyId,
           data.checkoutSessionId,
           data.amount,
-          'PHP',
+          'USD',
           'pending',
           JSON.stringify({
             pricing_level: plan,
             user_count: count,
-            price_per_user: pricePerUserCentavos,
+            price_per_user: pricePerUserCents,
             source: 'external_api'
           })
         ]
