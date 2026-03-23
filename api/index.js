@@ -2402,6 +2402,115 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
   }
 });
 
+const adminUserCreateSchema = Joi.object({
+  name: Joi.string().trim().min(1).required(),
+  email: Joi.string().trim().email().required(),
+  password: Joi.string().min(8).required(),
+  role: Joi.string().valid('employee', 'hr', 'admin', 'super_admin', 'root').required(),
+  hourlyRate: Joi.number().min(0).optional(),
+  timezone: Joi.string().trim().min(1).optional(),
+  companyId: Joi.string().allow(null, '').optional()
+});
+
+app.post('/api/admin/users', authenticateToken, async (req, res) => {
+  const { error, value } = adminUserCreateSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      error: error.details[0].message
+    });
+  }
+
+  try {
+    const requesterRole = req.user.role;
+    const requesterCompanyId = req.user.companyId || null;
+
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(requesterRole);
+    if (!isPrivileged) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    const createCompanyId = requesterRole === 'root'
+      ? (value.companyId ? String(value.companyId) : null)
+      : (requesterCompanyId || (value.companyId ? String(value.companyId) : null));
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingUsers] = await connection.execute(
+        'SELECT id FROM users WHERE email = ? LIMIT 1',
+        [value.email]
+      );
+
+      if (existingUsers.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'User with this email already exists'
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(value.password, 12);
+
+      const userId = uuidv4();
+      const now = new Date();
+
+      const userQuery = `
+        INSERT INTO users (
+          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, 1, ?, ?)
+      `;
+
+      const timezone = value.timezone || 'America/New_York';
+      const hourlyRate = typeof value.hourlyRate === 'number' ? value.hourlyRate : 25;
+
+      await connection.execute(userQuery, [
+        userId,
+        userId,
+        value.name,
+        value.email,
+        hashedPassword,
+        value.role,
+        createCompanyId,
+        timezone,
+        hourlyRate,
+        now,
+        now
+      ]);
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          id: userId,
+          uid: userId,
+          name: value.name,
+          email: value.email,
+          role: value.role,
+          companyId: createCompanyId,
+          teamId: null,
+          teamRole: null,
+          avatar: null,
+          timezone,
+          hourlyRate,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now
+        },
+        message: 'User created successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (err) {
+    console.error('Error creating admin user:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create user'
+    });
+  }
+});
+
 // Invoices API
 
 const invoiceCreateSchema = Joi.object({
