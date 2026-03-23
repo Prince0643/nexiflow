@@ -18,12 +18,11 @@ import {
 export default function UpgradeCTA() {
   const { currentCompany } = useMySQLAuth()
   const [loading, setLoading] = useState(false)
-  const [userCount, setUserCount] = useState(5)
 
   const OFFICE_PRICE_USD = 9
   const ENTERPRISE_PRICE_USD = 12
-  const officeTotalUSD = OFFICE_PRICE_USD * userCount
-  const enterpriseTotalUSD = ENTERPRISE_PRICE_USD * userCount
+  const OFFICE_INCLUDED_SEATS = 10
+  const ENTERPRISE_INCLUDED_SEATS = 100
 
   // Features comparison data
   const features = [
@@ -127,6 +126,7 @@ export default function UpgradeCTA() {
       name: 'Office',
       price: '$9',
       period: 'per user/month',
+      includedSeats: 10,
       description: 'Ideal for growing businesses',
       features: [
         'Everything in Solo',
@@ -149,6 +149,7 @@ export default function UpgradeCTA() {
       name: 'Enterprise',
       price: '$12',
       period: 'per user/month',
+      includedSeats: 100,
       description: 'For large organizations',
       features: [
         'Everything in Office',
@@ -181,7 +182,6 @@ export default function UpgradeCTA() {
         },
         body: JSON.stringify({
           plan,
-          userCount,
           successUrl: `${window.location.origin}/billing/success`,
           cancelUrl: `${window.location.origin}/billing/cancel`
         })
@@ -277,24 +277,6 @@ export default function UpgradeCTA() {
           Choose Your Plan
         </h2>
         
-        {/* User Count Selector */}
-        <div className="max-w-md mx-auto mb-8 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Number of users: <span className="font-bold text-primary-600">{userCount}</span>
-          </label>
-          <input
-            type="range"
-            min="1"
-            max="100"
-            value={userCount}
-            onChange={(e) => setUserCount(parseInt(e.target.value))}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-          />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>1 user</span>
-            <span>100 users</span>
-          </div>
-        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {plans.map((plan, index) => (
             <div
@@ -327,11 +309,11 @@ export default function UpgradeCTA() {
                   ) : (
                     <>
                       <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                        ${plan.name === 'Office' ? officeTotalUSD : enterpriseTotalUSD}
+                        ${plan.name === 'Office' ? OFFICE_PRICE_USD : ENTERPRISE_PRICE_USD}
                       </span>
-                      <span className="text-gray-600 dark:text-gray-400">/month</span>
+                      <span className="text-gray-600 dark:text-gray-400">/user/month</span>
                       <p className="text-sm text-gray-500 mt-1">
-                        ${(plan.name === 'Office' ? OFFICE_PRICE_USD : ENTERPRISE_PRICE_USD)} USD × {userCount} users
+                        Includes {plan.name === 'Office' ? OFFICE_INCLUDED_SEATS : ENTERPRISE_INCLUDED_SEATS} seats
                       </p>
                     </>
                   )}

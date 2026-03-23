@@ -4022,7 +4022,7 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
 // Create checkout session for plan upgrade via external PayMongo backend
 app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
   try {
-    const { plan, userCount, successUrl, cancelUrl } = req.body;
+    const { plan, successUrl, cancelUrl } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.uid;
     
@@ -4034,10 +4034,9 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
       return res.status(400).json({ error: 'Invalid plan. Must be office or enterprise' });
     }
     
-    const count = parseInt(userCount) || 1;
-    if (count < 1) {
-      return res.status(400).json({ error: 'User count must be at least 1' });
-    }
+    // Default included seats per plan
+    const defaultSeats = plan === 'office' ? 10 : 100;
+    const count = defaultSeats;
     
     // Get user details for customer info
     const connection = await pool.getConnection();
@@ -4140,6 +4139,193 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
   }
 });
 
+// Create checkout session for purchasing additional seats
+app.post('/api/billing/purchase-seats', authenticateToken, async (req, res) => {
+  try {
+    const { additionalSeats } = req.body;
+    const companyId = req.user.companyId;
+    const userId = req.user.uid;
+    
+    // Only super_admin can purchase seats
+    if (req.user.role !== 'super_admin' && req.user.role !== 'root') {
+      return res.status(403).json({ error: 'Only super admins can purchase additional seats' });
+    }
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    const seats = parseInt(additionalSeats);
+    if (!seats || seats < 1) {
+      return res.status(400).json({ error: 'Invalid seat count. Must be at least 1' });
+    }
+    
+    // Get company info to determine pricing
+    const connection = await pool.getConnection();
+    let company, customerEmail = '', customerName = '';
+    
+    try {
+      const [companyRows] = await connection.execute(
+        'SELECT * FROM companies WHERE id = ?',
+        [companyId]
+      );
+      
+      if (companyRows.length === 0) {
+        return res.status(404).json({ error: 'Company not found' });
+      }
+      
+      company = companyRows[0];
+      
+      // Get user details for customer info
+      const [userRows] = await connection.execute(
+        'SELECT email, name FROM users WHERE id = ?',
+        [userId]
+      );
+      if (userRows.length > 0) {
+        customerEmail = userRows[0].email;
+        customerName = userRows[0].name || '';
+      }
+    } finally {
+      connection.release();
+    }
+    
+    // Determine price per seat based on current plan
+    const pricePerUserUSD = company.pricing_level === 'enterprise' ? 12 : 9;
+    const totalAmount = pricePerUserUSD * seats;
+    
+    // Call external PayMongo backend for seat add-on
+    const externalApiUrl = process.env.EXTERNAL_PAYMONGO_API_URL || 'https://api.nexistrydigitalsolutions.com';
+    
+    console.log('Creating seat add-on checkout:', { companyId, userId, additionalSeats: seats, totalAmount });
+    
+    const response = await axios.post(
+      `${externalApiUrl}/api/clockistry/create-payment-intent`,
+      {
+        companyId: companyId,
+        userId: userId,
+        type: 'seat_addon',
+        additionalSeats: seats,
+        plan: company.pricing_level,
+        successUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/seats-success`,
+        cancelUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/seats-cancel`,
+        customerEmail: customerEmail,
+        customerName: customerName
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    
+    const data = response.data;
+    
+    if (!data.success) {
+      throw new Error(data.error || 'External API returned unsuccessful response');
+    }
+    
+    // Store transaction in local database
+    const conn = await pool.getConnection();
+    try {
+      const pricePerUserCents = pricePerUserUSD * 100;
+      
+      await conn.execute(
+        `INSERT INTO payment_transactions 
+         (id, company_id, checkout_session_id, amount, currency, status, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          data.transactionId,
+          companyId,
+          data.checkoutSessionId,
+          data.amount,
+          'USD',
+          'pending',
+          JSON.stringify({
+            type: 'seat_addon',
+            pricing_level: company.pricing_level,
+            additional_seats: seats,
+            price_per_user: pricePerUserCents,
+            source: 'external_api'
+          })
+        ]
+      );
+    } finally {
+      conn.release();
+    }
+    
+    res.json({
+      success: true,
+      checkoutUrl: data.checkoutUrl,
+      checkoutSessionId: data.checkoutSessionId,
+      transactionId: data.transactionId,
+      additionalSeats: seats,
+      totalAmount: totalAmount
+    });
+    
+  } catch (error) {
+    console.error('Seat purchase error:', error);
+    if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Data:', JSON.stringify(error.response.data, null, 2));
+    }
+    res.status(500).json({ error: 'Failed to create seat purchase: ' + (error.message || 'Unknown error') });
+  }
+});
+
+// Check seat limit for a company
+app.get('/api/billing/seat-limit', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    const connection = await pool.getConnection();
+    try {
+      // Get company max_members
+      const [companyRows] = await connection.execute(
+        'SELECT max_members, pricing_level FROM companies WHERE id = ?',
+        [companyId]
+      );
+      
+      if (companyRows.length === 0) {
+        return res.status(404).json({ error: 'Company not found' });
+      }
+      
+      const company = companyRows[0];
+      
+      // Count active users in the company
+      const [userCountRows] = await connection.execute(
+        'SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_active = 1',
+        [companyId]
+      );
+      
+      const currentUsers = userCountRows[0].count;
+      const maxMembers = company.max_members;
+      const availableSeats = Math.max(0, maxMembers - currentUsers);
+      const atLimit = currentUsers >= maxMembers;
+      
+      res.json({
+        success: true,
+        data: {
+          currentUsers,
+          maxMembers,
+          availableSeats,
+          atLimit,
+          pricingLevel: company.pricing_level
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error checking seat limit:', error);
+    res.status(500).json({ error: 'Failed to check seat limit' });
+  }
+});
+
 // Webhook handler for Paymongo events (from external backend or direct)
 const handlePaymongoWebhook = async (req, res) => {
   try {
@@ -4207,11 +4393,13 @@ const handlePaymongoWebhook = async (req, res) => {
       const companyId = metadata.company_id;
       const pricingLevel = metadata.pricing_level;
       const userCount = metadata.user_count;
+      const type = metadata.type;
+      const additionalSeats = metadata.additional_seats;
 
-      console.log('Processing payment success:', { companyId, pricingLevel, userCount, checkoutSessionId });
+      console.log('Processing payment success:', { companyId, pricingLevel, userCount, type, additionalSeats, checkoutSessionId });
 
-      if (!companyId || !pricingLevel || !checkoutSessionId) {
-        console.error('Missing required fields:', { companyId, pricingLevel, checkoutSessionId });
+      if (!companyId || !checkoutSessionId) {
+        console.error('Missing required fields:', { companyId, checkoutSessionId });
         return res.status(200).json({ received: true, warning: 'Missing fields' });
       }
 
@@ -4237,31 +4425,52 @@ const handlePaymongoWebhook = async (req, res) => {
 
         console.log('Transaction update result:', { affectedRows: txResult?.affectedRows });
 
-        console.log('Updating company plan and billing dates:', { companyId, pricingLevel, userCount, nextBillingDate });
-        
-        const [companyResult] = await connection.execute(
-          `UPDATE companies 
-           SET pricing_level = ?, 
-               max_members = ?, 
-               last_payment_date = CURDATE(),
-               next_billing_date = ?,
-               billing_status = 'active',
-               is_in_grace_period = 0,
-               grace_period_end_date = NULL,
-               updated_at = NOW()
-           WHERE id = ?`,
-          [pricingLevel, parseInt(userCount) || 1, nextBillingDate, companyId]
-        );
+        // Check if this is a seat_addon or plan_upgrade
+        if (type === 'seat_addon' && additionalSeats) {
+          // Handle seat add-on: increase max_members
+          console.log('Processing seat add-on:', { companyId, additionalSeats });
+          
+          const [companyResult] = await connection.execute(
+            `UPDATE companies 
+             SET max_members = max_members + ?,
+                 last_payment_date = CURDATE(),
+                 next_billing_date = ?,
+                 billing_status = 'active',
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [parseInt(additionalSeats), nextBillingDate, companyId]
+          );
+          
+          console.log('Seat add-on processed:', { companyId, additionalSeats, affectedRows: companyResult?.affectedRows });
+        } else {
+          // Handle plan upgrade: set pricing_level and max_members
+          console.log('Updating company plan and billing dates:', { companyId, pricingLevel, userCount, nextBillingDate });
+          
+          const [companyResult] = await connection.execute(
+            `UPDATE companies 
+             SET pricing_level = ?, 
+                 max_members = ?, 
+                 last_payment_date = CURDATE(),
+                 next_billing_date = ?,
+                 billing_status = 'active',
+                 is_in_grace_period = 0,
+                 grace_period_end_date = NULL,
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [pricingLevel, parseInt(userCount) || 1, nextBillingDate, companyId]
+          );
 
-        console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
+          console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
+        }
 
         console.log('=== PAYMENT SUCCESS PROCESSED ===', {
           companyId,
+          type,
           pricingLevel,
           userCount: parseInt(userCount) || 1,
+          additionalSeats,
           checkoutSessionId,
-          transactionsUpdated: txResult?.affectedRows,
-          companiesUpdated: companyResult?.affectedRows
+          transactionsUpdated: txResult?.affectedRows
         });
       } finally {
         connection.release();
