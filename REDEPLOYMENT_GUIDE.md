@@ -136,12 +136,12 @@ On the server:
 ```bash
 
 # Backend
-cd /var/www/nexiflow && git pull
-cd /var/www/nexiflow/api && npm ci
-pm2 restart all || sudo systemctl restart nexiflow-api
+cd /var/www/nexiflow; git pull
+cd /var/www/nexiflow/api; npm ci
+pm2 restart clockistry-api || sudo systemctl restart nexiflow-api
 
 # Frontend (if built on server)
-cd /var/www/nexiflow && npm ci && npm run build
+cd /var/www/nexiflow; npm ci; npm run build
 sudo systemctl reload nginx
 
 # Quick health + logs

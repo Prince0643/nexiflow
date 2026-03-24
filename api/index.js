@@ -1162,7 +1162,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
         [resetId, user.id, tokenHash, expiresAt]
       );
 
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
       const resetLink = `${frontendUrl}/auth?mode=reset-password&token=${rawToken}`;
 
       const emailResult = await billingEmailService.sendPasswordResetEmail(
