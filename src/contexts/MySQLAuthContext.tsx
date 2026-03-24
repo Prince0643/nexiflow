@@ -245,18 +245,31 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
 
   async function resetPassword(email: string) {
     try {
-      // In a real implementation, you would:
-      // 1. Generate a password reset token
-      // 2. Store it in the database
-      // 3. Send an email with a reset link
-      // 4. Handle the reset link to allow password change
-      
-      console.log(`Password reset requested for email: ${email}`)
-      // Simulate success
+      setLoading(true)
+
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email })
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok) {
+        return { success: false, error: data?.error || 'Failed to send reset email. Please try again.' }
+      }
+
+      if (!data?.success) {
+        return { success: false, error: data?.error || 'Failed to send reset email. Please try again.' }
+      }
+
       return { success: true }
     } catch (error) {
       console.error('Error during password reset:', error)
       return { success: false, error: 'Password reset failed. Please try again.' }
+    } finally {
+      setLoading(false)
     }
   }
 

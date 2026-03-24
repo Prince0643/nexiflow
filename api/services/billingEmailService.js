@@ -83,6 +83,60 @@ If you have any questions, please contact support.
 }
 
 /**
+ * Send password reset email
+ */
+async function sendPasswordResetEmail(user, resetLink) {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Reset Your Password</h2>
+      <p>Hello ${user.name || 'there'},</p>
+      <p>We received a request to reset the password for your NexiFlow account.</p>
+
+      <p>
+        <a href="${resetLink}"
+           style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+          Reset Password
+        </a>
+      </p>
+
+      <p>If you did not request a password reset, you can safely ignore this email.</p>
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        This link will expire in 1 hour.
+      </p>
+    </div>
+  `;
+
+  const text = `
+Reset Your Password
+
+Hello ${user.name || 'there'},
+
+We received a request to reset the password for your NexiFlow account.
+
+Reset your password using this link (expires in 1 hour):
+${resetLink}
+
+If you did not request a password reset, you can safely ignore this email.
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: user.email,
+      subject: 'Reset your NexiFlow password',
+      text,
+      html
+    });
+
+    console.log(`Password reset email sent to ${user.email}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send password reset email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Send grace period notification email
  */
 async function sendGracePeriodNotification(company, superAdmin, graceEndDate) {
@@ -232,5 +286,6 @@ Questions? Contact support.
 module.exports = {
   sendPaymentReminder,
   sendGracePeriodNotification,
-  sendDowngradeNotification
+  sendDowngradeNotification,
+  sendPasswordResetEmail
 };
