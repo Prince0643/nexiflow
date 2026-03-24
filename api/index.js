@@ -1266,6 +1266,79 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
+// Change password endpoint (for logged-in users)
+app.put('/api/users/:id/password', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { currentPassword, newPassword, confirmPassword } = req.body || {};
+    const requesterId = String(req.user.uid);
+    const requesterRole = req.user.role;
+
+    // Only allow users to change their own password, or admins to change any password
+    const isSelf = requesterId === String(id);
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(requesterRole);
+
+    if (!isSelf && !isPrivileged) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    // Validation
+    if (!newPassword || typeof newPassword !== 'string') {
+      return res.status(400).json({ success: false, error: 'New password is required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    }
+    if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, error: 'Passwords do not match' });
+    }
+
+    // For non-admin users, current password is required
+    if (isSelf && !isPrivileged && (!currentPassword || typeof currentPassword !== 'string')) {
+      return res.status(400).json({ success: false, error: 'Current password is required' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      // Get user
+      const [rows] = await connection.execute(
+        'SELECT * FROM users WHERE (id = ? OR uid = ?) AND is_active = 1 LIMIT 1',
+        [id, id]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      const user = rows[0];
+
+      // If changing own password, verify current password
+      if (isSelf && !isPrivileged) {
+        const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!isCurrentPasswordValid) {
+          return res.status(400).json({ success: false, error: 'Current password is incorrect' });
+        }
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+      // Update password
+      await connection.execute(
+        'UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?',
+        [hashedPassword, user.id]
+      );
+
+      res.json({ success: true, message: 'Password changed successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ success: false, error: 'Failed to change password' });
+  }
+});
+
 app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
   try {
     if (!isAdminRole(req.user.role)) {

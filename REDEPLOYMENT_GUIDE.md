@@ -138,7 +138,7 @@ On the server:
 # Backend
 cd /var/www/nexiflow; git pull
 cd /var/www/nexiflow/api; npm ci
-pm2 restart clockistry-api || sudo systemctl restart nexiflow-api
+pm2 restart clockistry-api
 
 # Frontend (if built on server)
 cd /var/www/nexiflow; npm ci; npm run build

@@ -22,7 +22,6 @@ import {
 
 import { Link } from 'react-router-dom'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-import { update, get, set, query, orderByChild, equalTo, ref } from 'firebase/database'
 import { format, isValid } from 'date-fns'
 import { mysqlLoggingService } from '../services/mysqlLoggingService'
 import { formatDurationToHHMMSS } from '../utils'
@@ -30,13 +29,6 @@ import { useTheme } from '../contexts/ThemeContext'
 import { canViewHourlyRates, canEditHourlyRates } from '../utils/permissions'
 import { userApiService } from '../services/userApiService'
 
-import { database } from '../config/firebase'
-import { 
-  EmailAuthProvider, 
-  reauthenticateWithCredential, 
-  updatePassword,
-  getAuth
-} from 'firebase/auth'
 import NotificationSettings from '../components/settings/NotificationSettings'
 
 export default function Settings() {
@@ -106,7 +98,7 @@ export default function Settings() {
   const loadSettings = async () => {
     try {
       setLoading(true)
-      // Load settings from Firebase (you can implement this)
+      // Load settings from MySQL API (you can implement this)
       // For now, we'll use default values
     } catch (error) {
       console.error('Error loading settings:', error)
@@ -177,35 +169,35 @@ export default function Settings() {
   const handleSaveSettings = async (settingsType: string) => {
     try {
       setLoading(true)
-      // Save settings to Firebase
-      const settingsRef = ref(database, `settings/${settingsType}`)
-      let settingsToSave = {}
-      
-      switch (settingsType) {
-        case 'general':
-          settingsToSave = generalSettings
-          break
-        case 'notifications':
-          settingsToSave = notificationSettings
-          break
-        case 'security':
-          settingsToSave = securitySettings
-          break
-      }
-      
-      await set(settingsRef, {
-        ...settingsToSave,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser?.uid
+      // Save settings to MySQL API
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/settings/${settingsType}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          ...generalSettings,
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser?.uid
+        })
       })
+      
+      const data = await response.json().catch(() => null)
+      
+      if (!response.ok || !data?.success) {
+        showMessage('error', data?.error || 'Failed to save settings')
+        return
+      }
       
       // Log the settings save
       await mysqlLoggingService.logUserAction('settings_save', `${settingsType} settings updated`, currentUser?.uid || '', currentUser?.name || 'Unknown')
       
       showMessage('success', 'Settings saved successfully!')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Save error:', error)
-      showMessage('error', 'Failed to save settings')
+      showMessage('error', error?.message || 'Failed to save settings')
     } finally {
       setLoading(false)
     }
@@ -319,8 +311,7 @@ export default function Settings() {
   }
   
   const handleChangePassword = async () => {
-    const auth = getAuth()
-    if (!currentUser || !auth.currentUser) return
+    if (!currentUser) return
     
     try {
       // Validation
@@ -334,18 +325,34 @@ export default function Settings() {
         return
       }
       
+      if (!passwordData.currentPassword) {
+        showMessage('error', 'Current password is required')
+        return
+      }
+      
       setLoading(true)
       
-      // Re-authenticate user first
-      const credential = EmailAuthProvider.credential(
-        auth.currentUser.email!,
-        passwordData.currentPassword
-      )
+      // Call MySQL API to change password
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/users/${currentUser.uid}/password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword,
+          confirmPassword: passwordData.confirmPassword
+        })
+      })
       
-      await reauthenticateWithCredential(auth.currentUser, credential)
+      const data = await response.json().catch(() => null)
       
-      // Update password
-      await updatePassword(auth.currentUser, passwordData.newPassword)
+      if (!response.ok || !data?.success) {
+        showMessage('error', data?.error || 'Failed to change password')
+        return
+      }
       
       // Clear password form
       setPasswordData({
@@ -360,13 +367,7 @@ export default function Settings() {
       showMessage('success', 'Password changed successfully!')
     } catch (error: any) {
       console.error('Password change error:', error)
-      if (error.code === 'auth/wrong-password') {
-        showMessage('error', 'Current password is incorrect')
-      } else if (error.code === 'auth/weak-password') {
-        showMessage('error', 'New password is too weak')
-      } else {
-        showMessage('error', 'Failed to change password')
-      }
+      showMessage('error', error?.message || 'Failed to change password')
     } finally {
       setLoading(false)
     }
