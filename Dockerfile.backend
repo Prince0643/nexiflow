@@ -1,0 +1,42 @@
+# Backend Dockerfile
+FROM node:20-alpine
+
+# Install dependencies for building native modules and curl for healthchecks
+RUN apk add --no-cache python3 make g++ curl
+
+# Create app directory
+WORKDIR /app
+
+# Copy root package files (for shared dependencies if any)
+COPY package*.json ./
+
+# Copy API package files
+COPY api/package*.json ./api/
+
+# Install API dependencies
+WORKDIR /app/api
+RUN npm ci --only=production
+
+# Go back to app root
+WORKDIR /app
+
+# Copy application files
+COPY api/ ./api/
+COPY src/backend/ ./src/backend/
+COPY src/config/ ./src/config/
+COPY src/scripts/ ./src/scripts/
+COPY src/migration/ ./src/migration/
+COPY mysql-schema.sql ./
+
+# Create uploads directory
+RUN mkdir -p api/uploads/avatars
+
+# Expose port
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3001/api/health || exit 1
+
+# Start the application
+CMD ["node", "api/index.js"]
