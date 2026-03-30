@@ -27,12 +27,6 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASS: ${SMTP_PASS}
       SMTP_FROM: ${SMTP_FROM}
-      # PayMongo
-      PAYMONGO_SECRET_KEY: ${PAYMONGO_SECRET_KEY}
-      PAYMONGO_PUBLIC_KEY: ${PAYMONGO_PUBLIC_KEY}
-      PAYMONGO_WEBHOOK_SECRET: ${PAYMONGO_WEBHOOK_SECRET}
-      PAYMONGO_API_URL: ${PAYMONGO_API_URL:-https://api.paymongo.com/v1}
-      EXTERNAL_PAYMONGO_API_URL: ${EXTERNAL_PAYMONGO_API_URL:-https://nexi-flow.com}
       # Frontend & API
       FRONTEND_URL: ${FRONTEND_URL:-https://nexi-flow.com/}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://nexi-flow.com/api}
