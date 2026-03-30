@@ -9,8 +9,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      # External Database (using host's MySQL)
-      MYSQL_HOST: ${DB_HOST:-127.0.0.1}
+      # External Database (using host's MySQL via Docker host gateway)
+      MYSQL_HOST: ${DB_HOST:-host.docker.internal}
       MYSQL_PORT: ${DB_PORT:-3306}
       MYSQL_USER: ${DB_USER:-clockistry_user}
       MYSQL_PASSWORD: ${DB_PASSWORD}
