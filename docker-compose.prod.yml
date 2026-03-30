@@ -6,12 +6,13 @@ services:
       dockerfile: Dockerfile.backend
     container_name: nexiflow_backend
     restart: unless-stopped
+    network_mode: host
     environment:
       NODE_ENV: production
       PORT: 3001
-      # External Database (using host's MySQL via Docker host gateway)
-      MYSQL_HOST: ${DB_HOST:-host.docker.internal}
-      MYSQL_PORT: ${DB_PORT:-3306}
+      # External Database (using host's MySQL via host network)
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
       MYSQL_USER: ${DB_USER:-clockistry_user}
       MYSQL_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME:-clockistry}
@@ -33,20 +34,14 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-https://nexi-flow.com/}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://nexi-flow.com/api}
       ROOT_API_KEY: ${ROOT_API_KEY}
-    ports:
-      - "127.0.0.1:3001:3001"
     volumes:
       - ./api/uploads:/app/api/uploads
-    networks:
-      - nexiflow_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   # Frontend (Nginx serving built React app)
   frontend:
