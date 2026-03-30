@@ -15,7 +15,7 @@ COPY api/package*.json ./api/
 
 # Install API dependencies
 WORKDIR /app/api
-RUN npm ci --only=production
+RUN npm ci --only=production && npm install mysql2
 
 # Go back to app root
 WORKDIR /app
