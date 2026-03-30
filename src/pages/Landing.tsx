@@ -996,7 +996,7 @@ const Landing = () => {
               >
                 {/* Inner glow effect */}
                 <div className="absolute inset-0 rounded-xl pointer-events-none bg-gradient-to-br from-blue-500/5 to-indigo-500/5 dark:from-blue-500/10 dark:to-indigo-500/10"></div>
-                <div className="relative z-10">
+                <div className="relative z-10 flex flex-col flex-grow">
 
                 <div className="text-center mb-8">
                   <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{plan.name}</h3>
@@ -1017,7 +1017,7 @@ const Landing = () => {
                   ))}
                 </ul>
                 <button
-                  onClick={handleLogin}
+                  onClick={() => navigate('/super-admin-signup')}
                   className={`w-full py-3 px-4 rounded-lg font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-lg overflow-hidden relative group mt-auto ${plan.popular
                       ? 'backdrop-blur-lg bg-blue-600/35 hover:bg-blue-700 text-white'
                       : 'backdrop-blur-lg bg-gray-100/35 dark:bg-gray-600/35 hover:bg-gray-200 dark:hover:bg-gray-500 text-gray-900 dark:text-white'

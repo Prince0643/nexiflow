@@ -24,8 +24,8 @@ interface ThemeProviderProps {
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const { currentUser } = useMySQLAuth()
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    // Check system preference as default
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
+    // Default to dark mode for unauthenticated users
+    return true
   })
 
   // User-specific dark mode implementation:
