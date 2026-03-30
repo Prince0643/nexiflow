@@ -20,12 +20,8 @@ RUN npm ci --only=production
 # Go back to app root
 WORKDIR /app
 
-# Copy application files
+# Copy application files (only what the API needs)
 COPY api/ ./api/
-COPY src/backend/ ./src/backend/
-COPY src/config/ ./src/config/
-COPY src/scripts/ ./src/scripts/
-COPY src/migration/ ./src/migration/
 COPY mysql-schema.sql ./
 
 # Create uploads directory
