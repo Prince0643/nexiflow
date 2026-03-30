@@ -86,6 +86,8 @@ function AppContent() {
         <BillingStatusBanner />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900">
           <Routes>
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/super-admin-signup" element={<SuperAdminSignup />} />
             {/* Root user routes */}
             {currentUser.role === 'root' ? (
               <>
