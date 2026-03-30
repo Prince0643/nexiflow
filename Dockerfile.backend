@@ -15,7 +15,7 @@ COPY api/package*.json ./api/
 
 # Install API dependencies
 WORKDIR /app/api
-RUN npm ci --only=production && npm install mysql2
+RUN npm ci --only=production && npm install mysql2 bcryptjs jsonwebtoken dotenv express cors helmet express-rate-limit joi moment morgan multer nodemailer uuid axios compression
 
 # Go back to app root
 WORKDIR /app
