@@ -379,103 +379,205 @@ export default function Projects() {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-800">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Project</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Priority</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Budget</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-              {projects.map((project) => (
-                <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center space-x-3 min-w-0">
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
-                      <div className="min-w-0">
-                        <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{project.name}</div>
-                        {project.description && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project.description}</div>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{getClientName(project.clientId)}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.status as keyof typeof STATUS_COLORS]}`}>
-                      {project.status.replace('-', ' ')}
-                    </span>
-                  </td>
-                  <td className={`px-4 py-3 text-sm font-medium ${PRIORITY_COLORS[project.priority as keyof typeof PRIORITY_COLORS]}`}>{project.priority}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                    {project.startDate ? formatDate(project.startDate) : '-'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                    {project.budget ? `$${project.budget.toLocaleString()}` : '-'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="relative inline-block">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenProjectId(openProjectId === project.id ? null : project.id);
-                        }}
-                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </button>
-
-                      {openProjectId === project.id && (
-                        <div
-                          className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 border border-gray-200 dark:border-gray-700"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => handleEditProject(project)}
-                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                          >
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
-                          </button>
-                          {showArchived ? (
-                            <button
-                              onClick={() => handleUnarchiveProject(project)}
-                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            >
-                              <Archive className="h-4 w-4 mr-2" />
-                              Unarchive
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleArchiveProject(project)}
-                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            >
-                              <Archive className="h-4 w-4 mr-2" />
-                              Archive
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteProject(project)}
-                            className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </button>
-                        </div>
+        <>
+          {/* Mobile Grid View */}
+          <div className="grid grid-cols-1 sm:hidden gap-4">
+            {projects.map((project) => (
+              <div key={project.id} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3 min-w-0 flex-1">
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">{project.name}</div>
+                      {project.description && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project.description}</div>
                       )}
                     </div>
-                  </td>
+                  </div>
+                  <div className="relative ml-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenProjectId(openProjectId === project.id ? null : project.id);
+                      }}
+                      className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+
+                    {openProjectId === project.id && (
+                      <div
+                        className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 border border-gray-200 dark:border-gray-700"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={() => handleEditProject(project)}
+                          className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit
+                        </button>
+                        {showArchived ? (
+                          <button
+                            onClick={() => handleUnarchiveProject(project)}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
+                            <Archive className="h-4 w-4 mr-2" />
+                            Unarchive
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleArchiveProject(project)}
+                            className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
+                            <Archive className="h-4 w-4 mr-2" />
+                            Archive
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteProject(project)}
+                          className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">Client</div>
+                    <div className="text-gray-700 dark:text-gray-300 truncate">{getClientName(project.clientId)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">Status</div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[project.status as keyof typeof STATUS_COLORS]}`}>
+                      {project.status.replace('-', ' ')}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">Priority</div>
+                    <div className={`font-medium ${PRIORITY_COLORS[project.priority as keyof typeof PRIORITY_COLORS]}`}>{project.priority}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">Start</div>
+                    <div className="text-gray-700 dark:text-gray-300">
+                      {project.startDate ? formatDate(project.startDate) : '-'}
+                    </div>
+                  </div>
+                </div>
+                
+                {project.budget && (
+                  <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">Budget</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">${project.budget.toLocaleString()}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden sm:block overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Project</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Priority</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Budget</th>
+                  <th className="px-4 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                {projects.map((project) => (
+                  <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+                        <div className="min-w-0">
+                          <div className="font-medium text-gray-900 dark:text-gray-100 truncate">{project.name}</div>
+                          {project.description && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{project.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{getClientName(project.clientId)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.status as keyof typeof STATUS_COLORS]}`}>
+                        {project.status.replace('-', ' ')}
+                      </span>
+                    </td>
+                    <td className={`px-4 py-3 text-sm font-medium ${PRIORITY_COLORS[project.priority as keyof typeof PRIORITY_COLORS]}`}>{project.priority}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                      {project.startDate ? formatDate(project.startDate) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                      {project.budget ? `$${project.budget.toLocaleString()}` : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="relative inline-block">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenProjectId(openProjectId === project.id ? null : project.id);
+                          }}
+                          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </button>
+
+                        {openProjectId === project.id && (
+                          <div
+                            className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10 border border-gray-200 dark:border-gray-700"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() => handleEditProject(project)}
+                              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </button>
+                            {showArchived ? (
+                              <button
+                                onClick={() => handleUnarchiveProject(project)}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                              >
+                                <Archive className="h-4 w-4 mr-2" />
+                                Unarchive
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleArchiveProject(project)}
+                                className="flex items-center w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                              >
+                                <Archive className="h-4 w-4 mr-2" />
+                                Archive
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteProject(project)}
+                              className="flex items-center w-full px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {/* Modals */}

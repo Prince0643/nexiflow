@@ -14,6 +14,7 @@ export default function LoginForm({}: LoginFormProps) {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const errorRef = useRef('') // Ref to persist error across renders
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
   const [resetSuccess, setResetSuccess] = useState(false)
@@ -24,8 +25,10 @@ export default function LoginForm({}: LoginFormProps) {
 
   // Handle click outside to close forgot password form
   useEffect(() => {
+    if (!showForgotPassword) return // Only add listener when form is open
+    
     const handleClickOutside = (event: MouseEvent) => {
-      if (showForgotPassword && forgotPasswordRef.current && !forgotPasswordRef.current.contains(event.target as Node)) {
+      if (forgotPasswordRef.current && !forgotPasswordRef.current.contains(event.target as Node)) {
         setShowForgotPassword(false)
         setError('')
         setResetSuccess(false)
@@ -38,22 +41,23 @@ export default function LoginForm({}: LoginFormProps) {
     }
   }, [showForgotPassword])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
+    errorRef.current = ''
     setError('')
     setLoading(true)
 
     try {
       const result = await login(credentials)
+      
       if (!result.success) {
-        if (result.error?.includes('verify your email')) {
-          setError(`${result.error} `)
-        } else {
-          setError(result.error || 'Failed to login. Please try again.')
-        }
+        const errorMsg = result.error || 'Failed to login. Please try again.'
+        errorRef.current = errorMsg
+        setError(errorMsg)
       }
-    } catch (error: any) {
-      setError(error.message || 'Failed to login. Please try again.')
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to login. Please try again.'
+      errorRef.current = errorMsg
+      setError(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -94,7 +98,7 @@ export default function LoginForm({}: LoginFormProps) {
         <p className="text-gray-600 dark:text-gray-400">Sign in to your NexiFlow account</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form className="space-y-6" action="#" method="post">
         {/* Email Field */}
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-300">
@@ -146,18 +150,21 @@ export default function LoginForm({}: LoginFormProps) {
         </div>
 
         {/* Error Message */}
-        {error && (
-          <div className="flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/30 dark:border-red-800">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 dark:text-red-400" />
-            <div className="text-sm text-red-700 dark:text-red-200">
-              <p>{error}</p>
+        {(error || errorRef.current) ? (
+          <div className="flex items-center space-x-2 p-4 bg-red-100 border-2 border-red-500 rounded-lg shadow-md">
+            <AlertCircle className="h-6 w-6 text-red-600 flex-shrink-0" />
+            <div className="text-sm text-red-800 font-semibold">
+              {error || errorRef.current}
             </div>
           </div>
+        ) : (
+          <div className="h-0" /> /* placeholder to maintain layout */
         )}
 
         {/* Submit Button */}
         <button
-          type="submit"
+          type="button"
+          onClick={handleSubmit}
           disabled={loading}
           className="w-full btn-primary py-3 text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >

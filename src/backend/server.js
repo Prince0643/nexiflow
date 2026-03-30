@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
+import { authLimiter, generalApiLimiter } from './config/rateLimit.js';
 dotenv.config();
 
 const app = express();
@@ -11,7 +12,11 @@ const PORT = process.env.BACKEND_PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// Rate limiting
+app.use('/api/auth', authLimiter);
+app.use('/api', generalApiLimiter);
 
 // Create database connection pool
 const pool = mysql.createPool({

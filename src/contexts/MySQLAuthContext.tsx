@@ -115,10 +115,16 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
         body: JSON.stringify(credentials),
       })
       
-      const data = await response.json()
+      let data
+      try {
+        data = await response.json()
+      } catch {
+        // If response is not valid JSON, use status text
+        return { success: false, error: response.statusText || 'Login failed. Please try again.' }
+      }
       
-      if (!data.success) {
-        return { success: false, error: data.error }
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || data.message || 'Login failed. Please check your credentials.' }
       }
       
       // Create AuthUser object

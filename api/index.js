@@ -117,12 +117,21 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting
+// Rate limiting - Auth endpoints (stricter)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts per window per IP
+  message: { success: false, error: 'Too many login attempts. Please try again in 15 minutes.' }
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/signup', authLimiter);
+
+// Rate limiting - General API
 const isDev = process.env.NODE_ENV !== 'production'
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isDev ? 2000 : 1000,
-  message: 'Too many requests from this IP, please try again later.'
+  max: isDev ? 2000 : 100,
+  message: { success: false, error: 'Too many requests. Please try again later.' }
 });
 app.use('/api/', limiter);
 
@@ -1024,7 +1033,7 @@ app.post('/api/auth/login', async (req, res) => {
       if (userRows.length === 0) {
         return res.status(401).json({ 
           success: false, 
-          error: 'Invalid email or password' 
+          error: 'Invalid email or password. Please check your credentials and try again.' 
         });
       }
       
@@ -1035,7 +1044,7 @@ app.post('/api/auth/login', async (req, res) => {
       if (!isPasswordValid) {
         return res.status(401).json({ 
           success: false, 
-          error: 'Invalid email or password' 
+          error: 'Invalid email or password. Please check your credentials and try again.' 
         });
       }
       

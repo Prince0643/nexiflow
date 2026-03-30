@@ -374,20 +374,21 @@ export default function TaskManagement() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* Header with Filters */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Task Management</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">Task Management</h1>
             <p className="text-gray-600 dark:text-gray-400">
               {canSeeAllTasks ? 'All Tasks' : canSeeTeamTasks ? 'Team Tasks' : 'My Tasks'} 
               ({tasks.length} of {allTasks.length})
             </p>
           </div>
           
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+          <div className="flex flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-2 sm:gap-3 justify-end">
+            {/* View Mode Toggle - Hidden on mobile */}
+            <div className="hidden sm:flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
               <button
                 onClick={() => setViewMode('board')}
                 className={`p-2 rounded-md flex items-center ${
@@ -414,7 +415,7 @@ export default function TaskManagement() {
             
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className={`btn-secondary flex items-center space-x-2 ${
+              className={`btn-secondary flex items-center space-x-2 whitespace-nowrap ${
                 showFilters ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300' : ''
               }`}
             >
@@ -424,7 +425,7 @@ export default function TaskManagement() {
             
             <button
               onClick={handleCreateTask}
-              className="btn-primary flex items-center space-x-2"
+              className="btn-primary flex items-center space-x-2 whitespace-nowrap"
             >
               <Users className="h-4 w-4" />
               <span>New Task</span>
@@ -651,9 +652,10 @@ export default function TaskManagement() {
       </div>
 
       {/* Task Board or Table */}
-      <div className="flex-1 overflow-hidden">
-        {viewMode === 'board' ? (
-          <TaskBoard
+      <div className="flex-1 overflow-auto sm:overflow-hidden">
+        {/* Mobile: Always show Table view */}
+        <div className="block sm:hidden min-h-full">
+          <TaskTable
             tasks={tasks}
             statuses={statuses}
             priorities={priorities}
@@ -664,8 +666,23 @@ export default function TaskManagement() {
             onViewTask={handleViewTask}
             onDeleteTask={handleDeleteTask}
           />
-        ) : (
-          <div className="h-full">
+        </div>
+        
+        {/* Desktop: Show selected view */}
+        <div className="hidden sm:block h-full">
+          {viewMode === 'board' ? (
+            <TaskBoard
+              tasks={tasks}
+              statuses={statuses}
+              priorities={priorities}
+              teams={teams}
+              onTaskUpdate={handleTaskUpdate}
+              onCreateTask={handleCreateTask}
+              onEditTask={handleEditTask}
+              onViewTask={handleViewTask}
+              onDeleteTask={handleDeleteTask}
+            />
+          ) : (
             <TaskTable
               tasks={tasks}
               statuses={statuses}
@@ -677,8 +694,8 @@ export default function TaskManagement() {
               onViewTask={handleViewTask}
               onDeleteTask={handleDeleteTask}
             />
-          </div>
-        )}
+          )}
+        </div>
       </div>
       
       {/* Task Modal */}

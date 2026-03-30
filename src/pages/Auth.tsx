@@ -248,7 +248,7 @@ export default function Auth() {
             ) : showSignup ? (
               <SuperAdminSignupForm onSwitchToLogin={toggleForm} />
             ) : (
-              <LoginForm />
+              <LoginForm key="login-form" />
             )}
           </div>
 
