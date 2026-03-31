@@ -10,8 +10,17 @@ export default function SuperAdminSignup() {
   }
 
   return (
-    <div className={`min-h-screen flex items-center justify-center bg-gray-900 p-8`}>
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center p-8 relative overflow-hidden">
+      {/* Hero Background Effects */}
+      <div className="absolute inset-0 bg-gradient-to-b from-blue-900 via-[#060b1d] to-black opacity-70" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]/30" />
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:120px_120px]" />
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute -top-16 right-10 w-56 h-56 bg-blue-500/30 rounded-full blur-3xl" />
+        <div className="absolute bottom-[-80px] left-10 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-md relative z-10">
         {/* Logo Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center space-x-3 mb-4">
@@ -28,7 +37,7 @@ export default function SuperAdminSignup() {
         </div>
 
         {/* Form Container */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 dark:bg-gray-800 dark:border-gray-700">
+        <div className="bg-white/10 rounded-3xl shadow-2xl border border-white/20 p-8 backdrop-blur-xl">
           <SuperAdminSignupForm onSwitchToLogin={handleSwitchToLogin} />
         </div>
 

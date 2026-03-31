@@ -1,5 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { useState } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { MySQLAuthProvider, useMySQLAuth } from './contexts/MySQLAuthContext'
 import { SearchProvider } from './contexts/SearchContext'
 import { NotificationProvider } from './contexts/NotificationContext'
@@ -41,6 +41,16 @@ import RootDashboard from './pages/RootDashboard'
 import Invoicing from './pages/Invoicing'
 import NewInvoice from './pages/NewInvoice'
 import { soundManager } from './utils/soundManager'
+
+function ScrollToTop() {
+  const { pathname, search, hash } = useLocation()
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [pathname, search, hash])
+
+  return null
+}
 
 function MySQLAppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -245,6 +255,7 @@ function MySQLApp() {
           <SearchProvider>
             <NotificationProvider>
               <Router>
+                <ScrollToTop />
                 <MySQLAppContent />
               </Router>
             </NotificationProvider>
