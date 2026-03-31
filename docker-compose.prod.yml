@@ -71,6 +71,8 @@ services:
     environment:
       ADMINER_DEFAULT_SERVER: host.docker.internal
       ADMINER_DESIGN: pepa-linha
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - nexiflow_network
 
