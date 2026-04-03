@@ -4467,9 +4467,8 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
       return res.status(400).json({ error: 'Invalid plan. Must be office or enterprise' });
     }
     
-    // Default included seats per plan
-    const defaultSeats = plan === 'office' ? 10 : 100;
-    const count = defaultSeats;
+    // Default included seats per plan (always start with 1 seat)
+    const count = 1;
     
     // Get user details for customer info
     const connection = await pool.getConnection();
