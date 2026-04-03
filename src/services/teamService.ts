@@ -717,9 +717,13 @@ export const teamService = {
         email: user.email,
         role: user.role
       }));
+
+      const uniqueMentionableUsers = Array.from(
+        new Map(mentionableUsers.map(user => [user.id, user])).values()
+      );
       
-      console.log('Mentionable users for task:', mentionableUsers);
-      return mentionableUsers;
+      console.log('Mentionable users for task:', uniqueMentionableUsers);
+      return uniqueMentionableUsers;
     } catch (error) {
       console.error('Error getting task mentionable users:', error);
       return [];

@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Eye, EyeOff, AlertCircle, Mail, ArrowLeft, X } from 'lucide-react'
+import { Eye, EyeOff, AlertCircle, X } from 'lucide-react'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { LoginCredentials } from '../../types'
-import { useNavigate } from 'react-router-dom'
 
 interface LoginFormProps {}
 
@@ -19,8 +18,7 @@ export default function LoginForm({}: LoginFormProps) {
   const [resetEmail, setResetEmail] = useState('')
   const [resetSuccess, setResetSuccess] = useState(false)
   
-  const { login, resetPassword } = useMySQLAuth()
-  const navigate = useNavigate()
+  const { login, resetPassword, authActionLoading } = useMySQLAuth()
   const forgotPasswordRef = useRef<HTMLDivElement>(null)
 
   // Handle click outside to close forgot password form
@@ -41,7 +39,8 @@ export default function LoginForm({}: LoginFormProps) {
     }
   }, [showForgotPassword])
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
     errorRef.current = ''
     setError('')
     setLoading(true)
@@ -89,6 +88,11 @@ export default function LoginForm({}: LoginFormProps) {
       ...prev,
       [name]: value
     }))
+
+    if (error || errorRef.current) {
+      errorRef.current = ''
+      setError('')
+    }
   }
 
   return (
@@ -98,7 +102,7 @@ export default function LoginForm({}: LoginFormProps) {
         <p className="text-white/70">Sign in to your NexiFlow account</p>
       </div>
 
-      <form className="space-y-5" action="#" method="post">
+      <form className="space-y-5" onSubmit={handleSubmit} noValidate>
         {/* Email Field */}
         <div className="group">
           <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-2 ml-1">
@@ -163,12 +167,11 @@ export default function LoginForm({}: LoginFormProps) {
 
         {/* Submit Button */}
         <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={loading}
+          type="submit"
+          disabled={loading || authActionLoading}
           className="w-full py-4 rounded-2xl bg-white text-blue-900 font-semibold text-lg shadow-lg hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? 'Signing In...' : 'Sign In'}
+          {loading || authActionLoading ? 'Signing In...' : 'Sign In'}
         </button>
 
         {/* Forgot Password Link */}

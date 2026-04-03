@@ -374,66 +374,65 @@ export default function TaskManagement() {
   }
 
   return (
-    <div className="p-4 sm:p-6">
-      {/* Header with Filters */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex-shrink-0">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">Task Management</h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              {canSeeAllTasks ? 'All Tasks' : canSeeTeamTasks ? 'Team Tasks' : 'My Tasks'} 
-              ({tasks.length} of {allTasks.length})
-            </p>
-          </div>
-          
-          <div className="flex flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-2 sm:gap-3 justify-end">
-            {/* View Mode Toggle - Hidden on mobile */}
-            <div className="hidden sm:flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-              <button
-                onClick={() => setViewMode('board')}
-                className={`p-2 rounded-md flex items-center ${
-                  viewMode === 'board' 
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm' 
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                }`}
-              >
-                <LayoutGrid className="h-4 w-4" />
-                <span className="ml-1 text-sm">Board</span>
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={`p-2 rounded-md flex items-center ${
-                  viewMode === 'table' 
-                    ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm' 
-                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                }`}
-              >
-                <List className="h-4 w-4" />
-                <span className="ml-1 text-sm">Table</span>
-              </button>
-            </div>
-            
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`btn-secondary flex items-center space-x-2 whitespace-nowrap ${
-                showFilters ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300' : ''
-              }`}
-            >
-              <Filter className="h-4 w-4" />
-              <span>Filters</span>
-            </button>
-            
-            <button
-              onClick={handleCreateTask}
-              className="btn-primary flex items-center space-x-2 whitespace-nowrap"
-            >
-              <Users className="h-4 w-4" />
-              <span>New Task</span>
-            </button>
-          </div>
+    <div className="p-4 sm:p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 leading-tight">Task Management</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            {canSeeAllTasks ? 'All Tasks' : canSeeTeamTasks ? 'Team Tasks' : 'My Tasks'} ({tasks.length} of {allTasks.length})
+          </p>
         </div>
 
-        {/* Search Bar */}
+        <div className="flex flex-wrap sm:flex-nowrap items-stretch sm:items-center gap-2 sm:gap-3">
+          {/* View Mode Toggle - Hidden on mobile */}
+          <div className="hidden sm:flex items-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-1 shadow-sm">
+            <button
+              onClick={() => setViewMode('board')}
+              className={`p-2 rounded-md flex items-center ${
+                viewMode === 'board' 
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+              }`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span className="ml-1 text-sm">Board</span>
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`p-2 rounded-md flex items-center ${
+                viewMode === 'table' 
+                  ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' 
+                  : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+              }`}
+            >
+              <List className="h-4 w-4" />
+              <span className="ml-1 text-sm">Table</span>
+            </button>
+          </div>
+          
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`btn-secondary flex items-center space-x-2 whitespace-nowrap ${
+              showFilters ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300' : ''
+            }`}
+          >
+            <Filter className="h-4 w-4" />
+            <span>Filters</span>
+          </button>
+          
+          <button
+            onClick={handleCreateTask}
+            className="btn-primary flex items-center space-x-2 whitespace-nowrap"
+          >
+            <Users className="h-4 w-4" />
+            <span>New Task</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 space-y-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
           <input
@@ -453,206 +452,189 @@ export default function TaskManagement() {
           )}
         </div>
 
-        {/* Filter Overview */}
         {showFilters && (
-          <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg border border-blue-200 dark:border-blue-700">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">Filter Overview</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {/* Total Tasks */}
-                <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-700">
-                  <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{allTasks.length}</div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Total Tasks</div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-gray-50 dark:bg-gray-700/60 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{allTasks.length}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Total Tasks</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700/60 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{tasks.length}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Filtered Tasks</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700/60 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                  {[searchQuery, selectedUserId, selectedTeamId, selectedStatus, selectedPriority]
+                    .filter(filter => filter !== 'all' && filter.trim() !== '').length}
                 </div>
-                
-                {/* Filtered Tasks */}
-                <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-700">
-                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{tasks.length}</div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Filtered Tasks</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Active Filters</div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700/60 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                  {allTasks.length > 0 ? Math.round((allTasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.name) === 'Done').length / allTasks.length) * 100) : 0}%
                 </div>
-                
-                {/* Active Filters */}
-                <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-700">
-                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                    {[searchQuery, selectedUserId, selectedTeamId, selectedStatus, selectedPriority]
-                      .filter(filter => filter !== 'all' && filter.trim() !== '').length}
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Active Filters</div>
-                </div>
-                
-                {/* Completion Rate */}
-                <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border dark:border-gray-700">
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    {allTasks.length > 0 ? Math.round((allTasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.name) === 'Done').length / allTasks.length) * 100) : 0}%
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Completion Rate</div>
-                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">Completion Rate</div>
               </div>
             </div>
-            
-            {/* Task Distribution by Status */}
-            <div className="mb-4">
-              <h4 className="text-md font-medium text-blue-800 dark:text-blue-200 mb-2">Task Distribution by Status</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {statuses.map(status => {
-                  const count = allTasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.id) === status.id).length
-                  const filteredCount = tasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.id) === status.id).length
-                  return (
-                    <div key={status.id} className="bg-white dark:bg-gray-800 p-2 rounded border dark:border-gray-700 text-center">
-                      <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{filteredCount}</div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">{status.name}</div>
-                      {count !== filteredCount && (
-                        <div className="text-xs text-blue-600 dark:text-blue-400">of {count}</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-            
-            {/* Task Distribution by Priority */}
-            <div className="mb-4">
-              <h4 className="text-md font-medium text-blue-800 dark:text-blue-200 mb-2">Task Distribution by Priority</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {priorities.map(priority => {
-                  const count = allTasks.filter(task => (typeof task.priority === 'string' ? task.priority : task.priority.id) === priority.id).length
-                  const filteredCount = tasks.filter(task => (typeof task.priority === 'string' ? task.priority : task.priority.id) === priority.id).length
-                  const priorityColors = {
-                    'Low': 'text-gray-600 dark:text-gray-400',
-                    'Medium': 'text-yellow-600 dark:text-yellow-400',
-                    'High': 'text-orange-600 dark:text-orange-400',
-                    'Urgent': 'text-red-600 dark:text-red-400'
-                  }
-                  return (
-                    <div key={priority.id} className="bg-white dark:bg-gray-800 p-2 rounded border dark:border-gray-700 text-center">
-                      <div className={`text-lg font-semibold ${priorityColors[priority.name as keyof typeof priorityColors] || 'text-gray-900 dark:text-gray-100'}`}>
-                        {filteredCount}
-                      </div>
-                      <div className="text-xs text-gray-600 dark:text-gray-400">{priority.name}</div>
-                      {count !== filteredCount && (
-                        <div className="text-xs text-blue-600 dark:text-blue-400">of {count}</div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
 
-        {/* Filters Panel */}
-        {showFilters && (
-          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border dark:border-gray-600">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* User Filter */}
-              {(canSeeAllTasks || canSeeTeamTasks) && (
+            <div className="p-4 bg-gray-50 dark:bg-gray-700/60 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Task Distribution by Status</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {statuses.map(status => {
+                      const count = allTasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.id) === status.id).length
+                      const filteredCount = tasks.filter(task => (typeof task.status === 'string' ? task.status : task.status.id) === status.id).length
+                      return (
+                        <div key={status.id} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                          <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{filteredCount}</div>
+                          <div className="text-xs text-gray-600 dark:text-gray-400">{status.name}</div>
+                          {count !== filteredCount && (
+                            <div className="text-xs text-blue-600 dark:text-blue-400">of {count}</div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Task Distribution by Priority</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {priorities.map(priority => {
+                      const count = allTasks.filter(task => (typeof task.priority === 'string' ? task.priority : task.priority.id) === priority.id).length
+                      const filteredCount = tasks.filter(task => (typeof task.priority === 'string' ? task.priority : task.priority.id) === priority.id).length
+                      const priorityColors = {
+                        'Low': 'text-gray-600 dark:text-gray-400',
+                        'Medium': 'text-yellow-600 dark:text-yellow-400',
+                        'High': 'text-orange-600 dark:text-orange-400',
+                        'Urgent': 'text-red-600 dark:text-red-400'
+                      }
+                      return (
+                        <div key={priority.id} className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                          <div className={`text-lg font-semibold ${priorityColors[priority.name as keyof typeof priorityColors] || 'text-gray-900 dark:text-gray-100'}`}>
+                            {filteredCount}
+                          </div>
+                          <div className="text-xs text-gray-600 dark:text-gray-400">{priority.name}</div>
+                          {count !== filteredCount && (
+                            <div className="text-xs text-blue-600 dark:text-blue-400">of {count}</div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 dark:bg-gray-700/60 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {(canSeeAllTasks || canSeeTeamTasks) && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <UserIcon className="h-4 w-4 inline mr-1" />
+                      User
+                    </label>
+                    <select
+                      value={selectedUserId}
+                      onChange={(e) => setSelectedUserId(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="all">All Users</option>
+                      {canSeeAllTasks ? (
+                        users.map(user => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.role})
+                          </option>
+                        ))
+                      ) : (
+                        getTeamMembers().map(user => (
+                          <option key={user.id} value={user.id}>
+                            {user.name}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                )}
+
+                {canSeeAllTasks && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <Building2 className="h-4 w-4 inline mr-1" />
+                      Team
+                    </label>
+                    <select
+                      value={selectedTeamId}
+                      onChange={(e) => setSelectedTeamId(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="all">All Teams</option>
+                      {teams.map(team => (
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    <UserIcon className="h-4 w-4 inline mr-1" />
-                    User
+                    Status
                   </label>
                   <select
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                   >
-                    <option value="all">All Users</option>
-                    {canSeeAllTasks ? (
-                      users.map(user => (
-                        <option key={user.id} value={user.id}>
-                          {user.name} ({user.role})
-                        </option>
-                      ))
-                    ) : (
-                      getTeamMembers().map(user => (
-                        <option key={user.id} value={user.id}>
-                          {user.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-              )}
-
-              {/* Team Filter */}
-              {canSeeAllTasks && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    <Building2 className="h-4 w-4 inline mr-1" />
-                    Team
-                  </label>
-                  <select
-                    value={selectedTeamId}
-                    onChange={(e) => setSelectedTeamId(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                  >
-                    <option value="all">All Teams</option>
-                    {teams.map(team => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
+                    <option value="all">All Statuses</option>
+                    {statuses.map(status => (
+                      <option key={status.id} value={status.id}>
+                        {status.name}
                       </option>
                     ))}
                   </select>
                 </div>
-              )}
 
-              {/* Status Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Status
-                </label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={selectedPriority}
+                    onChange={(e) => setSelectedPriority(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="all">All Priorities</option>
+                    {priorities.map(priority => (
+                      <option key={priority.id} value={priority.id}>
+                        {priority.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Showing {tasks.length} of {allTasks.length} tasks
+                </div>
+                <button
+                  onClick={clearFilters}
+                  className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 font-medium"
                 >
-                  <option value="all">All Statuses</option>
-                  {statuses.map(status => (
-                    <option key={status.id} value={status.id}>
-                      {status.name}
-                    </option>
-                  ))}
-                </select>
+                  Clear all filters
+                </button>
               </div>
-
-              {/* Priority Filter */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Priority
-                </label>
-                <select
-                  value={selectedPriority}
-                  onChange={(e) => setSelectedPriority(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="all">All Priorities</option>
-                  {priorities.map(priority => (
-                    <option key={priority.id} value={priority.id}>
-                      {priority.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Filter Actions */}
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Showing {tasks.length} of {allTasks.length} tasks
-              </div>
-              <button
-                onClick={clearFilters}
-                className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 font-medium"
-              >
-                Clear all filters
-              </button>
             </div>
           </div>
         )}
       </div>
 
       {/* Task Board or Table */}
-      <div className="flex-1 overflow-auto sm:overflow-hidden">
+      <div className="min-h-0 overflow-auto sm:overflow-hidden">
         {/* Mobile: Always show Table view */}
         <div className="block sm:hidden min-h-full">
           <TaskTable
@@ -669,7 +651,7 @@ export default function TaskManagement() {
         </div>
         
         {/* Desktop: Show selected view */}
-        <div className="hidden sm:block h-full">
+        <div className="hidden sm:block">
           {viewMode === 'board' ? (
             <TaskBoard
               tasks={tasks}

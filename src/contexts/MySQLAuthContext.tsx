@@ -25,6 +25,7 @@ interface MySQLAuthContextType {
   currentUser: AuthUser | null
   currentCompany: Company | null
   loading: boolean
+  authActionLoading: boolean
   login: (credentials: LoginCredentials) => Promise<{ success: boolean; error?: string }>
   signup: (credentials: SignupCredentials, companyName?: string) => Promise<{ success: boolean; error?: string }>
   logout: () => Promise<void>
@@ -49,6 +50,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
+  const [authActionLoading, setAuthActionLoading] = useState(false)
 
   // Load user from session storage on initial load
   useEffect(() => {
@@ -104,7 +106,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
 
   async function login(credentials: LoginCredentials) {
     try {
-      setLoading(true)
+      setAuthActionLoading(true)
       
       // Make API call to backend
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -160,13 +162,13 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       await mysqlLoggingService.logAuthEvent('login', credentials.email, 'Unknown', false, { error: (error as Error).message })
       return { success: false, error: 'Login failed. Please try again.' }
     } finally {
-      setLoading(false)
+      setAuthActionLoading(false)
     }
   }
 
   async function signup(credentials: SignupCredentials, companyName?: string) {
     try {
-      setLoading(true)
+      setAuthActionLoading(true)
       
       // Make API call to backend
       const response = await fetch(`${API_BASE_URL}/auth/signup`, {
@@ -223,7 +225,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       await mysqlLoggingService.logAuthEvent('signup', credentials.email, 'Unknown', false, { error: (error as Error).message })
       return { success: false, error: 'Signup failed. Please try again.' }
     } finally {
-      setLoading(false)
+      setAuthActionLoading(false)
     }
   }
 
@@ -251,7 +253,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
 
   async function resetPassword(email: string) {
     try {
-      setLoading(true)
+      setAuthActionLoading(true)
 
       const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
         method: 'POST',
@@ -275,7 +277,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       console.error('Error during password reset:', error)
       return { success: false, error: 'Password reset failed. Please try again.' }
     } finally {
-      setLoading(false)
+      setAuthActionLoading(false)
     }
   }
 
@@ -283,6 +285,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
     currentUser,
     currentCompany,
     loading,
+    authActionLoading,
     login,
     signup,
     logout,

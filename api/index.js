@@ -70,6 +70,62 @@ ensureSystemLogsTable().catch((error) => {
   console.error('Error ensuring system_logs table exists:', error);
 });
 
+const ensureCollaborationTables = async () => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS task_comments (
+        id VARCHAR(255) PRIMARY KEY,
+        task_id VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        author_id VARCHAR(255) NOT NULL,
+        author_name VARCHAR(255),
+        author_email VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        parent_comment_id VARCHAR(255) NULL
+      )
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS comment_mentions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        comment_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_comment_mention (comment_id, user_id)
+      )
+    `);
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS mention_notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        mentioned_by VARCHAR(255) NULL,
+        mentioned_by_name VARCHAR(255) NULL,
+        mentioned_user_id VARCHAR(255) NOT NULL,
+        context_type VARCHAR(50) NOT NULL,
+        context_id VARCHAR(255) NOT NULL,
+        context_title VARCHAR(255) NOT NULL,
+        task_id VARCHAR(255) NULL,
+        project_id VARCHAR(255) NULL,
+        is_read TINYINT(1) NOT NULL DEFAULT 0,
+        action_url VARCHAR(512) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+  } finally {
+    connection.release();
+  }
+}
+
+ensureCollaborationTables().catch((error) => {
+  console.error('Error ensuring collaboration tables exist:', error);
+});
+
 console.log('MySQL config:', {
   host: process.env.MYSQL_HOST || '127.0.0.1',
   port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
@@ -566,16 +622,53 @@ const taskSchema = Joi.object({
 const taskUpdateSchema = Joi.object({
   title: Joi.string().optional(),
   description: Joi.string().optional(),
+  notes: Joi.string().allow('', null).optional(),
   projectId: Joi.string().optional(),
   status: Joi.string().optional(),
   priority: Joi.string().optional(),
   assigneeId: Joi.string().allow('', null).optional(),
   dueDate: Joi.date().allow('', null).optional(),
   estimatedHours: Joi.number().min(0).allow(null).optional(),
+  actualHours: Joi.number().min(0).allow(null).optional(),
+  isCompleted: Joi.boolean().optional(),
   tags: Joi.array().items(Joi.string()).optional(),
+  comments: Joi.array().items(Joi.object({
+    id: Joi.string().required(),
+    content: Joi.string().allow('', null).required(),
+    authorId: Joi.string().required(),
+    authorName: Joi.string().allow('', null).optional(),
+    authorEmail: Joi.string().allow('', null).optional(),
+    createdAt: Joi.date().required(),
+    updatedAt: Joi.date().required(),
+    mentions: Joi.array().items(
+      Joi.alternatives().try(
+        Joi.string(),
+        Joi.object({
+          userId: Joi.string().required(),
+          userName: Joi.string().allow('', null).required(),
+          userEmail: Joi.string().allow('', null).optional()
+        })
+      )
+    ).optional()
+  })).optional(),
   parentTaskId: Joi.string().allow('', null).optional(),
   teamId: Joi.string().allow('', null).optional()
 }).min(1);
+
+const mentionNotificationSchema = Joi.object({
+  userId: Joi.string().required(),
+  type: Joi.string().valid('mention').required(),
+  title: Joi.string().required(),
+  message: Joi.string().required(),
+  mentionedBy: Joi.string().allow('', null).optional(),
+  mentionedByName: Joi.string().allow('', null).optional(),
+  contextType: Joi.string().valid('comment', 'note', 'message', 'task').required(),
+  contextId: Joi.string().required(),
+  contextTitle: Joi.string().allow('', null).required(),
+  taskId: Joi.string().allow('', null).optional(),
+  projectId: Joi.string().allow('', null).optional(),
+  actionUrl: Joi.string().allow('', null).optional()
+});
 
 // Utility functions
 const formatTimeFromSeconds = (seconds) => {
@@ -4438,6 +4531,10 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         fields.push('description = ?');
         values.push(value.description);
       }
+      if (value.notes !== undefined) {
+        fields.push('notes = ?');
+        values.push(value.notes || null);
+      }
       if (value.status !== undefined) {
         const status = defaultStatuses.find(s => s.id === value.status) || defaultStatuses[0];
         fields.push('status_id = ?', 'status_name = ?', 'status_color = ?', 'status_order = ?', 'status_is_completed = ?');
@@ -4460,9 +4557,21 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
         fields.push('estimated_hours = ?');
         values.push(value.estimatedHours || null);
       }
+      if (value.actualHours !== undefined) {
+        fields.push('actual_hours = ?');
+        values.push(value.actualHours || null);
+      }
+      if (value.isCompleted !== undefined) {
+        fields.push('is_completed = ?');
+        values.push(value.isCompleted ? 1 : 0);
+      }
       if (value.tags !== undefined) {
         fields.push('tags = ?');
         values.push(JSON.stringify(value.tags));
+      }
+      if (value.comments !== undefined) {
+        fields.push('comments = ?');
+        values.push(JSON.stringify(value.comments));
       }
       if (value.parentTaskId !== undefined) {
         fields.push('parent_task_id = ?');
@@ -4485,6 +4594,60 @@ app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
       
       const query = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`;
       await connection.execute(query, values);
+
+      if (value.comments !== undefined) {
+        await connection.execute(
+          `
+            DELETE cm
+            FROM comment_mentions cm
+            INNER JOIN task_comments tc ON tc.id = cm.comment_id
+            WHERE tc.task_id = ?
+          `,
+          [id]
+        );
+
+        await connection.execute('DELETE FROM task_comments WHERE task_id = ?', [id]);
+
+        for (const comment of value.comments) {
+          const createdAt = comment.createdAt ? new Date(comment.createdAt) : new Date();
+          const updatedAt = comment.updatedAt ? new Date(comment.updatedAt) : createdAt;
+
+          await connection.execute(
+            `
+              INSERT INTO task_comments (
+                id, task_id, content, author_id, author_name, author_email,
+                created_at, updated_at, parent_comment_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+              comment.id,
+              id,
+              comment.content || '',
+              comment.authorId,
+              comment.authorName || null,
+              comment.authorEmail || null,
+              createdAt,
+              updatedAt,
+              comment.parentCommentId || null
+            ]
+          );
+
+          const mentionUserIds = Array.from(
+            new Set(
+              (comment.mentions || [])
+                .map((mention) => typeof mention === 'string' ? mention : mention?.userId)
+                .filter(Boolean)
+            )
+          );
+
+          for (const userId of mentionUserIds) {
+            await connection.execute(
+              'INSERT IGNORE INTO comment_mentions (comment_id, user_id) VALUES (?, ?)',
+              [comment.id, userId]
+            );
+          }
+        }
+      }
       
       res.json({
         success: true,
@@ -4541,6 +4704,156 @@ app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting task:', error);
     res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+app.get('/api/mention-notifications', authenticateToken, async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `
+          SELECT *
+          FROM mention_notifications
+          WHERE mentioned_user_id = ?
+          ORDER BY created_at DESC
+        `,
+        [req.user.uid]
+      );
+
+      const notifications = rows.map((row) => ({
+        id: row.id,
+        type: row.type,
+        title: row.title,
+        message: row.message,
+        mentionedBy: row.mentioned_by,
+        mentionedByName: row.mentioned_by_name,
+        mentionedUserId: row.mentioned_user_id,
+        contextType: row.context_type,
+        contextId: row.context_id,
+        contextTitle: row.context_title,
+        taskId: row.task_id,
+        projectId: row.project_id,
+        isRead: row.is_read === 1,
+        createdAt: new Date(row.created_at),
+        actionUrl: row.action_url
+      }));
+
+      res.json({
+        success: true,
+        data: notifications
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching mention notifications:', error);
+    res.status(500).json({ error: 'Failed to fetch mention notifications' });
+  }
+});
+
+app.post('/api/mention-notifications', authenticateToken, async (req, res) => {
+  try {
+    const { error, value } = mentionNotificationSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const notificationId = uuidv4();
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        `
+          INSERT INTO mention_notifications (
+            id, type, title, message, mentioned_by, mentioned_by_name,
+            mentioned_user_id, context_type, context_id, context_title,
+            task_id, project_id, is_read, action_url
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          notificationId,
+          value.type,
+          value.title,
+          value.message,
+          value.mentionedBy || null,
+          value.mentionedByName || null,
+          value.userId,
+          value.contextType,
+          value.contextId,
+          value.contextTitle,
+          value.taskId || null,
+          value.projectId || null,
+          0,
+          value.actionUrl || null
+        ]
+      );
+
+      res.status(201).json({
+        success: true,
+        data: {
+          id: notificationId
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error creating mention notification:', error);
+    res.status(500).json({ error: 'Failed to create mention notification' });
+  }
+});
+
+app.put('/api/mention-notifications/:id/read', authenticateToken, async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    try {
+      const [result] = await connection.execute(
+        `
+          UPDATE mention_notifications
+          SET is_read = 1
+          WHERE id = ? AND mentioned_user_id = ?
+        `,
+        [req.params.id, req.user.uid]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'Notification not found' });
+      }
+
+      res.json({
+        success: true
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error marking mention notification as read:', error);
+    res.status(500).json({ error: 'Failed to mark notification as read' });
+  }
+});
+
+app.put('/api/mention-notifications/read-all', authenticateToken, async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        `
+          UPDATE mention_notifications
+          SET is_read = 1
+          WHERE mentioned_user_id = ? AND is_read = 0
+        `,
+        [req.user.uid]
+      );
+
+      res.json({
+        success: true
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error marking all mention notifications as read:', error);
+    res.status(500).json({ error: 'Failed to mark all notifications as read' });
   }
 });
 

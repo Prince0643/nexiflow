@@ -319,6 +319,12 @@ export interface TaskAttachment {
   uploadedAt: Date
 }
 
+export interface TaskCommentMention {
+  userId: string
+  userName: string
+  userEmail?: string
+}
+
 export interface TaskComment {
   id: string
   content: string
@@ -327,7 +333,7 @@ export interface TaskComment {
   authorEmail: string
   createdAt: Date
   updatedAt: Date
-  mentions: string[] // Array of user IDs mentioned
+  mentions: Array<string | TaskCommentMention>
   parentCommentId?: string
   replies?: TaskComment[]
 }

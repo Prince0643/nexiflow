@@ -62,7 +62,10 @@ export const useMentions = (currentUser: any, task: any) => {
           user.name.toLowerCase().includes(query.toLowerCase()) ||
           user.email.toLowerCase().includes(query.toLowerCase())
         )
-        setMentionSuggestions(filteredUsers)
+        const uniqueFilteredUsers = Array.from(
+          new Map(filteredUsers.map(user => [user.id, user])).values()
+        )
+        setMentionSuggestions(uniqueFilteredUsers)
         setShowMentionSuggestions(true)
       } else {
         setMentionSuggestions([])

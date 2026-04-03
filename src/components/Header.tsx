@@ -41,7 +41,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   
   const { currentUser, logout } = useMySQLAuth()
   const { searchQuery, setSearchQuery, searchResults, isSearching, performSearch, clearSearch } = useSearch()
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
+  const { notifications, unreadCount, markAsRead, markAllAsRead, refreshNotifications } = useNotifications()
   const { isDarkMode, toggleDarkMode } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
@@ -303,7 +303,13 @@ export default function Header({ onMenuClick }: HeaderProps) {
               {/* Notifications */}
               <div className="relative" ref={notificationRef}>
                 <button
-                  onClick={() => setShowNotifications(!showNotifications)}
+                  onClick={() => {
+                    const nextOpenState = !showNotifications
+                    setShowNotifications(nextOpenState)
+                    if (nextOpenState) {
+                      void refreshNotifications()
+                    }
+                  }}
                   className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
                   title="Notifications"
                 >
@@ -482,7 +488,11 @@ export default function Header({ onMenuClick }: HeaderProps) {
                     {/* Notifications */}
                     <button
                       onClick={() => {
-                        setShowNotifications(!showNotifications);
+                        const nextOpenState = !showNotifications
+                        setShowNotifications(nextOpenState);
+                        if (nextOpenState) {
+                          void refreshNotifications()
+                        }
                         setShowMobileMenu(false);
                       }}
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 relative"

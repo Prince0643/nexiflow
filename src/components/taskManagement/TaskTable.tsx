@@ -330,7 +330,7 @@ export default function TaskTable({
               return (
                 <tr 
                   key={task.id} 
-                  className="hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
                   onClick={() => onViewTask(task)}
                 >
                   <td className="px-6 py-4 whitespace-nowrap w-3/12">

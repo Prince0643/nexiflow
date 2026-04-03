@@ -279,6 +279,27 @@ async function initDatabase() {
       )
     `);
 
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS mention_notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        mentioned_by VARCHAR(255),
+        mentioned_by_name VARCHAR(255),
+        mentioned_user_id VARCHAR(255) NOT NULL,
+        context_type VARCHAR(50) NOT NULL,
+        context_id VARCHAR(255) NOT NULL,
+        context_title VARCHAR(255) NOT NULL,
+        task_id VARCHAR(255),
+        project_id VARCHAR(255),
+        is_read TINYINT(1) NOT NULL DEFAULT 0,
+        action_url VARCHAR(512),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create task_time_entries table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS task_time_entries (

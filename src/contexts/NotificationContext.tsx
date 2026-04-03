@@ -20,6 +20,7 @@ interface NotificationContextType {
   addNotification: (notification: Omit<Notification, 'id' | 'timestamp' | 'isRead'>) => void
   markAsRead: (id: string) => void
   markAllAsRead: () => void
+  refreshNotifications: () => Promise<void>
   removeNotification: (id: string) => void
   clearAllNotifications: () => void
   playTestMentionSound: () => void
@@ -49,7 +50,44 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   // Ref to track previous notifications for comparison
   const previousNotificationsRef = useRef<Notification[]>([]);
 
-  // Load notifications from Firebase when user changes
+  const applyNotifications = (mentionNotifications: Awaited<ReturnType<typeof MentionNotificationService.getMentionNotifications>>) => {
+    const convertedNotifications = mentionNotifications.map(notification => ({
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      timestamp: notification.createdAt,
+      isRead: notification.isRead,
+      actionUrl: notification.actionUrl
+    }))
+
+    const previousNotificationIds = new Set(previousNotificationsRef.current.map(n => n.id))
+    const newMentionNotifications = mentionNotifications.filter(
+      notification => !previousNotificationIds.has(notification.id) && notification.type === 'mention'
+    )
+
+    if (newMentionNotifications.length > 0 && soundManager.isSoundEnabled()) {
+      setTimeout(() => {
+        playMentionSound()
+      }, 100)
+    }
+
+    setNotifications(convertedNotifications)
+    previousNotificationsRef.current = convertedNotifications
+  }
+
+  const refreshNotifications = async () => {
+    if (!currentUser) return
+
+    try {
+      const mentionNotifications = await MentionNotificationService.refreshNotifications(currentUser.uid)
+      applyNotifications(mentionNotifications)
+    } catch (error) {
+      console.error('Error refreshing notifications:', error)
+    }
+  }
+
+  // Load notifications from the API when user changes
   useEffect(() => {
     if (!currentUser) {
       setNotifications([])
@@ -73,56 +111,28 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       console.warn('Failed to load cached notifications:', e)
     }
 
-    // Subscribe to real-time notifications from Firebase
+    const handleVisibilityRefresh = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshNotifications()
+      }
+    }
+
+    const handleWindowFocus = () => {
+      void refreshNotifications()
+    }
+
     const unsubscribe = MentionNotificationService.subscribeToNotifications(
       currentUser.uid,
-      (firebaseNotifications) => {
-        console.log('=== Firebase Notification Update ===');
-        console.log('Raw Firebase notifications:', firebaseNotifications);
-        
-        // Convert Firebase notifications to the format expected by the UI
-        const convertedNotifications = firebaseNotifications.map(notification => ({
-          id: notification.id,
-          title: notification.title,
-          message: notification.message,
-          type: notification.type,
-          timestamp: notification.createdAt,
-          isRead: notification.isRead,
-          actionUrl: notification.actionUrl
-        }))
-        
-        console.log('Converted notifications:', convertedNotifications);
-        
-        // Play sound for new mention notifications
-        const previousNotificationIds = new Set(previousNotificationsRef.current.map(n => n.id));
-        console.log('Previous notification IDs:', Array.from(previousNotificationIds));
-        
-        const newMentionNotifications = firebaseNotifications.filter(
-          notification => !previousNotificationIds.has(notification.id) && notification.type === 'mention'
-        );
-        
-        console.log('New mention notifications:', newMentionNotifications);
-        console.log('Sound enabled:', soundManager.isSoundEnabled());
-        console.log('User interacted:', soundManager.hasUserInteracted());
-        
-        if (newMentionNotifications.length > 0 && soundManager.isSoundEnabled()) {
-          console.log('Playing mention sound for new notifications');
-          // Add a small delay to ensure the notification is fully processed before playing sound
-          setTimeout(() => {
-            playMentionSound();
-          }, 100);
-        }
-        
-        setNotifications(convertedNotifications)
-        previousNotificationsRef.current = convertedNotifications;
-        
-        console.log('=== End Notification Update ===');
-      }
+      applyNotifications
     )
 
-    // Cleanup subscription on unmount or when user changes
+    document.addEventListener('visibilitychange', handleVisibilityRefresh)
+    window.addEventListener('focus', handleWindowFocus)
+
     return () => {
       unsubscribe()
+      document.removeEventListener('visibilitychange', handleVisibilityRefresh)
+      window.removeEventListener('focus', handleWindowFocus)
     }
   }, [currentUser])
 
@@ -185,7 +195,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       )
     )
     
-    // Also mark as read in Firebase if it's a mention notification
+    // Persist read state for mention notifications
     if (currentUser) {
       const notification = notifications.find(n => n.id === id)
       if (notification && notification.type === 'mention') {
@@ -199,7 +209,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       prev.map(notification => ({ ...notification, isRead: true }))
     )
     
-    // Also mark all as read in Firebase
+    // Persist read state for mention notifications
     if (currentUser) {
       MentionNotificationService.markAllAsRead(currentUser.uid)
     }
@@ -272,6 +282,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     addNotification,
     markAsRead,
     markAllAsRead,
+    refreshNotifications,
     removeNotification,
     clearAllNotifications,
     playTestMentionSound

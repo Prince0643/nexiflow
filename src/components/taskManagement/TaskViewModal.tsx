@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import { X, User, Calendar, Clock, CheckCircle2, MessageSquare, Send, StickyNote, Paperclip, Smile, Trash2, Building2, AtSign, XCircle, Save } from 'lucide-react'
-import { Task, TaskStatus, TaskPriority, TaskComment, Team, User as UserType, Mention } from '../../types'
+import { Task, TaskStatus, TaskPriority, TaskComment, TaskCommentMention, Team, User as UserType, Mention } from '../../types'
 import { taskApiService as taskService } from '../../services/taskApiService'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
 import { canDeleteTask } from '../../utils/permissions'
 import { useMentions } from '../../hooks/useMentions'
 import MentionNotificationService from '../../services/mentionNotificationService'
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
 interface TaskViewModalProps {
   isOpen: boolean
@@ -33,6 +35,22 @@ const PRIORITY_COLORS = {
   medium: 'text-blue-500 dark:text-blue-400',
   high: 'text-orange-500 dark:text-orange-400',
   urgent: 'text-red-500 dark:text-red-400'
+}
+
+const getCommentMentionDisplay = (mention: string | TaskCommentMention) => {
+  if (typeof mention === 'string') {
+    return mention
+  }
+
+  return mention.userName || mention.userEmail || mention.userId
+}
+
+const getCommentMentionKey = (commentId: string, mention: string | TaskCommentMention, index: number) => {
+  if (typeof mention === 'string') {
+    return `mention-${commentId}-${mention}-${index}`
+  }
+
+  return `mention-${commentId}-${mention.userId}-${index}`
 }
 
 export default function TaskViewModal({ 
@@ -105,8 +123,10 @@ export default function TaskViewModal({
       const pollInterval = setInterval(async () => {
         try {
           // Fetch updated task data from API
-          const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
-          const response = await fetch(`${baseUrl}/api/tasks?projectId=${task.projectId}`);
+          const token = localStorage.getItem('authToken')
+          const response = await fetch(`${API_BASE_URL}/tasks?projectId=${task.projectId}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
           
           if (response.ok) {
             const data = await response.json();
@@ -283,7 +303,11 @@ export default function TaskViewModal({
       authorEmail: currentUser.email || '',
       createdAt: new Date(),
       updatedAt: new Date(),
-      mentions: newCommentMentions.map(m => m.userId) // Store user IDs for mentions
+      mentions: newCommentMentions.map((mention) => ({
+        userId: mention.userId,
+        userName: mention.userName,
+        userEmail: mention.userEmail
+      }))
     }
 
     try {
@@ -568,10 +592,10 @@ export default function TaskViewModal({
                                 {/* Display mentions */}
                                 {comment.mentions && comment.mentions.length > 0 && (
                                   <div className="mt-2 flex flex-wrap gap-1">
-                                    {comment.mentions.map((userId, index) => (
-                                      <span key={`mention-${comment.id}-${userId}`} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">
+                                    {comment.mentions.map((mention, index) => (
+                                      <span key={getCommentMentionKey(comment.id, mention, index)} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">
                                         <AtSign className="h-3 w-3 mr-1" />
-                                        {userId}
+                                        {getCommentMentionDisplay(mention)}
                                       </span>
                                     ))}
                                   </div>

@@ -1,19 +1,51 @@
-import { database } from '../config/firebase'
-import { ref, get, child, set, push, onValue, update } from 'firebase/database'
 import { MentionNotification } from '../types'
 
-export class MentionNotificationService {
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
-  /**
-   * Create a mention notification for a user
-   * @param mentionedUserId - The ID of the user who was mentioned
-   * @param mentionedByName - The name of the user who mentioned them
-   * @param contextType - The type of context where the mention occurred
-   * @param contextTitle - The title of the context (e.g., task title, message content)
-   * @param contextId - The ID of the context
-   * @param projectId - The project ID (optional)
-   * @param taskId - The task ID (optional)
-   */
+const getAuthToken = () => localStorage.getItem('authToken')
+
+const getRequestHeaders = () => {
+  const token = getAuthToken()
+
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  }
+}
+
+const handleAuthFailure = () => {
+  localStorage.removeItem('authToken')
+  localStorage.removeItem('currentUser')
+  localStorage.removeItem('currentCompany')
+  window.dispatchEvent(new CustomEvent('auth:expired'))
+}
+
+const apiRequest = async <T>(endpoint: string, options: RequestInit = {}): Promise<T> => {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      ...getRequestHeaders(),
+      ...options.headers
+    }
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+
+    if (response.status === 401 || response.status === 403) {
+      handleAuthFailure()
+      throw new Error('Session expired. Please log in again.')
+    }
+
+    throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+  }
+
+  return response.json()
+}
+
+const NOTIFICATION_POLL_INTERVAL_MS = 3000
+
+export class MentionNotificationService {
   static async createMentionNotification(
     mentionedUserId: string,
     mentionedByName: string,
@@ -23,255 +55,92 @@ export class MentionNotificationService {
     projectId?: string,
     taskId?: string
   ): Promise<void> {
-    console.log('=== createMentionNotification called ===');
-    console.log('Parameters:', { mentionedUserId, mentionedByName, contextType, contextTitle, contextId, projectId, taskId });
-
-    if (!database) {
-      console.warn('[MentionNotificationService] Firebase is disabled; skipping createMentionNotification.')
-      return
-    }
-
-    try {
-      // Format the notification message based on context type
-      let message = ''
-      let contextDescription = ''
-      let actionUrl = ''
-
-      switch (contextType) {
-        case 'comment':
-          message = `${mentionedByName} mentioned you in a comment`
-          contextDescription = 'a comment'
-          actionUrl = taskId ? `/tasks/${taskId}` : '/tasks'
-          break
-        case 'note':
-          message = `${mentionedByName} mentioned you in notes`
-          contextDescription = 'notes'
-          actionUrl = taskId ? `/tasks/${taskId}` : '/tasks'
-          break
-        case 'message':
-          message = `${mentionedByName} mentioned you in a team message`
-          contextDescription = 'a team message'
-          actionUrl = '/messages'
-          break
-        case 'task':
-          message = `${mentionedByName} mentioned you in a task`
-          contextDescription = 'a task'
-          actionUrl = taskId ? `/tasks/${taskId}` : '/tasks'
-          break
-        default:
-          message = `${mentionedByName} mentioned you`
-          contextDescription = 'a context'
-          actionUrl = '/tasks'
-      }
-
-      // Create the notification object
-      const notificationData: Omit<MentionNotification, 'id' | 'createdAt'> = {
-        type: 'mention',
-        title: 'You were mentioned',
-        message: message,
-        mentionedBy: mentionedByName,
-        mentionedByName: mentionedByName,
-        mentionedUserId: mentionedUserId,
-        contextType: contextType,
-        contextId: contextId,
-        contextTitle: contextTitle,
-        projectId: projectId,
-        taskId: taskId,
-        isRead: false,
-        actionUrl: actionUrl
-      }
-
-      // Store the notification in Firebase under the mentioned user's notifications
-      const notificationsRef = ref(database, `mentionNotifications/${mentionedUserId}`)
-      const newNotificationRef = push(notificationsRef)
-
-      // Filter out undefined values before storing in Firebase
-      const filteredNotificationData = Object.fromEntries(
-        Object.entries({
-          ...notificationData,
-          id: newNotificationRef.key,
-          createdAt: new Date().toISOString()
-        }).filter(([_, value]) => value !== undefined)
-      );
-
-      await set(newNotificationRef, filteredNotificationData);
-
-      console.log('Notification data to be stored:', filteredNotificationData);
-
-      console.log('Mention notification created for user:', mentionedUserId, notificationData)
-
-    } catch (error) {
-      console.error('Error creating mention notification:', error)
-    }
+    await this.sendNotificationToUser(mentionedUserId, {
+      type: 'mention',
+      title: 'You were mentioned',
+      message: `${mentionedByName} mentioned you in ${contextType === 'note' ? 'notes' : `a ${contextType}`}`,
+      mentionedBy: mentionedByName,
+      mentionedByName,
+      contextType,
+      contextId,
+      contextTitle,
+      projectId,
+      taskId,
+      actionUrl: taskId ? `/management?taskId=${taskId}&tab=${contextType === 'comment' ? 'comments' : 'notes'}` : '/management'
+    })
   }
 
-  /**
-   * Get mention notifications for a user
-   * @param userId - The ID of the user to get notifications for
-   */
   static async getMentionNotifications(userId: string): Promise<MentionNotification[]> {
-    if (!database) {
-      console.warn('[MentionNotificationService] Firebase is disabled; skipping getMentionNotifications.')
+    const response = await apiRequest<{
+      success: boolean
+      data: Array<Omit<MentionNotification, 'createdAt'> & { createdAt: string }>
+    }>('/mention-notifications')
+
+    if (!response.success) {
       return []
     }
 
-    try {
-      const notificationsRef = ref(database, `mentionNotifications/${userId}`)
-      const snapshot = await get(notificationsRef)
-
-      if (snapshot.exists()) {
-        const notifications = snapshot.val()
-        return Object.values(notifications)
-          .map((notification: any) => ({
-            ...notification,
-            createdAt: new Date(notification.createdAt)
-          }))
-          .sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime()) as MentionNotification[]
-      }
-
-      return []
-    } catch (error) {
-      console.error('Error getting mention notifications:', error)
-      return []
-    }
+    return response.data
+      .filter((notification) => notification.mentionedUserId === userId)
+      .map((notification) => ({
+        ...notification,
+        createdAt: new Date(notification.createdAt)
+      }))
   }
 
-  /**
-   * Mark a mention notification as read
-   * @param notificationId - The ID of the notification to mark as read
-   * @param userId - The ID of the user who owns the notification
-   */
-  static async markAsRead(notificationId: string, userId: string): Promise<void> {
-    if (!database) {
-      console.warn('[MentionNotificationService] Firebase is disabled; skipping markAsRead.')
-      return
-    }
-
-    try {
-      const notificationRef = ref(database, `mentionNotifications/${userId}/${notificationId}`)
-      await update(notificationRef, {
-        isRead: true
-      })
-    } catch (error) {
-      console.error('Error marking notification as read:', error)
-    }
+  static async markAsRead(notificationId: string, _userId: string): Promise<void> {
+    await apiRequest(`/mention-notifications/${notificationId}/read`, {
+      method: 'PUT'
+    })
   }
 
-  /**
-   * Mark all mention notifications as read for a user
-   * @param userId - The ID of the user to mark all notifications as read for
-   */
-  static async markAllAsRead(userId: string): Promise<void> {
-    if (!database) {
-      console.warn('[MentionNotificationService] Firebase is disabled; skipping markAllAsRead.')
-      return
-    }
-
-    try {
-      const notifications = await this.getMentionNotifications(userId)
-      const updates: { [key: string]: any } = {}
-
-      notifications.forEach(notification => {
-        updates[`${notification.id}/isRead`] = true
-      })
-
-      if (Object.keys(updates).length > 0) {
-        const notificationsRef = ref(database, `mentionNotifications/${userId}`)
-        await update(notificationsRef, updates)
-      }
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error)
-    }
+  static async markAllAsRead(_userId: string): Promise<void> {
+    await apiRequest('/mention-notifications/read-all', {
+      method: 'PUT'
+    })
   }
 
-  /**
-   * Send a notification to a specific user
-   * This is a helper method to send notifications to other users
-   * @param userId - The ID of the user to send the notification to
-   * @param notification - The notification to send
-   */
   static async sendNotificationToUser(
     userId: string,
     notification: Omit<MentionNotification, 'id' | 'isRead' | 'createdAt' | 'mentionedUserId'>
   ): Promise<void> {
-    if (!database) {
-      console.warn('[MentionNotificationService] Firebase is disabled; skipping sendNotificationToUser.')
-      return
-    }
-
-    try {
-      // Create the full notification object
-      const notificationWithDefaults = {
-        ...notification,
-        mentionedUserId: userId, // Add mentionedUserId for Firebase security rules
-        id: '',
-        isRead: false,
-        createdAt: new Date()
-      }
-
-      // Store the notification in Firebase under the user's notifications
-      const notificationsRef = ref(database, `mentionNotifications/${userId}`)
-      const newNotificationRef = push(notificationsRef)
-
-      // Filter out undefined values before storing in Firebase
-      const filteredNotificationData = Object.fromEntries(
-        Object.entries({
-          ...notificationWithDefaults,
-          id: newNotificationRef.key,
-          createdAt: notificationWithDefaults.createdAt.toISOString()
-        }).filter(([_, value]) => value !== undefined)
-      );
-
-      await set(newNotificationRef, filteredNotificationData);
-
-      console.log('Notification sent to user:', userId)
-
-    } catch (error) {
-      console.error('Error sending notification to user:', error)
-    }
+    await apiRequest('/mention-notifications', {
+      method: 'POST',
+      body: JSON.stringify({
+        userId,
+        ...notification
+      })
+    })
   }
 
-  /**
-   * Subscribe to real-time notifications for a user
-   * @param userId - The ID of the user to subscribe to notifications for
-   * @param callback - The callback function to call when notifications change
-   */
-  static subscribeToNotifications(userId: string, callback: (notifications: MentionNotification[]) => void): () => void {
-    console.log('=== subscribeToNotifications called ===');
-    console.log('User ID:', userId);
+  static async refreshNotifications(userId: string): Promise<MentionNotification[]> {
+    return this.getMentionNotifications(userId)
+  }
 
-    if (!database) {
-      console.warn('[MentionNotificationService] Firebase is disabled; skipping subscribeToNotifications.')
-      callback([])
-      return () => {}
+  static subscribeToNotifications(userId: string, callback: (notifications: MentionNotification[]) => void): () => void {
+    let isActive = true
+
+    const loadNotifications = async () => {
+      try {
+        const notifications = await this.refreshNotifications(userId)
+        if (isActive) {
+          callback(notifications)
+        }
+      } catch (error) {
+        console.error('Error loading mention notifications:', error)
+        if (isActive) {
+          callback([])
+        }
+      }
     }
 
-    const notificationsRef = ref(database, `mentionNotifications/${userId}`)
+    loadNotifications()
+    const intervalId = window.setInterval(loadNotifications, NOTIFICATION_POLL_INTERVAL_MS)
 
-    const unsubscribe = onValue(notificationsRef, (snapshot) => {
-      console.log('=== Firebase onValue callback ===');
-      console.log('Snapshot exists:', snapshot.exists());
-
-      if (snapshot.exists()) {
-        const notifications = snapshot.val()
-        console.log('Raw notifications from Firebase:', notifications);
-        
-        const notificationList = Object.values(notifications)
-          .map((notification: any) => ({
-            ...notification,
-            createdAt: new Date(notification.createdAt)
-          }))
-          .sort((a: any, b: any) => b.createdAt.getTime() - a.createdAt.getTime()) as MentionNotification[]
-          
-        console.log('Converted notifications:', notificationList);
-        callback(notificationList)
-      } else {
-        console.log('No notifications found');
-        callback([])
-      }
-    })
-    
-    return unsubscribe
+    return () => {
+      isActive = false
+      window.clearInterval(intervalId)
+    }
   }
 }
 
