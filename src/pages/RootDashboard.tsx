@@ -38,7 +38,9 @@ export default function RootDashboard() {
   })
   const [loading, setLoading] = useState(true)
   const [downgradingCompanyId, setDowngradingCompanyId] = useState<string | null>(null)
+  const [deletingCompanyId, setDeletingCompanyId] = useState<string | null>(null)
   const [showDowngradeModal, setShowDowngradeModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string; pricingLevel: string } | null>(null)
 
   // Only allow root users to access this page
@@ -73,6 +75,11 @@ export default function RootDashboard() {
     setShowDowngradeModal(true)
   }
 
+  const handleDelete = (company: { id: string; name: string; pricingLevel: string }) => {
+    setSelectedCompany(company)
+    setShowDeleteModal(true)
+  }
+
   const confirmDowngrade = async () => {
     if (!selectedCompany) return
     
@@ -92,6 +99,28 @@ export default function RootDashboard() {
     } finally {
       setDowngradingCompanyId(null)
       setShowDowngradeModal(false)
+      setSelectedCompany(null)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!selectedCompany) return
+
+    setDeletingCompanyId(selectedCompany.id)
+    try {
+      const result = await companyService.deleteCompany(selectedCompany.id)
+      if (result.success) {
+        alert(`Successfully deleted ${selectedCompany.name}`)
+        await loadData()
+      } else {
+        alert(`Failed to delete: ${result.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error deleting company:', error)
+      alert('Failed to delete company')
+    } finally {
+      setDeletingCompanyId(null)
+      setShowDeleteModal(false)
       setSelectedCompany(null)
     }
   }
@@ -392,11 +421,11 @@ export default function RootDashboard() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{companyUsers}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                           {company.pricingLevel !== 'solo' && (
                             <button
                               onClick={() => handleDowngrade(company)}
-                              disabled={isDowngrading}
+                              disabled={isDowngrading || deletingCompanyId === company.id}
                               className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 inline-flex items-center"
                               title="Downgrade to solo plan"
                             >
@@ -408,6 +437,19 @@ export default function RootDashboard() {
                               <span className="ml-1 text-xs">Downgrade</span>
                             </button>
                           )}
+                          <button
+                            onClick={() => handleDelete(company)}
+                            disabled={isDowngrading || deletingCompanyId === company.id}
+                            className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 inline-flex items-center"
+                            title="Delete company"
+                          >
+                            {deletingCompanyId === company.id ? (
+                              <Activity className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <XCircle className="h-4 w-4" />
+                            )}
+                            <span className="ml-1 text-xs">Delete</span>
+                          </button>
                         </td>
                       </tr>
                     )
@@ -504,6 +546,49 @@ export default function RootDashboard() {
                   <>
                     <ArrowDownCircle className="h-4 w-4 mr-2" />
                     Confirm Downgrade
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showDeleteModal && selectedCompany && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <AlertTriangle className="h-6 w-6 text-red-500 mr-2" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Confirm Delete
+              </h3>
+            </div>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              Deleting <strong>{selectedCompany.name}</strong> removes the company, its users, billing data, and all related records permanently.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  setSelectedCompany(null)
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deletingCompanyId !== null}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 flex items-center"
+              >
+                {deletingCompanyId === selectedCompany.id ? (
+                  <>
+                    <Activity className="h-4 w-4 animate-spin mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Confirm Delete
                   </>
                 )}
               </button>

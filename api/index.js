@@ -336,6 +336,102 @@ app.post('/api/admin/companies/:id/downgrade', authenticateToken, async (req, re
   }
 });
 
+app.delete('/api/admin/companies/:id', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'root') {
+    return res.status(403).json({ success: false, error: 'Access denied. Root only.' });
+  }
+
+  const { id } = req.params;
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [companyRows] = await connection.execute(
+      'SELECT id, name FROM companies WHERE id = ? LIMIT 1',
+      [id]
+    );
+
+    if (companyRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, error: 'Company not found' });
+    }
+
+    const companyName = companyRows[0].name;
+    const companyId = companyRows[0].id;
+
+    const [teamRows] = await connection.execute(
+      'SELECT id FROM teams WHERE company_id = ?',
+      [companyId]
+    );
+    const teamIds = teamRows.length ? teamRows.map(row => row.id).filter(Boolean) : [];
+
+    const [taskRows] = await connection.execute(
+      'SELECT id FROM tasks WHERE company_id = ?',
+      [companyId]
+    );
+    const taskIds = taskRows.length ? taskRows.map(row => row.id).filter(Boolean) : [];
+
+    const [invoiceRows] = await connection.execute(
+      'SELECT id FROM invoices WHERE company_id = ?',
+      [companyId]
+    );
+    const invoiceIds = invoiceRows.length ? invoiceRows.map(row => row.id).filter(Boolean) : [];
+
+    const [timeEntriesRows] = await connection.execute(
+      'SELECT id FROM time_entries WHERE company_id = ?',
+      [companyId]
+    );
+    const timeEntryIds = timeEntriesRows.length ? timeEntriesRows.map(row => row.id).filter(Boolean) : [];
+
+    const deleteInClause = async (table, column, ids) => {
+      if (!ids.length) return;
+      await connection.execute(
+        `DELETE FROM ${table} WHERE ${column} IN (?)`,
+        [ids]
+      );
+    };
+
+    await connection.execute('DELETE FROM billing_reminders WHERE company_id = ?', [companyId]);
+    await connection.execute('DELETE FROM company_pdf_settings WHERE company_id = ?', [companyId]);
+    await connection.execute('DELETE FROM payment_transactions WHERE company_id = ?', [companyId]);
+    await connection.execute('DELETE FROM clients WHERE company_id = ?', [companyId]);
+
+    await deleteInClause('invoice_items', 'invoice_id', invoiceIds);
+    await connection.execute('DELETE FROM invoices WHERE company_id = ?', [companyId]);
+
+    await deleteInClause('team_members', 'team_id', teamIds);
+    await connection.execute('DELETE FROM teams WHERE company_id = ?', [companyId]);
+
+    await deleteInClause('task_time_entries', 'task_id', taskIds);
+    await deleteInClause('task_comments', 'task_id', taskIds);
+    await deleteInClause('task_attachments', 'task_id', taskIds);
+    await deleteInClause('task_tags', 'task_id', taskIds);
+    await connection.execute('DELETE FROM tasks WHERE company_id = ?', [companyId]);
+
+    await deleteInClause('time_entry_tags', 'time_entry_id', timeEntryIds);
+    await connection.execute('DELETE FROM time_entries WHERE company_id = ?', [companyId]);
+
+    await connection.execute('DELETE FROM users WHERE company_id = ?', [companyId]);
+    await connection.execute('DELETE FROM companies WHERE id = ?', [companyId]);
+
+    await connection.commit();
+
+    console.log(`Root deleted company ${companyName} (${companyId}) and related data`);
+
+    res.json({ success: true, message: 'Company deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting company:', error);
+    try {
+      await connection.rollback();
+    } catch (rollbackError) {
+      console.error('Rollback failed:', rollbackError);
+    }
+    res.status(500).json({ success: false, error: 'Failed to delete company' });
+  } finally {
+    connection.release();
+  }
+});
+
 const fileFilter = (req, file, cb) => {
   // Accept only image files
   if (file.mimetype.startsWith('image/')) {

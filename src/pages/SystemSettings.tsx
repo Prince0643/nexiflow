@@ -7,9 +7,12 @@ import {
   Server,
   Globe,
   Key,
+  Lock,
   AlertTriangle,
   CheckCircle,
   XCircle,
+  Eye,
+  EyeOff,
   Building2,
   UserCheck
 } from 'lucide-react'
@@ -37,6 +40,14 @@ export default function SystemSettings() {
     email: '',
     password: ''
   })
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   // Only allow root users to access this page
   if (currentUser?.role !== 'root') {
@@ -204,6 +215,60 @@ export default function SystemSettings() {
     })()
   }, [activeTab])
 
+  const showMessage = (type: 'success' | 'error' | 'info', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 5000)
+  }
+
+  const handleChangePassword = async () => {
+    if (!currentUser) return
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      showMessage('error', 'New passwords do not match')
+      return
+    }
+    if (passwordData.newPassword.length < 6) {
+      showMessage('error', 'Password must be at least 6 characters long')
+      return
+    }
+    if (!passwordData.currentPassword) {
+      showMessage('error', 'Current password is required')
+      return
+    }
+
+    try {
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/users/${currentUser.uid}/password`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword,
+          confirmPassword: passwordData.confirmPassword
+        })
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success) {
+        showMessage('error', data?.error || 'Failed to change password')
+        return
+      }
+
+      setPasswordData({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      })
+      showMessage('success', 'Password changed successfully!')
+    } catch (error: any) {
+      console.error('Password change error:', error)
+      showMessage('error', error?.message || 'Failed to change password')
+    }
+  }
+
   const handleCreateCompany = async () => {
     if (!newCompanyName.trim()) return
     setCreatingCompany(true)
@@ -335,6 +400,90 @@ export default function SystemSettings() {
               <span className="text-sm text-green-600 dark:text-green-400">Enabled</span>
             </div>
           </div>
+        </div>
+      </div>
+      <div className="card">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Change Password</h3>
+        {message && (
+          <div className={`mb-4 rounded-lg border p-3 text-sm ${
+            message.type === 'success'
+              ? 'border-green-200 bg-green-50 text-green-700'
+              : message.type === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-blue-200 bg-blue-50 text-blue-700'
+          }`}>
+            {message.text}
+          </div>
+        )}
+        <div className="space-y-4 max-w-md">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Current Password</label>
+            <div className="relative">
+              <input
+                type={showCurrentPassword ? 'text' : 'password'}
+                value={passwordData.currentPassword}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
+                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                placeholder="Enter current password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">New Password</label>
+            <div className="relative">
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                value={passwordData.newPassword}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                placeholder="Enter new password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword(!showNewPassword)}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Confirm New Password</label>
+            <div className="relative">
+              <input
+                type="password"
+                value={passwordData.confirmPassword}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                placeholder="Confirm new password"
+              />
+              <Lock className="h-4 w-4 text-gray-400 absolute right-3 top-2.5" />
+            </div>
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            <p>Password requirements:</p>
+            <ul className="list-disc list-inside mt-1 space-y-1">
+              <li>At least 6 characters long</li>
+              <li>Use a strong, unique password</li>
+            </ul>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={handleChangePassword}
+            disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center space-x-2"
+          >
+            <Lock className="h-4 w-4" />
+            <span>Change Password</span>
+          </button>
         </div>
       </div>
     </div>

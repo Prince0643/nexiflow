@@ -173,6 +173,15 @@ export const companyService = {
       })
     }
     throw new Error('Downgrade not available in Firebase mode')
+  },
+
+  async deleteCompany(companyId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    if (!database) {
+      return apiRequest<{ success: boolean; message?: string; error?: string }>(`/admin/companies/${companyId}`, {
+        method: 'DELETE'
+      })
+    }
+    throw new Error('Delete not available in Firebase mode')
   }
 }
 
