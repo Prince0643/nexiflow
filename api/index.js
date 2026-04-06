@@ -2959,6 +2959,115 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
   }
 });
 
+app.put('/api/admin/users/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const requesterRole = req.user.role;
+    const requesterCompanyId = req.user.companyId || null;
+    const updates = req.body || {};
+
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(requesterRole);
+    if (!isPrivileged) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT id, company_id FROM users WHERE (id = ? OR uid = ?) LIMIT 1',
+        [userId, userId]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({
+          success: false,
+          error: 'User not found'
+        });
+      }
+
+      const user = rows[0];
+
+      if (requesterRole !== 'root' && requesterCompanyId && user.company_id !== requesterCompanyId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+      }
+
+      const fields = [];
+      const values = [];
+
+      if (updates.name !== undefined) {
+        fields.push('name = ?');
+        values.push(updates.name);
+      }
+      if (updates.email !== undefined) {
+        fields.push('email = ?');
+        values.push(updates.email);
+      }
+      if (updates.role !== undefined) {
+        fields.push('role = ?');
+        values.push(updates.role);
+      }
+      if (updates.isActive !== undefined) {
+        fields.push('is_active = ?');
+        values.push(updates.isActive ? 1 : 0);
+      }
+      if (updates.timezone !== undefined) {
+        fields.push('timezone = ?');
+        values.push(updates.timezone);
+      }
+      if (updates.hourlyRate !== undefined) {
+        fields.push('hourly_rate = ?');
+        values.push(updates.hourlyRate);
+      }
+      if (updates.companyId !== undefined) {
+        fields.push('company_id = ?');
+        values.push(updates.companyId || null);
+      }
+      if (updates.teamId !== undefined) {
+        fields.push('team_id = ?');
+        values.push(updates.teamId || null);
+      }
+      if (updates.teamRole !== undefined) {
+        fields.push('team_role = ?');
+        values.push(updates.teamRole || null);
+      }
+
+      fields.push('updated_at = ?');
+      values.push(new Date());
+
+      if (!fields.length) {
+        return res.status(400).json({
+          success: false,
+          error: 'No updates provided'
+        });
+      }
+
+      await connection.execute(
+        `UPDATE users SET ${fields.join(', ')} WHERE id = ?`,
+        [...values, user.id]
+      );
+
+      return res.json({
+        success: true,
+        message: 'User updated successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (err) {
+    console.error('Error updating admin user:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update user'
+    });
+  }
+});
+
 app.delete('/api/admin/users/:userId', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;

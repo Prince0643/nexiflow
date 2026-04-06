@@ -3,7 +3,6 @@ import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getDatabase } from 'firebase/database'
 import { getFirestore } from 'firebase/firestore'
-import { getFunctions } from 'firebase/functions'
 import { getStorage } from 'firebase/storage'
 
 // Your Firebase configuration
@@ -29,7 +28,6 @@ const app: any = isFirebaseEnabled ? initializeApp(firebaseConfig) : null
 export const auth: any = isFirebaseEnabled ? getAuth(app) : null
 export const database: any = isFirebaseEnabled ? getDatabase(app) : null
 export const db: any = isFirebaseEnabled ? getFirestore(app) : null
-export const functions: any = isFirebaseEnabled ? getFunctions(app) : null
 export const storage: any = isFirebaseEnabled ? getStorage(app) : null
 
 if (!isFirebaseEnabled) {

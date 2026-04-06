@@ -20,6 +20,7 @@ interface PersistedFormData {
 
 export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   const { currentUser, currentCompany } = useMySQLAuth()
+  const [showValidationErrors, setShowValidationErrors] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [elapsedTime, setElapsedTime] = useState(0)
   const [currentEntry, setCurrentEntry] = useState<TimeEntry | null>(null)
@@ -236,6 +237,7 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
     
     setLoading(true)
     setError('')
+    setShowValidationErrors(false)
     
     try {
       // Check if there's already a running timer before creating a new one
@@ -318,6 +320,13 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   const stopTimer = async () => {
     if (!currentUser || !currentEntry) return
     
+    setShowValidationErrors(true)
+
+    if (hasRequiredFieldErrors) {
+      setError('Client, project, and description are required while the timer is running.')
+      return
+    }
+
     setLoading(true)
     setError('')
     
@@ -380,6 +389,7 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
       
       setCurrentEntry(null)
       setIsRunning(false)
+      setShowValidationErrors(false)
       // Don't reset elapsed time to 0 here since we want to show the final duration
       startTimeRef.current = null
       
@@ -447,6 +457,9 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
 
   const handleClientChange = async (clientId: string) => {
     setSelectedClientId(clientId);
+    if (showValidationErrors) {
+      setError('')
+    }
     // Reset project selection when client changes
     setFormData(prev => ({ ...prev, projectId: '' }));
     setHasLocalChanges(true); // Mark that we have local changes
@@ -485,6 +498,9 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
 
   const handleProjectChange = async (projectId: string) => {
     setFormData(prev => ({ ...prev, projectId }));
+    if (showValidationErrors) {
+      setError('')
+    }
     setHasLocalChanges(true); // Mark that we have local changes
     lastSyncRef.current = new Date(); // Update last sync time immediately to prevent server override
     
@@ -521,6 +537,9 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
 
   const handleDescriptionChange = async (description: string) => {
     setFormData(prev => ({ ...prev, description }));
+    if (showValidationErrors) {
+      setError('')
+    }
     setHasLocalChanges(true); // Mark that we have local changes
     lastSyncRef.current = new Date(); // Update last sync time immediately to prevent server override
     
@@ -625,6 +644,25 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
+  const requiredFieldErrors = {
+    client: !selectedClientId,
+    project: !formData.projectId,
+    description: !formData.description?.trim()
+  }
+
+  const hasRequiredFieldErrors = Object.values(requiredFieldErrors).some(Boolean)
+
+  const getFieldClassName = (hasError: boolean, extraClassName = '') => {
+    const baseClassName = 'w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white'
+    const errorClassName = hasError
+      ? 'border-red-500 focus:border-red-500 focus:ring-red-500 dark:border-red-500'
+      : 'border-gray-300'
+
+    return `${baseClassName} ${errorClassName} ${extraClassName}`.trim()
+  }
+
+  const shouldShowFieldError = (hasError: boolean) => isRunning && showValidationErrors && hasError
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
       <div className="flex items-center justify-between mb-6">
@@ -648,11 +686,12 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Client
+            {isRunning && <span className="ml-1 text-red-500">*</span>}
           </label>
           <select
             value={selectedClientId}
             onChange={(e) => handleClientChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            className={getFieldClassName(shouldShowFieldError(requiredFieldErrors.client))}
           >
             <option value="">Select a client</option>
             {clients.map(client => (
@@ -661,17 +700,21 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
               </option>
             ))}
           </select>
+          {shouldShowFieldError(requiredFieldErrors.client) && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">Client is required while the timer is running.</p>
+          )}
         </div>
 
         {/* Project Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Project
+            {isRunning && <span className="ml-1 text-red-500">*</span>}
           </label>
           <select
             value={formData.projectId}
             onChange={(e) => handleProjectChange(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            className={getFieldClassName(shouldShowFieldError(requiredFieldErrors.project))}
             disabled={!selectedClientId}
           >
             <option value="">Select a project</option>
@@ -681,20 +724,30 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
               </option>
             ))}
           </select>
+          {shouldShowFieldError(requiredFieldErrors.project) && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">Project is required while the timer is running.</p>
+          )}
         </div>
 
         {/* Description */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description
+            {isRunning && <span className="ml-1 text-red-500">*</span>}
           </label>
           <input
             type="text"
             value={formData.description}
             onChange={(e) => handleDescriptionChange(e.target.value)}
             placeholder="What are you working on?"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
+            className={getFieldClassName(
+              shouldShowFieldError(requiredFieldErrors.description),
+              'dark:placeholder-gray-400'
+            )}
           />
+          {shouldShowFieldError(requiredFieldErrors.description) && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">Description is required while the timer is running.</p>
+          )}
         </div>
 
         {/* Billable Toggle */}
@@ -798,6 +851,7 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
                     await timeEntryService.deleteTimeEntry(currentEntry.id)
                     setCurrentEntry(null)
                     setIsRunning(false)
+                    setShowValidationErrors(false)
                     setElapsedTime(0)
                     startTimeRef.current = null
                     setFormData({

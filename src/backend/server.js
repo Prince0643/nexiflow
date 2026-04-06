@@ -485,20 +485,24 @@ app.post('/api/admin/users', async (req, res) => {
 
     const connection = await pool.getConnection();
     try {
+      const now = new Date();
+      const newUserId = uuidv4();
+      const passwordHash = userData.password
+        ? await bcrypt.hash(userData.password, 12)
+        : (userData.passwordHash || null);
+
       const query = `
         INSERT INTO users (
           id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
-      const now = new Date();
-      const newUserId = uuidv4();
       await connection.execute(query, [
         newUserId,
         newUserId,
         userData.name,
         userData.email,
-        userData.passwordHash || null,
+        passwordHash,
         userData.role,
         userData.companyId || null,
         null, // team_id
@@ -584,6 +588,14 @@ app.put('/api/admin/users/:userId', async (req, res) => {
       if (updates.companyId !== undefined) {
         fields.push('company_id = ?');
         values.push(updates.companyId);
+      }
+      if (updates.teamId !== undefined) {
+        fields.push('team_id = ?');
+        values.push(updates.teamId || null);
+      }
+      if (updates.teamRole !== undefined) {
+        fields.push('team_role = ?');
+        values.push(updates.teamRole || null);
       }
       if (updates.tags !== undefined) {
         fields.push('tags = ?');
