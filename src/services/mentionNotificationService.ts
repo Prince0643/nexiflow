@@ -1,6 +1,8 @@
 import { MentionNotification } from '../types'
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+const NOTIFICATION_POLL_INTERVAL_MS = 30000
+const MAX_NOTIFICATION_BACKOFF_MS = 5 * 60 * 1000
 
 const getAuthToken = () => localStorage.getItem('authToken')
 
@@ -37,13 +39,13 @@ const apiRequest = async <T>(endpoint: string, options: RequestInit = {}): Promi
       throw new Error('Session expired. Please log in again.')
     }
 
-    throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+    const error = new Error(errorData.error || `HTTP error! status: ${response.status}`) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   return response.json()
 }
-
-const NOTIFICATION_POLL_INTERVAL_MS = 3000
 
 export class MentionNotificationService {
   static async createMentionNotification(
@@ -119,27 +121,79 @@ export class MentionNotificationService {
 
   static subscribeToNotifications(userId: string, callback: (notifications: MentionNotification[]) => void): () => void {
     let isActive = true
+    let isRequestInFlight = false
+    let timeoutId: number | null = null
+    let currentDelayMs = NOTIFICATION_POLL_INTERVAL_MS
+
+    const clearScheduledPoll = () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+        timeoutId = null
+      }
+    }
+
+    const scheduleNextPoll = (delayMs: number) => {
+      clearScheduledPoll()
+      if (!isActive) {
+        return
+      }
+
+      timeoutId = window.setTimeout(() => {
+        void loadNotifications()
+      }, delayMs)
+    }
 
     const loadNotifications = async () => {
+      if (!isActive || isRequestInFlight || document.visibilityState !== 'visible' || !navigator.onLine) {
+        scheduleNextPoll(currentDelayMs)
+        return
+      }
+
+      isRequestInFlight = true
+
       try {
         const notifications = await this.refreshNotifications(userId)
         if (isActive) {
           callback(notifications)
         }
+        currentDelayMs = NOTIFICATION_POLL_INTERVAL_MS
       } catch (error) {
         console.error('Error loading mention notifications:', error)
-        if (isActive) {
+        if ((error as { status?: number })?.status !== 429 && isActive) {
           callback([])
         }
+        currentDelayMs = Math.min(currentDelayMs * 2, MAX_NOTIFICATION_BACKOFF_MS)
+      } finally {
+        isRequestInFlight = false
+        scheduleNextPoll(currentDelayMs)
       }
     }
 
-    loadNotifications()
-    const intervalId = window.setInterval(loadNotifications, NOTIFICATION_POLL_INTERVAL_MS)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        currentDelayMs = NOTIFICATION_POLL_INTERVAL_MS
+        void loadNotifications()
+        return
+      }
+
+      clearScheduledPoll()
+    }
+
+    const handleOnline = () => {
+      currentDelayMs = NOTIFICATION_POLL_INTERVAL_MS
+      void loadNotifications()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+
+    void loadNotifications()
 
     return () => {
       isActive = false
-      window.clearInterval(intervalId)
+      clearScheduledPoll()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
     }
   }
 }
