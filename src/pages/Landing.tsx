@@ -95,16 +95,16 @@ const LandingHeader = ({ onLinkClick, onAccess, onLogin, onAbout }: LandingHeade
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white/70 dark:bg-gray-900/80 backdrop-blur border-b border-gray-200/60 dark:border-gray-700/60">
-      <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <img
             src="https://storage.googleapis.com/msgsndr/nb61f4OQ7o9Wsxx0zOsY/media/68df3ae78db305b0e463f363.svg"
             alt="NexiFlow logo"
-            className="h-10 w-auto"
+            className="h-8 w-auto sm:h-10"
           />
-          <div>
-            <p className="text-lg font-semibold tracking-tight">NexiFlow</p>
-            <p className="text-xs text-gray-400">Powered by Nexistry Digital Solutions</p>
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold tracking-tight sm:text-lg">NexiFlow</p>
+            <p className="hidden text-[11px] text-gray-400 sm:block">Powered by Nexistry Digital Solutions</p>
           </div>
         </div>
         <nav className="hidden lg:flex items-center gap-8 text-xs sm:text-sm font-semibold uppercase tracking-[0.2em] text-gray-600 dark:text-gray-300">
@@ -134,7 +134,7 @@ const LandingHeader = ({ onLinkClick, onAccess, onLogin, onAbout }: LandingHeade
         </div>
         <div className="lg:hidden flex items-center">
           <button onClick={() => setMobileOpen(true)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-            <Menu className="h-6 w-6" />
+            <Menu className="h-5 w-5 sm:h-6 sm:w-6" />
           </button>
         </div>
       </div>
@@ -192,56 +192,54 @@ const HeroSection = ({ onPrimaryAction, onWatchDemo }: { onPrimaryAction: () => 
   return (
     <section
       ref={ref}
-      className="relative min-h-[90vh] flex items-center justify-center px-4 py-20 overflow-hidden"
+      className="relative overflow-hidden px-4 py-16 sm:py-20 lg:min-h-[90vh] lg:flex lg:items-center lg:justify-center"
     >
       <div className="absolute inset-0 bg-gradient-to-b from-blue-900 via-[#060b1d] to-black opacity-70" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]/30" />
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:120px_120px]" />
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:72px_72px] sm:bg-[length:120px_120px]" />
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute -top-16 right-10 w-56 h-56 bg-blue-500/30 rounded-full blur-3xl" />
-        <div className="absolute bottom-[-80px] left-10 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl" />
+        <div className="absolute -top-16 right-2 h-44 w-44 rounded-full bg-blue-500/30 blur-3xl sm:right-10 sm:h-56 sm:w-56" />
+        <div className="absolute bottom-[-80px] left-0 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl sm:left-10 sm:h-72 sm:w-72" />
       </div>
       <div
-        className={`relative z-10 max-w-4xl text-center space-y-6 -mt-10 sm:-mt-12 lg:-mt-16 transition-all duration-700 ${
+        className={`relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center text-center transition-all duration-700 ${
           visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
         }`}
       >
-        <p className="text-sm uppercase tracking-[0.6em] text-blue-300">NEXIFLOW</p>
-        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white">
+        <p className="text-[11px] uppercase tracking-[0.45em] text-blue-300 sm:text-sm sm:tracking-[0.6em]">NEXIFLOW</p>
+        <h1 className="mt-5 max-w-[12ch] text-3xl font-bold leading-tight text-white sm:mt-6 sm:max-w-none sm:text-5xl lg:text-6xl">
           Work smarter, not harder
         </h1>
-        <p className="text-base md:text-lg text-blue-200 max-w-2xl mx-auto">
+        <p className="mt-4 max-w-md text-sm leading-7 text-blue-100 sm:text-base md:max-w-2xl md:text-lg">
           An all-in-one workspace for time tracking, project management, billing, and AI-powered assistant guidance.
         </p>
-        <div className="flex items-center justify-center gap-4">
+        <div className="mt-8 flex w-full max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-4">
           <button
             onClick={onPrimaryAction}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white text-blue-900 font-semibold shadow-lg hover:bg-blue-50 transition"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3.5 text-base font-semibold text-blue-900 shadow-lg transition hover:bg-blue-50 sm:w-auto"
           >
             Start Free
             <ArrowRight className="w-4 h-4" />
           </button>
           <button
             onClick={onWatchDemo}
-            className="px-6 py-3 rounded-full border border-white/60 text-white/80 text-sm font-semibold hover:border-white"
+            className="w-full rounded-full border border-white/60 px-6 py-3.5 text-sm font-semibold text-white/90 transition hover:border-white sm:w-auto"
           >
             Watch Demo
           </button>
         </div>
-      </div>
-      <div className="absolute bottom-6 left-0 right-0 flex justify-center">
         <div
-          className={`flex flex-wrap justify-center gap-4 px-4 transition-all duration-700 ${
+          className={`mt-8 grid w-full max-w-sm grid-cols-2 gap-3 sm:mt-10 sm:max-w-2xl sm:grid-cols-4 sm:gap-4 transition-all duration-700 ${
             visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
           }`}
         >
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="flex-shrink-0 rounded-full border border-white/20 bg-white/5 px-5 py-2 text-center text-[0.65rem] font-semibold uppercase tracking-[0.4em] text-white/85 backdrop-blur shadow"
+              className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3 text-center text-[0.58rem] font-semibold uppercase tracking-[0.24em] text-white/85 shadow backdrop-blur sm:rounded-full sm:px-5 sm:py-2 sm:text-[0.65rem] sm:tracking-[0.35em]"
             >
-              <span className="block text-lg font-bold">{stat.number}</span>
-              <span className="text-blue-200">{stat.label}</span>
+              <span className="block text-base font-bold text-white sm:text-lg">{stat.number}</span>
+              <span className="block pt-1 text-[0.54rem] text-blue-100 sm:text-[0.65rem]">{stat.label}</span>
             </div>
           ))}
         </div>
@@ -256,15 +254,15 @@ const EnhancedFeaturesSection = () => {
   return (
     <section
       ref={ref}
-      className={`py-16 px-4 sm:px-6 lg:px-8 transition-all duration-700 ${
+      className={`px-4 py-14 sm:px-6 sm:py-16 lg:px-8 transition-all duration-700 ${
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
       }`}
     >
       <div className="max-w-7xl mx-auto space-y-10">
         <div className="text-center space-y-3">
           <p className="text-sm uppercase tracking-[0.6em] text-blue-500">Capabilities</p>
-          <h2 className="text-3xl md:text-4xl font-bold">Everything you need in one place</h2>
-          <p className="text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
+          <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">Everything you need in one place</h2>
+          <p className="max-w-3xl mx-auto text-sm text-gray-600 dark:text-gray-300 sm:text-base">
             Track time, manage clients, handle billing, and get insights—without switching apps.
           </p>
         </div>
@@ -274,10 +272,10 @@ const EnhancedFeaturesSection = () => {
               key={feature.title}
               className="bg-white dark:bg-gray-900 rounded-3xl shadow-lg overflow-hidden border border-gray-100/80 dark:border-gray-800/70 flex flex-col"
             >
-              <img src={feature.image} alt={feature.title} className="w-full h-48 object-cover" />
-              <div className="p-6 space-y-4 flex-1 flex flex-col">
-                <h3 className="text-xl font-semibold">{feature.title}</h3>
-                <p className="text-gray-500 dark:text-gray-300 flex-1">{feature.description}</p>
+              <img src={feature.image} alt={feature.title} className="h-40 w-full object-cover sm:h-48" />
+              <div className="flex flex-1 flex-col space-y-4 p-5 sm:p-6">
+                <h3 className="text-lg font-semibold sm:text-xl">{feature.title}</h3>
+                <p className="flex-1 text-sm text-gray-500 dark:text-gray-300 sm:text-base">{feature.description}</p>
                 <ul className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
                   {feature.highlights.map((item) => (
                     <li key={item} className="flex items-center gap-2">
@@ -302,13 +300,13 @@ const FeatureHighlightsSection = () => {
     <section
       id="features"
       ref={ref}
-      className="py-20 bg-gray-50 dark:bg-gray-900 border-y border-gray-200/60 dark:border-gray-800/60"
+      className="border-y border-gray-200/60 bg-gray-50 py-14 dark:border-gray-800/60 dark:bg-gray-900 sm:py-20"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
         <div className="text-center space-y-3">
           <p className="text-sm uppercase tracking-[0.6em] text-blue-500">Features</p>
-          <h2 className="text-3xl md:text-4xl font-bold">Powerful tools for every team</h2>
-          <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+          <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">Powerful tools for every team</h2>
+          <p className="max-w-2xl mx-auto text-sm text-gray-600 dark:text-gray-300 sm:text-base">
             From AI-assisted insights to full billing workflows, NexiFlow keeps every workflow on track.
           </p>
         </div>
@@ -316,14 +314,14 @@ const FeatureHighlightsSection = () => {
           {featureHighlights.map((feature) => (
             <div
               key={feature.title}
-              className={`rounded-3xl bg-white dark:bg-gray-900 p-6 shadow transition-transform duration-500 ${
+              className={`rounded-3xl bg-white p-5 shadow transition-transform duration-500 dark:bg-gray-900 sm:p-6 ${
                 visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
               }`}
             >
               <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-50 dark:bg-gray-800/60 mb-4">
                 <FeatureIcon iconKey={feature.iconKey} />
               </div>
-              <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
+              <h3 className="mb-2 text-lg font-semibold">{feature.title}</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">{feature.description}</p>
             </div>
           ))}
@@ -341,13 +339,13 @@ const VideosSection = () => {
     <section
       id="videos"
       ref={ref}
-      className="py-20 px-4 sm:px-6 lg:px-8 bg-white dark:bg-[#020617]"
+      className="bg-white px-4 py-14 dark:bg-[#020617] sm:px-6 sm:py-20 lg:px-8"
     >
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="text-center space-y-3">
           <p className="text-sm uppercase tracking-[0.6em] text-blue-500">Videos</p>
-          <h2 className="text-3xl md:text-4xl font-bold">See NexiFlow in action</h2>
-          <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+          <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">See NexiFlow in action</h2>
+          <p className="max-w-2xl mx-auto text-sm text-gray-600 dark:text-gray-300 sm:text-base">
             Product demos and walkthroughs so you can ramp up fast.
           </p>
         </div>
@@ -359,7 +357,7 @@ const VideosSection = () => {
                 visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
               }`}
             >
-              <div className="relative h-52">
+              <div className="relative h-48 sm:h-52">
                 {playing === index ? (
                   <video
                     src={demo.videoSrc}
@@ -381,8 +379,8 @@ const VideosSection = () => {
                   </>
                 )}
               </div>
-              <div className="p-6 space-y-3">
-                <h3 className="text-xl font-semibold">{demo.title}</h3>
+              <div className="space-y-3 p-5 sm:p-6">
+                <h3 className="text-lg font-semibold sm:text-xl">{demo.title}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-300">{demo.description}</p>
                 <button className="inline-flex items-center gap-2 text-blue-600 font-semibold text-sm">
                   Watch Video
@@ -404,13 +402,13 @@ const TestimonialsSection = () => {
     <section
       id="testimonials"
       ref={ref}
-      className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-gray-900 via-black to-gray-900 text-white"
+      className="bg-gradient-to-b from-gray-900 via-black to-gray-900 px-4 py-14 text-white sm:px-6 sm:py-20 lg:px-8"
     >
       <div className="max-w-7xl mx-auto space-y-10">
         <div className="text-center space-y-3">
           <p className="text-sm uppercase tracking-[0.6em] text-blue-300">Testimonials</p>
-          <h2 className="text-3xl md:text-4xl font-bold">Trusted by teams worldwide</h2>
-          <p className="text-blue-200 max-w-3xl mx-auto">
+          <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">Trusted by teams worldwide</h2>
+          <p className="max-w-3xl mx-auto text-sm text-blue-200 sm:text-base">
             Feedback from real users who rely on NexiFlow every day.
           </p>
         </div>
@@ -418,7 +416,7 @@ const TestimonialsSection = () => {
           {testimonials.map((testimonial) => (
             <div
               key={testimonial.name}
-              className={`rounded-3xl bg-white/10 border border-white/10 p-6 flex flex-col gap-4 transition duration-500 ${
+              className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/10 p-5 transition duration-500 sm:p-6 ${
                 visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
               }`}
             >
@@ -454,13 +452,13 @@ const PricingSection = ({ onPlanSelect }: { onPlanSelect: () => void }) => {
     <section
       id="pricing"
       ref={ref}
-      className="py-20 px-4 sm:px-6 lg:px-8 bg-gray-100 dark:bg-gray-900"
+      className="bg-gray-100 px-4 py-14 dark:bg-gray-900 sm:px-6 sm:py-20 lg:px-8"
     >
       <div className="max-w-7xl mx-auto space-y-10">
         <div className="text-center space-y-3">
           <p className="text-sm uppercase tracking-[0.6em] text-blue-500">Pricing</p>
-          <h2 className="text-3xl md:text-4xl font-bold">Simple, transparent plans</h2>
-          <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+          <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">Simple, transparent plans</h2>
+          <p className="max-w-2xl mx-auto text-sm text-gray-600 dark:text-gray-300 sm:text-base">
             Start free or upgrade when you need more controls, security, and analytics.
           </p>
         </div>
@@ -468,7 +466,7 @@ const PricingSection = ({ onPlanSelect }: { onPlanSelect: () => void }) => {
           {pricingPlans.map((plan) => (
             <div
               key={plan.name}
-              className={`relative rounded-3xl border p-6 flex flex-col gap-6 shadow-lg bg-white dark:bg-gray-900 transition duration-500 ${
+              className={`relative flex flex-col gap-5 rounded-3xl border bg-white p-5 shadow-lg transition duration-500 dark:bg-gray-900 sm:gap-6 sm:p-6 ${
                 visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
               } ${plan.popular ? 'border-blue-500/30 shadow-blue-500/30' : 'border-gray-200/70 dark:border-gray-800/70'}`}
             >
@@ -479,7 +477,7 @@ const PricingSection = ({ onPlanSelect }: { onPlanSelect: () => void }) => {
               )}
               <div className="space-y-2">
                 <p className="text-sm text-gray-500 uppercase tracking-[0.4em]">{plan.name}</p>
-                <div className="text-4xl font-bold">
+                <div className="text-3xl font-bold sm:text-4xl">
                   {plan.price}
                   <span className="text-base font-medium text-gray-500 ml-1">/{plan.period}</span>
                 </div>
@@ -512,15 +510,15 @@ const PricingSection = ({ onPlanSelect }: { onPlanSelect: () => void }) => {
 }
 
 const CTASection = ({ onPrimaryAction }: { onPrimaryAction: () => void }) => (
-  <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-blue-900 to-indigo-900 text-white">
-    <div className="max-w-6xl mx-auto text-center space-y-6">
-      <h2 className="text-3xl md:text-4xl font-bold">Ready to boost your productivity?</h2>
-      <p className="text-lg text-blue-100">
+  <section className="bg-gradient-to-r from-blue-900 to-indigo-900 px-4 py-14 text-white sm:px-6 sm:py-20 lg:px-8">
+    <div className="max-w-6xl mx-auto text-center space-y-5 sm:space-y-6">
+      <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">Ready to boost your productivity?</h2>
+      <p className="text-sm text-blue-100 sm:text-lg">
         Join thousands of teams powering their workflows with NexiFlow.
       </p>
       <button
         onClick={onPrimaryAction}
-        className="inline-flex items-center gap-3 px-8 py-3 rounded-full bg-white text-blue-900 font-semibold shadow-lg hover:bg-gray-100 transition"
+        className="inline-flex w-full max-w-sm items-center justify-center gap-3 rounded-full bg-white px-8 py-3 text-base font-semibold text-blue-900 shadow-lg transition hover:bg-gray-100 sm:w-auto"
       >
         Start Free
         <ArrowRight className="w-5 h-5" />
@@ -530,8 +528,8 @@ const CTASection = ({ onPrimaryAction }: { onPrimaryAction: () => void }) => (
 )
 
 const LandingFooter = () => (
-  <footer className="bg-gray-900 text-white py-16">
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-8">
+  <footer className="bg-gray-900 py-14 text-white sm:py-16">
+    <div className="max-w-7xl mx-auto grid grid-cols-1 gap-8 px-4 sm:px-6 md:grid-cols-2 lg:grid-cols-4 lg:px-8">
       <div>
         <div className="flex items-center gap-2 mb-2">
           <img
@@ -546,7 +544,7 @@ const LandingFooter = () => (
         </p>
       </div>
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-[0.4em] mb-3 text-gray-400">Product</h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-gray-400 sm:text-sm sm:tracking-[0.4em]">Product</h3>
         <ul className="space-y-2 text-sm text-gray-300">
           <li>Features</li>
           <li>Pricing</li>
@@ -555,7 +553,7 @@ const LandingFooter = () => (
         </ul>
       </div>
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-[0.4em] mb-3 text-gray-400">Company</h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-gray-400 sm:text-sm sm:tracking-[0.4em]">Company</h3>
         <ul className="space-y-2 text-sm text-gray-300">
           <li>About</li>
           <li>Blog</li>
@@ -564,7 +562,7 @@ const LandingFooter = () => (
         </ul>
       </div>
       <div>
-        <h3 className="text-sm font-semibold uppercase tracking-[0.4em] mb-3 text-gray-400">Support</h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-gray-400 sm:text-sm sm:tracking-[0.4em]">Support</h3>
         <ul className="space-y-2 text-sm text-gray-300">
           <li>Help Center</li>
           <li>Documentation</li>
