@@ -53,6 +53,11 @@ interface UndoAction {
   timeoutId: NodeJS.Timeout;
 }
 
+type DashboardUser = UserType & {
+  uid?: string | null
+  actionUserId: string | null
+}
+
 export default function AdminDashboard() {
   const { currentUser, currentCompany } = useMySQLAuth()
   const navigate = useNavigate()
@@ -63,7 +68,7 @@ export default function AdminDashboard() {
       navigate('/root')
     }
   }, [currentUser, navigate])
-  const [users, setUsers] = useState<UserType[]>([])
+  const [users, setUsers] = useState<DashboardUser[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [runningTimeEntries, setRunningTimeEntries] = useState<TimeEntry[]>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -81,7 +86,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'time-entries' | 'projects' | 'billing'>('overview')
   const [selectedUserForDetails, setSelectedUserForDetails] = useState<UserType | null>(null)
   const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false)
-  const [editingUser, setEditingUser] = useState<UserType | null>(null)
+  const [editingUser, setEditingUser] = useState<DashboardUser | null>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [editingTimeEntry, setEditingTimeEntry] = useState<TimeEntry | null>(null)
@@ -166,6 +171,83 @@ export default function AdminDashboard() {
     return result
   }
 
+  const normalizeUsers = (items: UserType[]): DashboardUser[] => {
+    const seen = new Set<string>()
+    const result: DashboardUser[] = []
+    const duplicateIds = new Set<string>()
+    const duplicateUids = new Set<string>()
+    const duplicateEmails = new Set<string>()
+    let missingIdCount = 0
+
+    const idCounts = new Map<string, number>()
+    const uidCounts = new Map<string, number>()
+    const emailCounts = new Map<string, number>()
+
+    for (const rawUser of items as Array<UserType & { uid?: string | null }>) {
+      const id = typeof rawUser.id === 'string' ? rawUser.id.trim() : ''
+      const uid = typeof rawUser.uid === 'string' ? rawUser.uid.trim() : ''
+      const email = typeof rawUser.email === 'string' ? rawUser.email.trim().toLowerCase() : ''
+
+      if (!id) missingIdCount += 1
+      if (id) idCounts.set(id, (idCounts.get(id) || 0) + 1)
+      if (uid) uidCounts.set(uid, (uidCounts.get(uid) || 0) + 1)
+      if (email) emailCounts.set(email, (emailCounts.get(email) || 0) + 1)
+    }
+
+    for (const [id, count] of idCounts) {
+      if (count > 1) duplicateIds.add(id)
+    }
+    for (const [uid, count] of uidCounts) {
+      if (count > 1) duplicateUids.add(uid)
+    }
+    for (const [email, count] of emailCounts) {
+      if (count > 1) duplicateEmails.add(email)
+    }
+
+    for (const rawUser of items as Array<UserType & { uid?: string | null }>) {
+      const id = typeof rawUser.id === 'string' ? rawUser.id.trim() : ''
+      const uid = typeof rawUser.uid === 'string' ? rawUser.uid.trim() : ''
+      const email = typeof rawUser.email === 'string' ? rawUser.email.trim().toLowerCase() : ''
+      const actionUserId = id || uid || null
+      const normalizedId = id || uid || email
+      const identityKey = `id:${id || 'missing'}|uid:${uid || 'missing'}|email:${email || 'missing'}`
+
+      if (!normalizedId) {
+        continue
+      }
+      if (seen.has(identityKey)) {
+        continue
+      }
+
+      seen.add(identityKey)
+      result.push({
+        ...rawUser,
+        id: normalizedId,
+        uid: uid || null,
+        actionUserId
+      })
+    }
+
+    if (
+      result.length !== items.length ||
+      missingIdCount > 0 ||
+      duplicateIds.size > 0 ||
+      duplicateUids.size > 0 ||
+      duplicateEmails.size > 0
+    ) {
+      console.warn('AdminDashboard: normalized users payload', {
+        fetchedUsers: items.length,
+        normalizedUsers: result.length,
+        missingIds: missingIdCount,
+        duplicateIds: duplicateIds.size,
+        duplicateUids: duplicateUids.size,
+        duplicateEmails: duplicateEmails.size
+      })
+    }
+
+    return result
+  }
+
   const loadData = async () => {
     try {
       setLoading(true)
@@ -224,7 +306,7 @@ export default function AdminDashboard() {
         teams: scopedTeams.length
       })
       
-      const uniqueUsers = dedupeById<UserType>(usersData)
+      const normalizedUsers = normalizeUsers(usersData)
       const uniqueProjects = dedupeById<Project>(scopedProjects)
       const uniqueClients = dedupeById<Client>(scopedClients)
       const uniqueTeams = dedupeById<Team>(scopedTeams)
@@ -254,7 +336,7 @@ export default function AdminDashboard() {
 
       const uniqueTimeEntries = dedupeById<TimeEntry>(enrichedTimeEntries)
 
-      setUsers(uniqueUsers)
+      setUsers(normalizedUsers)
       setTimeEntries(uniqueTimeEntries)
       setRunningTimeEntries(scopedRunningTimeEntries)
       setProjects(uniqueProjects)
@@ -369,7 +451,7 @@ export default function AdminDashboard() {
   }
 
   const getUserById = (userId: string) => {
-    return users.find(u => u.id === userId)
+    return users.find(u => u.id === userId || u.uid === userId || u.actionUserId === userId)
   }
 
   const formatCurrency = (amount: number) => {
@@ -390,14 +472,18 @@ export default function AdminDashboard() {
     return (totalBillableDuration / 3600) * hourlyRate
   }
 
-  const handleDeleteUser = async (userId: string) => {
+  const handleDeleteUser = async (userId: string | null) => {
+    if (!userId) {
+      setError('This user cannot be managed because it is missing a backend identifier')
+      return
+    }
     if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
       return
     }
 
     try {
       await userService.deleteUser(userId)
-      setUsers(users.filter(user => user.id !== userId))
+      setUsers(users.filter(user => user.actionUserId !== userId))
       
       // Add to undo actions
       const undoAction: UndoAction = {
@@ -850,8 +936,9 @@ export default function AdminDashboard() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {filteredUsers.map((user) => {
                     const team = teams.find(t => t.id === user.teamId)
+                    const canManageUser = Boolean(user.actionUserId)
                     return (
-                      <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                      <tr key={`${user.actionUserId || user.id}-${user.email}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div className="flex-shrink-0 h-10 w-10">
@@ -893,16 +980,19 @@ export default function AdminDashboard() {
                             </button>
                             <button
                               onClick={() => {
+                                if (!canManageUser) return
                                 setEditingUser(user)
                                 setIsEditModalOpen(true)
                               }}
-                              className="p-1.5 rounded text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:text-indigo-300 dark:hover:bg-gray-700"
+                              disabled={!canManageUser}
+                              className="p-1.5 rounded text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:text-indigo-300 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Edit className="h-5 w-5" />
                             </button>
                             <button
-                              onClick={() => handleDeleteUser(user.id)}
-                              className="p-1.5 rounded text-red-600 hover:text-red-900 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
+                              onClick={() => handleDeleteUser(user.actionUserId)}
+                              disabled={!canManageUser}
+                              className="p-1.5 rounded text-red-600 hover:text-red-900 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                               <Trash2 className="h-5 w-5" />
                             </button>
@@ -1288,11 +1378,13 @@ export default function AdminDashboard() {
         onSave={async (updatedUser) => {
           try {
             // Update user in database
-            await userService.updateUser(updatedUser.id, updatedUser)
+            await userService.updateUser(editingUser?.actionUserId || updatedUser.id, updatedUser)
             
             // Update user in state
-            setUsers(users.map(user => 
-              user.id === updatedUser.id ? updatedUser : user
+            setUsers(users.map(user =>
+              user.actionUserId === editingUser?.actionUserId
+                ? normalizeUsers([updatedUser])[0] || user
+                : user
             ))
             
             setIsEditModalOpen(false)
@@ -1313,7 +1405,7 @@ export default function AdminDashboard() {
             const createdUser = await userService.createUser(newUser)
             
             // Add user to state
-            setUsers([...users, createdUser])
+            setUsers(prevUsers => [...prevUsers, ...normalizeUsers([createdUser])])
             
             setIsCreateModalOpen(false)
           } catch (error) {

@@ -210,11 +210,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   }, [currentUser?.uid])
 
   // Filter notifications to show only unread ones in the dropdown
-  console.log('=== Header: Filtering unread notifications ===');
-  console.log('All notifications:', notifications);
   const unreadNotifications = notifications.filter(notification => !notification.isRead);
-  console.log('Unread notifications:', unreadNotifications);
-  console.log('Unread count:', unreadNotifications.length);
 
   return (
     <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
