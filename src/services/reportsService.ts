@@ -13,6 +13,22 @@ import {
 import { timeEntryService } from './timeEntryService'
 import { projectService } from './projectService'
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000
+
+const getLocalDateKey = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+
+  return `${year}-${month}-${day}`
+}
+
+const getStartOfLocalDay = (date: Date): Date => {
+  const normalizedDate = new Date(date)
+  normalizedDate.setHours(0, 0, 0, 0)
+  return normalizedDate
+}
+
 export const reportsService = {
   // Get time analytics for a date range
   async getTimeAnalytics(filters: ReportFilters): Promise<TimeAnalytics> {
@@ -113,7 +129,7 @@ export const reportsService = {
     const dailyStats: { [key: string]: DailyAnalytics } = {}
     
     entries.forEach(entry => {
-      const date = new Date(entry.startTime).toISOString().split('T')[0]
+      const date = getLocalDateKey(new Date(entry.startTime))
       
       if (!dailyStats[date]) {
         dailyStats[date] = {
@@ -135,7 +151,24 @@ export const reportsService = {
       const projectId = entry.projectId || 'no-project'
       dailyStats[date].projects[projectId] = (dailyStats[date].projects[projectId] || 0) + entry.duration
     })
-    
+
+    const startDate = getStartOfLocalDay(filters.startDate)
+    const endDate = getStartOfLocalDay(filters.endDate)
+
+    for (let currentDate = new Date(startDate); currentDate <= endDate; currentDate = new Date(currentDate.getTime() + DAY_IN_MS)) {
+      const dateKey = getLocalDateKey(currentDate)
+
+      if (!dailyStats[dateKey]) {
+        dailyStats[dateKey] = {
+          date: dateKey,
+          totalTime: 0,
+          billableTime: 0,
+          entries: 0,
+          projects: {}
+        }
+      }
+    }
+
     return Object.values(dailyStats).sort((a, b) => a.date.localeCompare(b.date))
   },
 

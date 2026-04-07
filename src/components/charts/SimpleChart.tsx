@@ -19,12 +19,33 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
   // Always render the chart container, even when there's no data
   // This ensures the chart area is visible for PDF export
   
-  const validData = data.datasets.flatMap(dataset => dataset.data).filter(value => !isNaN(value) && isFinite(value));
-  const hasValidData = validData.length > 0;
-  
-  const maxValue = hasValidData ? Math.max(...validData) : 0;
-  const minValue = hasValidData ? Math.min(...validData) : 0;
-  const range = hasValidData ? (maxValue - minValue || 1) : 1;
+  const validData = data.datasets.flatMap(dataset => dataset.data).filter(value => !isNaN(value) && isFinite(value))
+  const hasValidData = validData.length > 0
+  const maxValue = hasValidData ? Math.max(...validData) : 0
+
+  const formatDuration = (hours: number) => {
+    const totalSeconds = Math.round(hours * 3600)
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    const s = totalSeconds % 60
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+  }
+
+  const getDatasetColor = (dataset: SimpleChartProps['data']['datasets'][number], index = 0) => {
+    if (Array.isArray(dataset.borderColor)) {
+      return dataset.borderColor[index] || dataset.borderColor[0] || '#3B82F6'
+    }
+
+    if (dataset.borderColor) {
+      return dataset.borderColor
+    }
+
+    if (Array.isArray(dataset.backgroundColor)) {
+      return dataset.backgroundColor[index] || dataset.backgroundColor[0] || '#3B82F6'
+    }
+
+    return dataset.backgroundColor || '#3B82F6'
+  }
 
   const renderBarChart = () => {
     const validData = data.datasets[0].data.filter(v => !isNaN(v) && isFinite(v))
@@ -83,22 +104,11 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
                 const barHeight = `${Math.max(barHeightPercentage, 0)}%`
                 const hours = isValidValue ? value : 0
                 
-                // Debug logging (remove in production)
-                if (isValidValue && value > 0) {
-                  console.log(`Bar ${index} (${label}): value=${value.toFixed(2)}h, displayMax=${displayMaxValue.toFixed(2)}h, height=${barHeightPercentage.toFixed(1)}%, barHeight=${barHeight}, containerHeight=256px`)
-                }
-                
                 return (
                   <div key={index} className="flex flex-col items-center flex-1 min-w-0 h-full">
                     {/* Value above bar */}
                     <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 text-center whitespace-nowrap">
-                      {isValidValue && hasValidData && hours > 0 ? (() => {
-                        const totalSeconds = Math.round(hours * 3600)
-                        const h = Math.floor(totalSeconds / 3600)
-                        const m = Math.floor((totalSeconds % 3600) / 60)
-                        const s = totalSeconds % 60
-                        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-                      })() : ''}
+                      {isValidValue && hasValidData && hours > 0 ? formatDuration(hours) : ''}
                     </div>
                     
                     {/* Bar container - positioned at bottom */}
@@ -139,79 +149,110 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
   }
 
   const renderLineChart = () => {
-    // Filter out invalid data points and ensure we have valid coordinates
-    const validPoints = data.labels.map((_, index) => {
-      const x = (index / Math.max(data.labels.length - 1, 1)) * 100
-      const value = data.datasets[0].data[index]
-      const isValidValue = !isNaN(value) && isFinite(value) && value >= 0
-      const y = isValidValue ? 100 - (((value - minValue) / range) * 100) : 100
-      return { x, y, isValid: isValidValue, value }
-    }).filter(point => point.isValid)
+    const viewBoxWidth = 100
+    const viewBoxHeight = 100
+    const chartMaxValue = Math.max(maxValue, 1)
+    const gridLines = 5
+    const yAxisLabels = Array.from({ length: gridLines }, (_, index) => {
+      const ratio = (gridLines - 1 - index) / (gridLines - 1)
+      return chartMaxValue * ratio
+    })
 
-    const points = validPoints.map(point => `${point.x},${point.y}`).join(' ')
+    const datasetsWithPoints = data.datasets.map((dataset, datasetIndex) => {
+      const points = data.labels.map((_, index) => {
+        const value = dataset.data[index]
+        const isValidValue = !isNaN(value) && isFinite(value) && value >= 0
+        const x = (index / Math.max(data.labels.length - 1, 1)) * viewBoxWidth
+        const y = isValidValue ? viewBoxHeight - ((value / chartMaxValue) * viewBoxHeight) : viewBoxHeight
+
+        return { x, y, value, isValid: isValidValue }
+      }).filter(point => point.isValid)
+
+      return {
+        dataset,
+        datasetIndex,
+        points,
+        color: getDatasetColor(dataset, datasetIndex)
+      }
+    })
+
+    const hasLineData = datasetsWithPoints.some(({ points }) => points.length > 0)
 
     // Always render the chart area
     return (
       <div className="relative">
-        <svg width="100%" height={height} className="overflow-visible">
+        <svg width="100%" height={height} viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} preserveAspectRatio="none" className="overflow-visible">
           <defs>
-            <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <linearGradient id="line-chart-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
               <stop offset="0%" stopColor="rgba(59, 130, 246, 0.3)" />
               <stop offset="100%" stopColor="rgba(59, 130, 246, 0.05)" />
             </linearGradient>
           </defs>
           
           {/* Grid lines */}
-          {[0, 25, 50, 75, 100].map((y, i) => (
+          {Array.from({ length: gridLines }, (_, index) => {
+            const y = (index / (gridLines - 1)) * viewBoxHeight
+            return (
             <line
-              key={i}
+              key={index}
               x1="0"
-              y1={`${y}%`}
-              x2="100%"
-              y2={`${y}%`}
+              y1={y}
+              x2={viewBoxWidth}
+              y2={y}
               stroke="currentColor"
               className="text-gray-200 dark:text-gray-600"
               strokeWidth="1"
             />
-          ))}
+            )
+          })}
           
-          {/* Area under curve - only if we have valid points */}
-          {validPoints.length > 0 && (
-            <polygon
-              points={`0,100 ${points} 100,100`}
-              fill="url(#gradient)"
-            />
-          )}
-          
-          {/* Line - only if we have valid points */}
-          {validPoints.length > 0 && (
-            <polyline
-              points={points}
-              fill="none"
-              stroke={Array.isArray(data.datasets[0].borderColor) ? data.datasets[0].borderColor[0] : data.datasets[0].borderColor || '#3B82F6'}
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-          
-          {/* Data points - only valid ones */}
-          {validPoints.map((point, index) => (
-            <circle
-              key={index}
-              cx={`${point.x}%`}
-              cy={`${point.y}%`}
-              r="4"
-              fill={Array.isArray(data.datasets[0].borderColor) ? data.datasets[0].borderColor[0] : data.datasets[0].borderColor || '#3B82F6'}
-              className="hover:r-6 transition-all"
-            />
-          ))}
+          {datasetsWithPoints.map(({ dataset, points, color }, datasetIndex) => {
+            if (points.length === 0) {
+              return null
+            }
+
+            const polylinePoints = points.map(point => `${point.x},${point.y}`).join(' ')
+            const isPrimaryDataset = datasetIndex === 0
+            const firstPoint = points[0]
+            const lastPoint = points[points.length - 1]
+
+            return (
+              <g key={dataset.label}>
+                {isPrimaryDataset && firstPoint && lastPoint && (
+                  <polygon
+                    points={`${firstPoint.x},${viewBoxHeight} ${polylinePoints} ${lastPoint.x},${viewBoxHeight}`}
+                    fill="url(#line-chart-gradient)"
+                  />
+                )}
+
+                <polyline
+                  points={polylinePoints}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={isPrimaryDataset ? 3 : 2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+
+                {points.map((point, pointIndex) => (
+                  <circle
+                    key={`${dataset.label}-${pointIndex}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={isPrimaryDataset ? 1.8 : 1.5}
+                    fill={color}
+                    className="hover:r-6 transition-all"
+                  />
+                ))}
+              </g>
+            )
+          })}
           
           {/* Show "No Data" message when there are no valid points */}
-          {validPoints.length === 0 && (
+          {!hasLineData && (
             <text
-              x="50%"
-              y="50%"
+              x={viewBoxWidth / 2}
+              y={viewBoxHeight / 2}
               textAnchor="middle"
               dominantBaseline="middle"
               className="text-gray-500 dark:text-gray-400"
@@ -224,29 +265,12 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
         </svg>
         
         {/* Y-axis labels */}
-        <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 -ml-8">
-          <span>{(() => {
-            const totalSeconds = Math.round(maxValue * 3600)
-            const h = Math.floor(totalSeconds / 3600)
-            const m = Math.floor((totalSeconds % 3600) / 60)
-            const s = totalSeconds % 60
-            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-          })()}</span>
-          <span>{(() => {
-            const midValue = (maxValue + minValue) / 2
-            const totalSeconds = Math.round(midValue * 3600)
-            const h = Math.floor(totalSeconds / 3600)
-            const m = Math.floor((totalSeconds % 3600) / 60)
-            const s = totalSeconds % 60
-            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-          })()}</span>
-          <span>{(() => {
-            const totalSeconds = Math.round(minValue * 3600)
-            const h = Math.floor(totalSeconds / 3600)
-            const m = Math.floor((totalSeconds % 3600) / 60)
-            const s = totalSeconds % 60
-            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-          })()}</span>
+        <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 -ml-12 w-10">
+          {yAxisLabels.map(value => (
+            <span key={value} className="text-right">
+              {formatDuration(value)}
+            </span>
+          ))}
         </div>
       </div>
     )
@@ -329,11 +353,7 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
             <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{(() => {
-              const totalSeconds = Math.round(total * 3600)
-              const h = Math.floor(totalSeconds / 3600)
-              const m = Math.floor((totalSeconds % 3600) / 60)
-              const s = totalSeconds % 60
-              return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+              return formatDuration(total)
             })()}</div>
             <div className="text-sm text-gray-500 dark:text-gray-400">Total</div>
           </div>
@@ -371,7 +391,7 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
             <div key={index} className="flex items-center space-x-2">
               <div
                 className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: Array.isArray(dataset.borderColor) ? dataset.borderColor[0] : dataset.borderColor || (Array.isArray(dataset.backgroundColor) ? dataset.backgroundColor[0] : dataset.backgroundColor) }}
+                style={{ backgroundColor: getDatasetColor(dataset, index) }}
               />
               <span className="text-sm text-gray-600 dark:text-gray-400">{dataset.label}</span>
             </div>
