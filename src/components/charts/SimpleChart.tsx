@@ -151,6 +151,9 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
   const renderLineChart = () => {
     const viewBoxWidth = 100
     const viewBoxHeight = 100
+    const topPadding = 4
+    const bottomPadding = 6
+    const chartHeight = viewBoxHeight - topPadding - bottomPadding
     const chartMaxValue = Math.max(maxValue, 1)
     const gridLines = 5
     const yAxisLabels = Array.from({ length: gridLines }, (_, index) => {
@@ -163,7 +166,9 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
         const value = dataset.data[index]
         const isValidValue = !isNaN(value) && isFinite(value) && value >= 0
         const x = (index / Math.max(data.labels.length - 1, 1)) * viewBoxWidth
-        const y = isValidValue ? viewBoxHeight - ((value / chartMaxValue) * viewBoxHeight) : viewBoxHeight
+        const y = isValidValue
+          ? topPadding + (chartHeight - ((value / chartMaxValue) * chartHeight))
+          : viewBoxHeight - bottomPadding
 
         return { x, y, value, isValid: isValidValue }
       }).filter(point => point.isValid)
@@ -182,16 +187,9 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
     return (
       <div className="relative">
         <svg width="100%" height={height} viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} preserveAspectRatio="none" className="overflow-visible">
-          <defs>
-            <linearGradient id="line-chart-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="rgba(59, 130, 246, 0.3)" />
-              <stop offset="100%" stopColor="rgba(59, 130, 246, 0.05)" />
-            </linearGradient>
-          </defs>
-          
           {/* Grid lines */}
           {Array.from({ length: gridLines }, (_, index) => {
-            const y = (index / (gridLines - 1)) * viewBoxHeight
+            const y = topPadding + ((index / (gridLines - 1)) * chartHeight)
             return (
             <line
               key={index}
@@ -200,8 +198,8 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
               x2={viewBoxWidth}
               y2={y}
               stroke="currentColor"
-              className="text-gray-200 dark:text-gray-600"
-              strokeWidth="1"
+              className="text-gray-300/60 dark:text-gray-500/45"
+              strokeWidth="0.75"
             />
             )
           })}
@@ -213,23 +211,15 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
 
             const polylinePoints = points.map(point => `${point.x},${point.y}`).join(' ')
             const isPrimaryDataset = datasetIndex === 0
-            const firstPoint = points[0]
-            const lastPoint = points[points.length - 1]
 
             return (
               <g key={dataset.label}>
-                {isPrimaryDataset && firstPoint && lastPoint && (
-                  <polygon
-                    points={`${firstPoint.x},${viewBoxHeight} ${polylinePoints} ${lastPoint.x},${viewBoxHeight}`}
-                    fill="url(#line-chart-gradient)"
-                  />
-                )}
-
                 <polyline
                   points={polylinePoints}
                   fill="none"
                   stroke={color}
-                  strokeWidth={isPrimaryDataset ? 3 : 2.5}
+                  strokeOpacity={isPrimaryDataset ? 0.95 : 0.8}
+                  strokeWidth={isPrimaryDataset ? 1.6 : 1.15}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
@@ -239,9 +229,9 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
                     key={`${dataset.label}-${pointIndex}`}
                     cx={point.x}
                     cy={point.y}
-                    r={isPrimaryDataset ? 1.8 : 1.5}
+                    r={isPrimaryDataset ? 0.95 : 0.75}
                     fill={color}
-                    className="hover:r-6 transition-all"
+                    fillOpacity={isPrimaryDataset ? 0.9 : 0.7}
                   />
                 ))}
               </g>
@@ -265,7 +255,7 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
         </svg>
         
         {/* Y-axis labels */}
-        <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 -ml-12 w-10">
+        <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-[11px] text-gray-400 dark:text-gray-500 -ml-12 w-10">
           {yAxisLabels.map(value => (
             <span key={value} className="text-right">
               {formatDuration(value)}
