@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react'
 import { useMySQLAuth } from './MySQLAuthContext'
-import { playNotificationSound, playMentionSound } from '../utils/soundUtils'
+import { playMentionSound } from '../utils/soundUtils'
 import { soundManager } from '../utils/soundManager'
 import MentionNotificationService from '../services/mentionNotificationService'
 
@@ -111,28 +111,13 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       console.warn('Failed to load cached notifications:', e)
     }
 
-    const handleVisibilityRefresh = () => {
-      if (document.visibilityState === 'visible') {
-        void refreshNotifications()
-      }
-    }
-
-    const handleWindowFocus = () => {
-      void refreshNotifications()
-    }
-
     const unsubscribe = MentionNotificationService.subscribeToNotifications(
       currentUser.uid,
       applyNotifications
     )
 
-    document.addEventListener('visibilitychange', handleVisibilityRefresh)
-    window.addEventListener('focus', handleWindowFocus)
-
     return () => {
       unsubscribe()
-      document.removeEventListener('visibilitychange', handleVisibilityRefresh)
-      window.removeEventListener('focus', handleWindowFocus)
     }
   }, [currentUser])
 

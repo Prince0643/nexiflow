@@ -184,12 +184,61 @@ app.use('/api/auth/signup', authLimiter);
 
 // Rate limiting - General API
 const isDev = process.env.NODE_ENV !== 'production'
-const limiter = rateLimit({
+const createApiLimiter = (max, skip) => rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isDev ? 2000 : 100,
+  max: isDev ? 2000 : max,
+  skip,
   message: { success: false, error: 'Too many requests. Please try again later.' }
 });
+const mentionReadLimiter = createApiLimiter(600, (req) => req.method !== 'GET');
+const taskLiveReadLimiter = createApiLimiter(900, (req) => req.method !== 'GET');
+const limiter = createApiLimiter(300);
+
+app.use('/api/mention-notifications', mentionReadLimiter);
+app.use('/api/tasks/:id', taskLiveReadLimiter);
+app.use('/api/tasks/:id/', taskLiveReadLimiter);
 app.use('/api/', limiter);
+
+const mapTaskRow = (row) => ({
+  id: row.id,
+  title: row.title,
+  description: row.description,
+  notes: row.notes,
+  projectId: row.project_id,
+  projectName: row.project_name,
+  status: {
+    id: row.status_id,
+    name: row.status_name,
+    color: row.status_color,
+    order: row.status_order,
+    isCompleted: row.status_is_completed === 1
+  },
+  priority: {
+    id: row.priority_id,
+    name: row.priority_name,
+    color: row.priority_color,
+    level: row.priority_level
+  },
+  assigneeId: row.assignee_id,
+  assigneeName: row.assignee_name,
+  assigneeEmail: row.assignee_email,
+  dueDate: row.due_date ? new Date(row.due_date) : undefined,
+  estimatedHours: row.estimated_hours,
+  actualHours: row.actual_hours,
+  tags: row.tags ? JSON.parse(row.tags) : [],
+  isCompleted: row.is_completed === 1,
+  completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+  createdBy: row.created_by,
+  createdByName: row.created_by_name,
+  createdAt: new Date(row.created_at),
+  updatedAt: new Date(row.updated_at),
+  parentTaskId: row.parent_task_id,
+  subtasks: [],
+  attachments: row.attachments ? JSON.parse(row.attachments) : [],
+  comments: row.comments ? JSON.parse(row.comments) : [],
+  timeEntries: row.time_entries ? JSON.parse(row.time_entries) : [],
+  teamId: row.team_id
+});
 
 // Configure multer for avatar uploads
 const storage = multer.diskStorage({
@@ -4383,47 +4432,7 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
       query += ' ORDER BY created_at DESC';
       
       const [rows] = await connection.execute(query, params);
-      
-      const tasks = rows.map(row => ({
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        notes: row.notes,
-        projectId: row.project_id,
-        projectName: row.project_name,
-        status: {
-          id: row.status_id,
-          name: row.status_name,
-          color: row.status_color,
-          order: row.status_order,
-          isCompleted: row.status_is_completed === 1
-        },
-        priority: {
-          id: row.priority_id,
-          name: row.priority_name,
-          color: row.priority_color,
-          level: row.priority_level
-        },
-        assigneeId: row.assignee_id,
-        assigneeName: row.assignee_name,
-        assigneeEmail: row.assignee_email,
-        dueDate: row.due_date ? new Date(row.due_date) : undefined,
-        estimatedHours: row.estimated_hours,
-        actualHours: row.actual_hours,
-        tags: row.tags ? JSON.parse(row.tags) : [],
-        isCompleted: row.is_completed === 1,
-        completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
-        createdBy: row.created_by,
-        createdByName: row.created_by_name,
-        createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at),
-        parentTaskId: row.parent_task_id,
-        subtasks: [],
-        attachments: row.attachments ? JSON.parse(row.attachments) : [],
-        comments: row.comments ? JSON.parse(row.comments) : [],
-        timeEntries: row.time_entries ? JSON.parse(row.time_entries) : [],
-        teamId: row.team_id
-      }));
+      const tasks = rows.map(mapTaskRow);
       
       res.json({
         success: true,
@@ -4436,6 +4445,41 @@ app.get('/api/tasks', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+app.get('/api/tasks/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT * FROM tasks WHERE id = ?',
+        [id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Task not found' });
+      }
+
+      const task = rows[0];
+
+      if (req.user.role !== 'root' && task.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      res.json({
+        success: true,
+        data: mapTaskRow(task)
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error fetching task:', error);
+    res.status(500).json({ error: 'Failed to fetch task' });
   }
 });
 

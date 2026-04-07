@@ -1,7 +1,8 @@
 import { MentionNotification } from '../types'
+import { getApiBaseUrl } from '../utils/env'
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
-const NOTIFICATION_POLL_INTERVAL_MS = 30000
+const API_BASE_URL = getApiBaseUrl()
+const NOTIFICATION_POLL_INTERVAL_MS = 60000
 const MAX_NOTIFICATION_BACKOFF_MS = 5 * 60 * 1000
 
 const getAuthToken = () => localStorage.getItem('authToken')
@@ -159,9 +160,6 @@ export class MentionNotificationService {
         currentDelayMs = NOTIFICATION_POLL_INTERVAL_MS
       } catch (error) {
         console.error('Error loading mention notifications:', error)
-        if ((error as { status?: number })?.status !== 429 && isActive) {
-          callback([])
-        }
         currentDelayMs = Math.min(currentDelayMs * 2, MAX_NOTIFICATION_BACKOFF_MS)
       } finally {
         isRequestInFlight = false

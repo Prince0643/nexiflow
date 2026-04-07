@@ -18,6 +18,10 @@ interface PersistedFormData {
   newTag: string
 }
 
+const RUNNING_ENTRY_ACTIVE_POLL_INTERVAL_MS = 60000
+const RUNNING_ENTRY_IDLE_POLL_INTERVAL_MS = 5 * 60 * 1000
+const MAX_RUNNING_ENTRY_POLL_BACKOFF_MS = 5 * 60 * 1000
+
 export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   const { currentUser, currentCompany } = useMySQLAuth()
   const [showValidationErrors, setShowValidationErrors] = useState(false)
@@ -41,6 +45,14 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const startTimeRef = useRef<Date | null>(null)
   const lastSyncRef = useRef<Date>(new Date(0)) // Initialize to epoch to ensure initial sync
+  const runningEntryPollTimeoutRef = useRef<number | null>(null)
+  const isRunningEntryPollInFlightRef = useRef(false)
+  const runningEntryPollDelayRef = useRef(RUNNING_ENTRY_IDLE_POLL_INTERVAL_MS)
+  const isRunningRef = useRef(false)
+  const currentEntryRef = useRef<TimeEntry | null>(null)
+  const hasLocalChangesRef = useRef(false)
+  const projectsRef = useRef<Project[]>([])
+  const pricingLevelRef = useRef(currentCompany?.pricingLevel)
 
   // Filter projects based on selected client
   const filteredProjects = selectedClientId 
@@ -61,9 +73,27 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   }, [selectedClientId, formData, newTag, currentUser])
 
   useEffect(() => {
+    isRunningRef.current = isRunning
+  }, [isRunning])
+
+  useEffect(() => {
+    currentEntryRef.current = currentEntry
+  }, [currentEntry])
+
+  useEffect(() => {
+    hasLocalChangesRef.current = hasLocalChanges
+  }, [hasLocalChanges])
+
+  useEffect(() => {
+    projectsRef.current = projects
+  }, [projects])
+
+  useEffect(() => {
+    pricingLevelRef.current = currentCompany?.pricingLevel
+  }, [currentCompany?.pricingLevel])
+
+  useEffect(() => {
     loadInitialData()
-    // Subscribe to real-time running time entry updates
-    let unsubscribe: (() => void) | null = null
     
     if (currentUser) {
       // Load persisted form data from localStorage
@@ -77,26 +107,6 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
         } catch (e) {
           console.error('Failed to parse persisted form data:', e)
         }
-      }
-      
-      // Check for running timer on initial load
-      checkForRunningTimer()
-      
-      // For MySQL version, we don't have real-time subscription
-      // Instead, we'll poll for running entries periodically
-      const pollInterval = setInterval(async () => {
-        if (currentUser) {
-          try {
-            await checkForRunningTimer()
-          } catch (error) {
-            console.error('Error polling for running time entry:', error)
-          }
-        }
-      }, 30000) // Poll every 30 seconds to avoid hitting API rate limits
-      
-      // Clean up interval
-      return () => {
-        clearInterval(pollInterval)
       }
     }
   }, [currentUser]) // Keep stable to avoid re-fetch loops that can trigger rate limits
@@ -147,69 +157,143 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   const checkForRunningTimer = async () => {
     if (!currentUser) return
     
-    try {
-      const runningEntry = await timeEntryService.getRunningTimeEntry(currentUser.uid)
-      // Debug log
-      if (runningEntry && runningEntry.id) {
-        // Debug log        // If projectName is missing but projectId exists, try to get it from projects
-        if (!runningEntry.projectName && runningEntry.projectId) {
-          const project = projects.find(p => p.id === runningEntry.projectId)
-          if (project) {
-            runningEntry.projectName = project.name
-          }
-        }
-        
-        // Preserve existing timer state if we're already running the same entry
-        const isSameEntry = currentEntry?.id === runningEntry.id;
-        const wasAlreadyRunning = isRunning;
-        
-        setCurrentEntry(runningEntry)
-        setIsRunning(true)
-        
-        // Only update startTimeRef and reset elapsed time if this is a new entry or if we weren't running before
-        if (!isSameEntry || !wasAlreadyRunning) {
-          const startTime = new Date(runningEntry.startTime)
-          startTimeRef.current = startTime
-          const now = new Date()
-          const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000)
-          setElapsedTime(Math.max(0, elapsed))
-        }
-        
-        // Set the selected client from the running entry
-        if (runningEntry.clientId) {
-          setSelectedClientId(runningEntry.clientId)
-        }
-        
-        // Only update form data from the running entry if we don't have recent local changes
-        // Check if we've made changes in the last 3 seconds (slightly less than poll interval)
-        const timeSinceLastSync = new Date().getTime() - lastSyncRef.current.getTime();
-        const shouldUpdateFormData = !hasLocalChanges || timeSinceLastSync > 3000;
-        
-        if (shouldUpdateFormData) {
-          setFormData(prev => ({
-            projectId: runningEntry.projectId || prev.projectId || '',
-            description: runningEntry.description || prev.description || '',
-            isBillable: currentCompany?.pricingLevel === 'solo' ? true : (runningEntry.isBillable !== undefined ? runningEntry.isBillable : (prev.isBillable || false)),
-            tags: runningEntry.tags || prev.tags || []
-          }));
-          // Clear the local changes flag since we're updating from server
-          setHasLocalChanges(false);
-        }
-      } else {
-        console.log('No valid running entry found or missing ID'); // Debug log
-        // No running entry found - timer was stopped
-        // Only reset if we thought there was a timer running
-        if (currentEntry || isRunning) {
-          setCurrentEntry(null)
-          setIsRunning(false)
-          setElapsedTime(0)
-          startTimeRef.current = null
+    const runningEntry = await timeEntryService.getRunningTimeEntry(currentUser.uid)
+    if (runningEntry && runningEntry.id) {
+      if (!runningEntry.projectName && runningEntry.projectId) {
+        const project = projectsRef.current.find(p => p.id === runningEntry.projectId)
+        if (project) {
+          runningEntry.projectName = project.name
         }
       }
-    } catch (error) {
-      console.error('Error checking for running time entry:', error)
+
+      const isSameEntry = currentEntryRef.current?.id === runningEntry.id
+      const wasAlreadyRunning = isRunningRef.current
+
+      setCurrentEntry(runningEntry)
+      setIsRunning(true)
+
+      if (!isSameEntry || !wasAlreadyRunning) {
+        const startTime = new Date(runningEntry.startTime)
+        startTimeRef.current = startTime
+        const now = new Date()
+        const elapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000)
+        setElapsedTime(Math.max(0, elapsed))
+      }
+
+      if (runningEntry.clientId) {
+        setSelectedClientId(runningEntry.clientId)
+      }
+
+      const timeSinceLastSync = new Date().getTime() - lastSyncRef.current.getTime()
+      const shouldUpdateFormData = !hasLocalChangesRef.current || timeSinceLastSync > 3000
+
+      if (shouldUpdateFormData) {
+        setFormData(prev => ({
+          projectId: runningEntry.projectId || prev.projectId || '',
+          description: runningEntry.description || prev.description || '',
+          isBillable: pricingLevelRef.current === 'solo'
+            ? true
+            : (runningEntry.isBillable !== undefined ? runningEntry.isBillable : (prev.isBillable || false)),
+          tags: runningEntry.tags || prev.tags || []
+        }))
+        setHasLocalChanges(false)
+      }
+
+      return true
     }
+
+    console.log('No valid running entry found or missing ID');
+    if (currentEntryRef.current || isRunningRef.current) {
+      setCurrentEntry(null)
+      setIsRunning(false)
+      setElapsedTime(0)
+      startTimeRef.current = null
+    }
+
+    return false
   }
+
+  useEffect(() => {
+    const clearScheduledPoll = () => {
+      if (runningEntryPollTimeoutRef.current !== null) {
+        window.clearTimeout(runningEntryPollTimeoutRef.current)
+        runningEntryPollTimeoutRef.current = null
+      }
+    }
+
+    if (!currentUser) {
+      clearScheduledPoll()
+      return undefined
+    }
+
+    let isActive = true
+
+    const scheduleNextPoll = (delayMs: number) => {
+      clearScheduledPoll()
+      if (!isActive) return
+
+      runningEntryPollTimeoutRef.current = window.setTimeout(() => {
+        void pollRunningEntry()
+      }, delayMs)
+    }
+
+    const pollRunningEntry = async () => {
+      if (
+        !isActive ||
+        isRunningEntryPollInFlightRef.current ||
+        document.visibilityState !== 'visible' ||
+        !navigator.onLine
+      ) {
+        scheduleNextPoll(runningEntryPollDelayRef.current)
+        return
+      }
+
+      isRunningEntryPollInFlightRef.current = true
+
+      try {
+        const hasRunningEntry = await checkForRunningTimer()
+        runningEntryPollDelayRef.current = hasRunningEntry
+          ? RUNNING_ENTRY_ACTIVE_POLL_INTERVAL_MS
+          : RUNNING_ENTRY_IDLE_POLL_INTERVAL_MS
+      } catch (error) {
+        console.error('Error polling for running time entry:', error)
+        runningEntryPollDelayRef.current = Math.min(
+          runningEntryPollDelayRef.current * 2,
+          MAX_RUNNING_ENTRY_POLL_BACKOFF_MS
+        )
+      } finally {
+        isRunningEntryPollInFlightRef.current = false
+        scheduleNextPoll(runningEntryPollDelayRef.current)
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        clearScheduledPoll()
+        return
+      }
+
+      runningEntryPollDelayRef.current = RUNNING_ENTRY_ACTIVE_POLL_INTERVAL_MS
+      void pollRunningEntry()
+    }
+
+    const handleOnline = () => {
+      runningEntryPollDelayRef.current = RUNNING_ENTRY_ACTIVE_POLL_INTERVAL_MS
+      void pollRunningEntry()
+    }
+
+    runningEntryPollDelayRef.current = RUNNING_ENTRY_IDLE_POLL_INTERVAL_MS
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+    void pollRunningEntry()
+
+    return () => {
+      isActive = false
+      clearScheduledPoll()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [currentUser])
 
   const loadInitialData = async () => {
     if (!currentUser) return

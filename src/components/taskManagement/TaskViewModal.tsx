@@ -1,14 +1,11 @@
-import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, User, Calendar, Clock, CheckCircle2, MessageSquare, Send, StickyNote, Paperclip, Smile, Trash2, Building2, AtSign, XCircle, Save } from 'lucide-react'
 import { Task, TaskStatus, TaskPriority, TaskComment, TaskCommentMention, Team, User as UserType, Mention } from '../../types'
 import { taskApiService as taskService } from '../../services/taskApiService'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
-import { useNotifications } from '../../contexts/NotificationContext'
 import { canDeleteTask } from '../../utils/permissions'
 import { useMentions } from '../../hooks/useMentions'
 import MentionNotificationService from '../../services/mentionNotificationService'
-
-const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
 interface TaskViewModalProps {
   isOpen: boolean
@@ -36,6 +33,9 @@ const PRIORITY_COLORS = {
   high: 'text-orange-500 dark:text-orange-400',
   urgent: 'text-red-500 dark:text-red-400'
 }
+
+const TASK_POLL_INTERVAL_MS = 30000
+const MAX_TASK_POLL_BACKOFF_MS = 5 * 60 * 1000
 
 const getCommentMentionDisplay = (mention: string | TaskCommentMention) => {
   if (typeof mention === 'string') {
@@ -66,7 +66,6 @@ export default function TaskViewModal({
   onTaskUpdate
 }: TaskViewModalProps) {
   const { currentUser } = useMySQLAuth()
-  const { addNotification } = useNotifications()
   const [description, setDescription] = useState('')
   const [comments, setComments] = useState<TaskComment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -76,9 +75,14 @@ export default function TaskViewModal({
   const [isUpdating, setIsUpdating] = useState(false)
   const [activeTab, setActiveTab] = useState<'comments' | 'notes'>(defaultActiveTab)
   const commentsEndRef = useRef<HTMLDivElement>(null)
+  const descriptionInputRef = useRef<HTMLTextAreaElement>(null)
   const commentInputRef = useRef<HTMLTextAreaElement>(null)
   const notesInputRef = useRef<HTMLTextAreaElement>(null)
-  const unsubscribeRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollTimeoutRef = useRef<number | null>(null)
+  const isTaskPollInFlightRef = useRef(false)
+  const taskPollDelayRef = useRef(TASK_POLL_INTERVAL_MS)
+  const isDescriptionDirtyRef = useRef(false)
+  const isNotesDirtyRef = useRef(false)
 
   // Use the mentions hook
   const {
@@ -107,79 +111,107 @@ export default function TaskViewModal({
       setDescription(task.description || '')
       setComments(task.comments || [])
       setNotes(task.notes || '')
+      isDescriptionDirtyRef.current = false
+      isNotesDirtyRef.current = false
     }
   }, [task])
 
-  // Set up polling for task updates
   useEffect(() => {
-    // Clean up previous polling interval if it exists
-    if (unsubscribeRef.current) {
-      clearInterval(unsubscribeRef.current);
-      unsubscribeRef.current = null;
-    }
-    
-    if (task && isOpen && task.id) {
-      // Set up polling interval for task updates
-      const pollInterval = setInterval(async () => {
-        try {
-          // Fetch updated task data from API
-          const token = localStorage.getItem('authToken')
-          const response = await fetch(`${API_BASE_URL}/tasks?projectId=${task.projectId}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {}
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.data) {
-              const updatedTask = data.data.find((t: Task) => t.id === task.id);
-              
-              if (updatedTask) {
-                // Update local state with polled data
-                if (updatedTask.description !== undefined) {
-                  setDescription(updatedTask.description || '');
-                }
-                
-                if (updatedTask.comments !== undefined) {
-                  // Only update comments if they've actually changed
-                  setComments(prevComments => {
-                    const newCommentsString = JSON.stringify(updatedTask.comments);
-                    const prevCommentsString = JSON.stringify(prevComments);
-                    if (newCommentsString !== prevCommentsString) {
-                      return updatedTask.comments;
-                    }
-                    return prevComments;
-                  });
-                }
-                
-                if (updatedTask.notes !== undefined) {
-                  // Only update notes if they've actually changed
-                  setNotes(prevNotes => {
-                    if (prevNotes !== updatedTask.notes) {
-                      return updatedTask.notes || '';
-                    }
-                    return prevNotes;
-                  });
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Error polling task updates:', error);
-        }
-      }, 5000); // Poll every 5 seconds
-
-      // Store interval ID
-      unsubscribeRef.current = pollInterval;
-    }
-    
-    // Cleanup polling interval on unmount
-    return () => {
-      if (unsubscribeRef.current) {
-        clearInterval(unsubscribeRef.current);
-        unsubscribeRef.current = null;
+    const clearScheduledPoll = () => {
+      if (pollTimeoutRef.current !== null) {
+        window.clearTimeout(pollTimeoutRef.current)
+        pollTimeoutRef.current = null
       }
-    };
-  }, [task?.id, isOpen, task?.projectId])
+    }
+
+    if (!task?.id || !isOpen) {
+      clearScheduledPoll()
+      return undefined
+    }
+
+    let isActive = true
+
+    const scheduleNextPoll = (delayMs: number) => {
+      clearScheduledPoll()
+      if (!isActive) return
+
+      pollTimeoutRef.current = window.setTimeout(() => {
+        void loadTaskUpdates()
+      }, delayMs)
+    }
+
+    const applyTaskUpdate = (updatedTask: Task) => {
+      onTaskUpdate?.(updatedTask)
+
+      if (!isDescriptionDirtyRef.current) {
+        setDescription(updatedTask.description || '')
+      }
+
+      setComments((prevComments) => {
+        const nextComments = updatedTask.comments || []
+        return JSON.stringify(prevComments) === JSON.stringify(nextComments) ? prevComments : nextComments
+      })
+
+      if (!isNotesDirtyRef.current) {
+        setNotes(updatedTask.notes || '')
+      }
+    }
+
+    const loadTaskUpdates = async () => {
+      if (
+        !isActive ||
+        isTaskPollInFlightRef.current ||
+        document.visibilityState !== 'visible' ||
+        !navigator.onLine
+      ) {
+        scheduleNextPoll(taskPollDelayRef.current)
+        return
+      }
+
+      isTaskPollInFlightRef.current = true
+
+      try {
+        const updatedTask = await taskService.getTask(task.id)
+        if (updatedTask && isActive) {
+          applyTaskUpdate(updatedTask)
+        }
+        taskPollDelayRef.current = TASK_POLL_INTERVAL_MS
+      } catch (error) {
+        console.error('Error polling task updates:', error)
+        taskPollDelayRef.current = Math.min(taskPollDelayRef.current * 2, MAX_TASK_POLL_BACKOFF_MS)
+      } finally {
+        isTaskPollInFlightRef.current = false
+        scheduleNextPoll(taskPollDelayRef.current)
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        clearScheduledPoll()
+        return
+      }
+
+      taskPollDelayRef.current = TASK_POLL_INTERVAL_MS
+      void loadTaskUpdates()
+    }
+
+    const handleOnline = () => {
+      taskPollDelayRef.current = TASK_POLL_INTERVAL_MS
+      void loadTaskUpdates()
+    }
+
+    taskPollDelayRef.current = TASK_POLL_INTERVAL_MS
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+    void loadTaskUpdates()
+
+    return () => {
+      isActive = false
+      clearScheduledPoll()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [task?.id, isOpen, onTaskUpdate])
 
   // Auto-scroll to bottom of comments when new comment is added
   useEffect(() => {
@@ -188,6 +220,9 @@ export default function TaskViewModal({
 
   // Handle mention input for comments and notes
   const handleMentionInput = useCallback((value: string, target: 'comment' | 'note') => {
+    if (target === 'note') {
+      isNotesDirtyRef.current = true
+    }
     handleMentionInputHook(value, target, target === 'comment' ? setNewComment : setNotes)
   }, [handleMentionInputHook])
 
@@ -260,6 +295,7 @@ export default function TaskViewModal({
     setIsUpdating(true)
     try {
       await taskService.updateTask(task.id, { description })
+      isDescriptionDirtyRef.current = false
     } catch (error) {
       console.error('Error updating description:', error)
     } finally {
@@ -280,6 +316,7 @@ export default function TaskViewModal({
       
       // Update task with new notes
       await taskService.updateTask(task.id, { notes });
+      isNotesDirtyRef.current = false
       
       // Update local state to reflect the saved notes
       if (onTaskUpdate && task) {
@@ -515,8 +552,12 @@ export default function TaskViewModal({
                   </label>
                   <div className="space-y-2">
                     <textarea
+                      ref={descriptionInputRef}
                       value={description}
-                      onChange={(e) => setDescription(e.target.value)}
+                      onChange={(e) => {
+                        isDescriptionDirtyRef.current = true
+                        setDescription(e.target.value)
+                      }}
                       onBlur={handleDescriptionUpdate}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                       rows={3}

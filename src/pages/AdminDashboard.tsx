@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { 
   Search, 
@@ -58,6 +58,10 @@ type DashboardUser = UserType & {
   actionUserId: string | null
 }
 
+const ADMIN_RUNNING_POLL_INTERVAL_MS = 60000
+const ADMIN_RUNNING_IDLE_POLL_INTERVAL_MS = 5 * 60 * 1000
+const MAX_ADMIN_RUNNING_POLL_BACKOFF_MS = 5 * 60 * 1000
+
 export default function AdminDashboard() {
   const { currentUser, currentCompany } = useMySQLAuth()
   const navigate = useNavigate()
@@ -100,6 +104,9 @@ export default function AdminDashboard() {
   const [currentUndoAction, setCurrentUndoAction] = useState<UndoAction | null>(null)
   const [seatLimitData, setSeatLimitData] = useState<{currentUsers: number; maxMembers: number; atLimit: boolean; pricingLevel: string} | null>(null)
   const [isSeatLimitModalOpen, setIsSeatLimitModalOpen] = useState(false)
+  const runningEntriesPollTimeoutRef = useRef<number | null>(null)
+  const isRunningEntriesPollInFlightRef = useRef(false)
+  const runningEntriesPollDelayRef = useRef(ADMIN_RUNNING_POLL_INTERVAL_MS)
 
   useEffect(() => {
     if (currentUser?.role && ['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) {
@@ -138,26 +145,95 @@ export default function AdminDashboard() {
     fetchSeatLimit()
   }, [currentUser?.companyId, currentUser?.role])
 
-  // Periodically refresh running timers
-  useEffect(() => {
-    if (currentUser?.role && ['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) {
-      const interval = setInterval(() => {
-        // Only refresh running timers periodically
-        loadRunningTimeEntries()
-      }, 30000) // Refresh every 30 seconds
-      
-      return () => clearInterval(interval)
-    }
-  }, [currentUser])
-
   const loadRunningTimeEntries = async () => {
-    try {
-      const runningEntries = await timeEntryService.getAllRunningTimeEntries(currentUser?.companyId || null)
-      setRunningTimeEntries(runningEntries)
-    } catch (error) {
-      console.error('Error refreshing running timers:', error)
-    }
+    const runningEntries = await timeEntryService.getAllRunningTimeEntries(currentUser?.companyId || null)
+    setRunningTimeEntries(runningEntries)
+    return runningEntries
   }
+
+  useEffect(() => {
+    const clearScheduledPoll = () => {
+      if (runningEntriesPollTimeoutRef.current !== null) {
+        window.clearTimeout(runningEntriesPollTimeoutRef.current)
+        runningEntriesPollTimeoutRef.current = null
+      }
+    }
+
+    if (!currentUser?.role || !['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) {
+      clearScheduledPoll()
+      return undefined
+    }
+
+    let isActive = true
+
+    const scheduleNextPoll = (delayMs: number) => {
+      clearScheduledPoll()
+      if (!isActive) return
+
+      runningEntriesPollTimeoutRef.current = window.setTimeout(() => {
+        void pollRunningTimeEntries()
+      }, delayMs)
+    }
+
+    const pollRunningTimeEntries = async () => {
+      if (
+        !isActive ||
+        isRunningEntriesPollInFlightRef.current ||
+        document.visibilityState !== 'visible' ||
+        !navigator.onLine
+      ) {
+        scheduleNextPoll(runningEntriesPollDelayRef.current)
+        return
+      }
+
+      isRunningEntriesPollInFlightRef.current = true
+
+      try {
+        const entries = await loadRunningTimeEntries()
+        runningEntriesPollDelayRef.current = entries.length > 0
+          ? ADMIN_RUNNING_POLL_INTERVAL_MS
+          : ADMIN_RUNNING_IDLE_POLL_INTERVAL_MS
+      } catch (error) {
+        console.error('Error refreshing running timers:', error)
+        runningEntriesPollDelayRef.current = Math.min(
+          runningEntriesPollDelayRef.current * 2,
+          MAX_ADMIN_RUNNING_POLL_BACKOFF_MS
+        )
+      } finally {
+        isRunningEntriesPollInFlightRef.current = false
+        scheduleNextPoll(runningEntriesPollDelayRef.current)
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        clearScheduledPoll()
+        return
+      }
+
+      runningEntriesPollDelayRef.current = ADMIN_RUNNING_POLL_INTERVAL_MS
+      void pollRunningTimeEntries()
+    }
+
+    const handleOnline = () => {
+      runningEntriesPollDelayRef.current = ADMIN_RUNNING_POLL_INTERVAL_MS
+      void pollRunningTimeEntries()
+    }
+
+    runningEntriesPollDelayRef.current = runningTimeEntries.length > 0
+      ? ADMIN_RUNNING_POLL_INTERVAL_MS
+      : ADMIN_RUNNING_IDLE_POLL_INTERVAL_MS
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+    scheduleNextPoll(runningEntriesPollDelayRef.current)
+
+    return () => {
+      isActive = false
+      clearScheduledPoll()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [currentUser?.companyId, currentUser?.role, runningTimeEntries.length])
 
   const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
     const seen = new Set<string>()

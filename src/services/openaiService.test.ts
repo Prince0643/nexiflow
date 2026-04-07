@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals'
 import { openaiService } from './openaiService'
 
 describe('OpenAI Service', () => {

@@ -1,175 +1,157 @@
-// Mock Firebase
-jest.mock('../config/firebase', () => ({
-  database: {}
-}))
-
-// Mock Firebase database functions
-jest.mock('firebase/database', () => ({
-  ref: jest.fn(),
-  get: jest.fn(),
-  child: jest.fn(),
-  set: jest.fn(),
-  push: jest.fn(() => ({ key: 'test-key' })),
-  onValue: jest.fn(),
-  update: jest.fn()
-}))
-
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals'
 import MentionNotificationService from './mentionNotificationService'
 
+const flushPromises = async () => {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+const createJsonResponse = (body: unknown, ok = true, status = 200): Response => ({
+  ok,
+  status,
+  json: async () => body
+} as Response)
+
 describe('MentionNotificationService', () => {
+  const fetchMock: jest.MockedFunction<typeof fetch> = jest.fn()
+
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.useFakeTimers()
+    ;(global as typeof globalThis & { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+    localStorage.clear()
+    localStorage.setItem('authToken', 'test-token')
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible'
+    })
   })
 
-  it('should be defined', () => {
-    expect(MentionNotificationService).toBeDefined()
+  afterEach(() => {
+    jest.useRealTimers()
   })
 
-  it('should have createMentionNotification method', () => {
-    expect(typeof MentionNotificationService.createMentionNotification).toBe('function')
-  })
+  it('posts a mention notification payload to the API', async () => {
+    fetchMock.mockResolvedValue(
+      createJsonResponse({ success: true, data: { id: 'notif-1' } })
+    )
 
-  it('should have getMentionNotifications method', () => {
-    expect(typeof MentionNotificationService.getMentionNotifications).toBe('function')
-  })
-
-  it('should have markAsRead method', () => {
-    expect(typeof MentionNotificationService.markAsRead).toBe('function')
-  })
-
-  it('should have markAllAsRead method', () => {
-    expect(typeof MentionNotificationService.markAllAsRead).toBe('function')
-  })
-
-  it('should have sendNotificationToUser method', () => {
-    expect(typeof MentionNotificationService.sendNotificationToUser).toBe('function')
-  })
-
-  it('should have subscribeToNotifications method', () => {
-    expect(typeof MentionNotificationService.subscribeToNotifications).toBe('function')
-  })
-
-  it('should create mention notification with correct context type for comments', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
-    
     await MentionNotificationService.createMentionNotification(
-      'user123',
-      'John Doe',
+      'user-1',
+      'Jane Doe',
       'comment',
-      'Test Task',
-      'task456',
-      'project789',
-      'task456'
+      'Task Title',
+      'task-1',
+      'project-1',
+      'task-1'
     )
-    
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Mention notification created for user:',
-      'user123',
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/mention-notifications',
       expect.objectContaining({
-        message: 'John Doe mentioned you in a comment'
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/json'
+        })
       })
     )
-    
-    consoleSpy.mockRestore()
-  })
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined
 
-  it('should create mention notification with correct context type for notes', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
-    
-    await MentionNotificationService.createMentionNotification(
-      'user123',
-      'John Doe',
-      'note',
-      'Test Task',
-      'task456',
-      'project789',
-      'task456'
-    )
-    
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Mention notification created for user:',
-      'user123',
+    expect(JSON.parse(requestInit?.body as string)).toEqual(
       expect.objectContaining({
-        message: 'John Doe mentioned you in notes'
-      })
-    )
-    
-    consoleSpy.mockRestore()
-  })
-
-  it('should create mention notification with correct context type for notes', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
-    
-    await MentionNotificationService.createMentionNotification(
-      'user123',
-      'John Doe',
-      'note',
-      'Test Task',
-      'task456',
-      'project789',
-      'task456'
-    )
-    
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Mention notification created for user:',
-      'user123',
-      expect.objectContaining({
-        message: 'John Doe mentioned you in notes'
-      })
-    )
-    
-    consoleSpy.mockRestore()
-  })
-
-  it('should create mention notification with correct context type for messages', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
-    
-    await MentionNotificationService.createMentionNotification(
-      'user123',
-      'John Doe',
-      'message',
-      'Team Alpha: Hello everyone!',
-      'team456',
-      undefined,
-      undefined
-    )
-    
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Mention notification created for user:',
-      'user123',
-      expect.objectContaining({
-        message: 'John Doe mentioned you in a team message'
-      })
-    )
-    
-    consoleSpy.mockRestore()
-  })
-
-  it('should send notification to correct user', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
-    
-    await MentionNotificationService.sendNotificationToUser(
-      'targetUser123',
-      {
+        userId: 'user-1',
         type: 'mention',
-        title: 'You were mentioned',
-        message: 'John Doe mentioned you in a comment',
-        mentionedBy: 'John Doe',
-        mentionedByName: 'John Doe',
-        contextType: 'comment',
-        contextId: 'task456',
-        contextTitle: 'Test Task',
-        projectId: 'project789',
-        taskId: 'task456',
-        actionUrl: '/tasks/task456'
-      }
+        message: 'Jane Doe mentioned you in a comment',
+        taskId: 'task-1',
+        projectId: 'project-1'
+      })
     )
-    
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Notification sent to user:',
-      'targetUser123'
+  })
+
+  it('filters notification reads to the current user and maps dates', async () => {
+    fetchMock.mockResolvedValue(
+      createJsonResponse({
+        success: true,
+        data: [
+          {
+            id: 'notif-1',
+            title: 'A',
+            message: 'A message',
+            type: 'mention',
+            isRead: false,
+            mentionedUserId: 'user-1',
+            createdAt: '2026-04-07T00:00:00.000Z'
+          },
+          {
+            id: 'notif-2',
+            title: 'B',
+            message: 'B message',
+            type: 'mention',
+            isRead: true,
+            mentionedUserId: 'user-2',
+            createdAt: '2026-04-07T01:00:00.000Z'
+          }
+        ]
+      })
     )
-    
-    consoleSpy.mockRestore()
+
+    const notifications = await MentionNotificationService.getMentionNotifications('user-1')
+
+    expect(notifications).toHaveLength(1)
+    expect(notifications[0].id).toBe('notif-1')
+    expect(notifications[0].createdAt).toBeInstanceOf(Date)
+  })
+
+  it('does not fetch while the document is hidden and refreshes once visible', async () => {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden'
+    })
+    fetchMock.mockResolvedValue(
+      createJsonResponse({ success: true, data: [] })
+    )
+
+    const callback = jest.fn()
+    const unsubscribe = MentionNotificationService.subscribeToNotifications('user-1', callback)
+
+    await flushPromises()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible'
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenCalledWith([])
+
+    unsubscribe()
+  })
+
+  it('backs off after a 429 response and retries with the longer delay', async () => {
+    const rateLimitError = Object.assign(new Error('Too many requests'), { status: 429 })
+
+    fetchMock
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce(createJsonResponse({ success: true, data: [] }))
+
+    const callback = jest.fn()
+    const unsubscribe = MentionNotificationService.subscribeToNotifications('user-1', callback)
+
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(callback).not.toHaveBeenCalled()
+
+    await jest.advanceTimersByTimeAsync(120000)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(callback).toHaveBeenCalledWith([])
+
+    unsubscribe()
   })
 })

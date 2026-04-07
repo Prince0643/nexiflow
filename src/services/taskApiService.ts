@@ -99,6 +99,23 @@ export const taskApiService = {
     return response.data
   },
 
+  async getTask(taskId: string): Promise<Task | null> {
+    if (!taskId) {
+      throw new Error('Task ID is required')
+    }
+
+    const response = await apiRequest<{
+      success: boolean
+      data: Task | null
+    }>(`/tasks/${taskId}`)
+
+    if (!response.success) {
+      throw new Error('Failed to get task')
+    }
+
+    return response.data
+  },
+
   // Create a new task
   async createTask(taskData: CreateTaskData): Promise<Task> {
     const response = await apiRequest<{

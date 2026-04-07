@@ -1,7 +1,8 @@
 import OpenAI from 'openai'
+import { getEnvValue } from '../utils/env'
 
 // Check if API key is available
-const apiKey = import.meta.env.VITE_OPENAI_API_KEY
+const apiKey = getEnvValue('VITE_OPENAI_API_KEY')
 
 if (!apiKey) {
   console.warn('OpenAI API key not found in environment variables. AI features will not work.')
