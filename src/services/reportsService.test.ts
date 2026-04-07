@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals'
 import type { ReportFilters, TimeEntry } from '../types'
 
-const mockGetTimeEntries = jest.fn()
+const mockGetTimeEntries = jest.fn<() => Promise<TimeEntry[]>>()
 
 jest.unstable_mockModule('./timeEntryService', () => ({
   timeEntryService: {
