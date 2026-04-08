@@ -7,6 +7,8 @@ services:
     container_name: nexiflow_backend
     restart: unless-stopped
     network_mode: host
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -34,6 +36,9 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-https://nexi-flow.com/}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://nexi-flow.com/api}
       ROOT_API_KEY: ${ROOT_API_KEY}
+      # OpenAI (server-side only)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
       - ./api/uploads:/app/api/uploads
     healthcheck:

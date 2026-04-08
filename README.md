@@ -81,8 +81,12 @@ A modern, Clockify-like time tracking application built with React, TypeScript, 
    VITE_FIREBASE_APP_ID=your_app_id
    VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
    
-   # OpenAI Configuration (for AI features)
-   VITE_OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+   For AI features, add your OpenAI key to the backend `.env` (server-side only):
+   ```bash
+   OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_MODEL=gpt-4o-mini
    ```
    
    **Important**: Never commit your `.env.local` file to version control. It's already included in `.gitignore`.
