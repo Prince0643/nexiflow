@@ -41,13 +41,6 @@ export default function AIChatWidget() {
   const toggleButtonRef = useRef<HTMLButtonElement>(null)
   const { isDarkMode } = useTheme()
 
-  // Check if OpenAI is configured
-  useEffect(() => {
-    if (!openaiService.isConfigured()) {
-      setError('OpenAI is not configured. Please check your environment variables.')
-    }
-  }, [])
-
   // Load saved widget height from localStorage
   useEffect(() => {
     const savedHeight = localStorage.getItem('aiChatWidgetHeight')
@@ -141,54 +134,17 @@ export default function AIChatWidget() {
     setIsResizing(true)
   }
 
-  const callOpenAI = async (prompt: string): Promise<string> => {
+  const callOpenAI = async (prompt: string, contextMessages: AIChatMessage[] = []): Promise<string> => {
     try {
       setIsAIProcessing(true)
       setError(null)
-      
-      // Enhanced system message with NexiFlow specific information
-      const systemMessage = `You are an AI assistant integrated into NexiFlow, a comprehensive time tracking and project management application. 
-      
-Key features of NexiFlow include:
-1. Time Tracking - Start/stop timers, manual entries, project/task association, tags, billable hours
-2. Dashboard & Analytics - Overview statistics, earnings tracking, productivity insights, recent activity
-3. Project Management - Project organization, task management, client management, color coding
-4. Reports & Export - Time reports, data export, filtering, visual charts
-5. Team Collaboration - Teams, team details, messaging (separate feature)
-6. Settings & Customization - User profile, time & billing, notifications, appearance
-
-Common user questions and how to respond:
-- For "how do I start the time?" or similar time tracking questions:
-  1. Go to the Time Tracker page (click the clock icon in the sidebar)
-  2. Click the "Start Timer" button for quick time tracking
-  3. Or click "Add Time Entry" for manual time entry
-  4. Select project, task, and add description
-  5. Click "Start" to begin timing or set time manually
-  
-- For "how do I do this?" or vague questions:
-  1. Ask for clarification about what specific feature or task they need help with
-  2. Provide step-by-step instructions once you understand their goal
-  3. Reference the appropriate section of NexiFlow
-  
-- For navigation questions:
-  1. Refer to the sidebar menu items and their icons
-  2. Provide the exact path to find features
-  
-When helping users:
-- Provide specific, step-by-step guidance
-- Use the exact names and terminology from NexiFlow
-- Include references to UI elements like buttons, icons, and menu items
-- If users ask vague questions, ask clarifying questions to understand their goal
-- Keep responses concise but complete
-- Focus on helping users accomplish their specific tasks
-
-Keep responses focused on helping users be more productive with NexiFlow.`;
 
       // Call the OpenAI service
-      const response = await openaiService.generateResponse(
-        prompt,
-        systemMessage
-      )
+      const context = contextMessages.map((message) => ({
+        role: message.role,
+        content: message.content
+      }))
+      const response = await openaiService.generateResponseWithContext(prompt, context)
       
       return response
     } catch (error: any) {
@@ -216,7 +172,7 @@ Keep responses focused on helping users be more productive with NexiFlow.`;
     
     try {
       // Call OpenAI
-      const response = await callOpenAI(messageText)
+      const response = await callOpenAI(messageText, messages)
       
       // Add AI response to chat
       const aiMessage: AIChatMessage = {
@@ -350,12 +306,6 @@ Keep responses focused on helping users be more productive with NexiFlow.`;
                   <p className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>
                     Ask me about NexiFlow features and productivity tips!
                   </p>
-                  {!openaiService.isConfigured() && (
-                    <div className={`mt-4 p-3 rounded-lg text-sm ${isDarkMode ? 'bg-red-900 text-red-200' : 'bg-red-50 text-red-600'}`}>
-                      <AlertCircle className="h-4 w-4 inline mr-1" />
-                      OpenAI is not configured. Please check your environment variables.
-                    </div>
-                  )}
                 </div>
               </div>
             ) : (
@@ -416,7 +366,7 @@ Keep responses focused on helping users be more productive with NexiFlow.`;
                         </div>
                         <div className="relative">
                           <div className="float-left clear-left">
-                            <p className={`text-sm whitespace-pre-wrap break-words p-3 rounded-2xl ${
+                            <div className={`text-sm whitespace-pre-wrap break-words p-3 rounded-2xl ${
                               `${isDarkMode ? 'bg-gray-700 text-gray-100' : 'bg-gray-100 text-gray-800'} rounded-tl-none`
                             }`}>
                               <div className="flex space-x-2">
@@ -424,7 +374,7 @@ Keep responses focused on helping users be more productive with NexiFlow.`;
                                 <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                                 <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0.4s' }}></div>
                               </div>
-                            </p>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -446,7 +396,7 @@ Keep responses focused on helping users be more productive with NexiFlow.`;
                 placeholder="Ask about NexiFlow features..."
                 className={`flex-grow resize-none border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 disabled:bg-gray-800' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100'}`}
                 rows={2}
-                disabled={isAIProcessing || !openaiService.isConfigured()}
+                disabled={isAIProcessing}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
@@ -456,7 +406,7 @@ Keep responses focused on helping users be more productive with NexiFlow.`;
               />
               <button
                 type="submit"
-                disabled={!messageText.trim() || isAIProcessing || !openaiService.isConfigured()}
+                disabled={!messageText.trim() || isAIProcessing}
                 className={`px-3 py-2 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-[36px] ${isDarkMode ? 'bg-gray-200 text-gray-800' : 'bg-gray-200 text-gray-800'}`}
               >
                 {isAIProcessing ? (

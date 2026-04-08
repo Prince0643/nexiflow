@@ -193,6 +193,14 @@ const createApiLimiter = (max, skip) => rateLimit({
 const mentionReadLimiter = createApiLimiter(600, (req) => req.method !== 'GET');
 const taskLiveReadLimiter = createApiLimiter(900, (req) => req.method !== 'GET');
 const limiter = createApiLimiter(300);
+const aiChatLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: isDev ? 300 : 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user?.uid || req.ip,
+  message: { success: false, error: 'Too many AI requests. Please try again shortly.' }
+});
 
 app.use('/api/mention-notifications', mentionReadLimiter);
 app.use('/api/tasks/:id', taskLiveReadLimiter);
@@ -601,6 +609,102 @@ async function authenticateToken(req, res, next) {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
+
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const AI_HISTORY_LIMIT = 10;
+const AI_SYSTEM_PROMPT = `You are an AI assistant integrated into NexiFlow, a comprehensive time tracking and project management application.
+
+Key features of NexiFlow include:
+1. Time Tracking - Start/stop timers, manual entries, project/task association, tags, billable hours
+2. Dashboard & Analytics - Overview statistics, earnings tracking, productivity insights, recent activity
+3. Project Management - Project organization, task management, client management, color coding
+4. Reports & Export - Time reports, data export, filtering, visual charts
+5. Team Collaboration - Teams, team details, messaging (separate feature)
+6. Settings & Customization - User profile, time & billing, notifications, appearance
+
+When helping users:
+- Provide specific, step-by-step guidance
+- Use exact names and terminology from NexiFlow
+- Include references to UI elements like buttons, icons, and menu items
+- Ask clarifying questions when user intent is vague
+- Keep responses concise but complete`;
+
+const normalizeAIHistory = (history) => {
+  if (!Array.isArray(history)) return [];
+
+  return history
+    .filter((msg) => msg && (msg.role === 'user' || msg.role === 'assistant') && typeof msg.content === 'string')
+    .slice(-AI_HISTORY_LIMIT)
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content.slice(0, 4000)
+    }));
+};
+
+app.post('/api/ai/chat', authenticateToken, aiChatLimiter, async (req, res) => {
+  const { prompt, history } = req.body || {};
+  const trimmedPrompt = typeof prompt === 'string' ? prompt.trim() : '';
+
+  if (!trimmedPrompt) {
+    return res.status(400).json({ success: false, error: 'Prompt is required' });
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(503).json({ success: false, error: 'AI is not configured on the server' });
+  }
+
+  const messages = [
+    { role: 'system', content: AI_SYSTEM_PROMPT },
+    ...normalizeAIHistory(history),
+    { role: 'user', content: trimmedPrompt }
+  ];
+
+  try {
+    const openAIResponse = await axios.post(
+      OPENAI_API_URL,
+      {
+        model: OPENAI_MODEL,
+        messages,
+        temperature: 0.7,
+        max_tokens: 500
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+
+    const reply = openAIResponse.data?.choices?.[0]?.message?.content;
+
+    if (!reply || typeof reply !== 'string') {
+      return res.status(502).json({ success: false, error: 'Invalid AI response format' });
+    }
+
+    return res.json({ success: true, reply });
+  } catch (error) {
+    const providerStatus = error?.response?.status;
+    const providerMessage = error?.response?.data?.error?.message;
+    console.error('AI chat error:', {
+      userId: req.user?.uid || null,
+      status: providerStatus,
+      message: providerMessage || error.message
+    });
+
+    if (providerStatus === 429) {
+      return res.status(429).json({ success: false, error: 'AI rate limit reached. Please try again shortly.' });
+    }
+
+    if (providerStatus === 401 || providerStatus === 403) {
+      return res.status(502).json({ success: false, error: 'AI provider rejected server credentials' });
+    }
+
+    return res.status(502).json({ success: false, error: 'Failed to get AI response' });
+  }
+});
 
 // Validation schemas
 const timeEntrySchema = Joi.object({
