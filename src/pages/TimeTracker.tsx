@@ -26,7 +26,7 @@ export default function TimeTrackerPage() {
 
   useEffect(() => {
     loadTimeData()
-  }, [])
+  }, [currentUser])
 
   const loadTimeData = async () => {
     if (!currentUser) return
@@ -48,10 +48,6 @@ export default function TimeTrackerPage() {
         uniqueEntries.push(entry)
       }
       setAllEntries(uniqueEntries)
-      // Show first page of entries
-      const indexOfLastEntry = currentPage * entriesPerPage
-      const indexOfFirstEntry = indexOfLastEntry - entriesPerPage
-      setRecentEntries(uniqueEntries.slice(indexOfFirstEntry, indexOfLastEntry))
     } catch (error) {
       console.error('Error loading time data:', error)
     } finally {
@@ -73,6 +69,19 @@ export default function TimeTrackerPage() {
     const indexOfFirstEntry = indexOfLastEntry - entriesPerPage
     setRecentEntries(allEntries.slice(indexOfFirstEntry, indexOfLastEntry))
   }, [allEntries, currentPage, entriesPerPage])
+
+  useEffect(() => {
+    if (!currentUser) return undefined
+
+    const handleTimeEntryChanged = () => {
+      void loadTimeData()
+    }
+
+    window.addEventListener('timeEntry:changed', handleTimeEntryChanged as EventListener)
+    return () => {
+      window.removeEventListener('timeEntry:changed', handleTimeEntryChanged as EventListener)
+    }
+  }, [currentUser])
 
   const getTimeStats = () => {
     if (!timeSummary) return { total: 0, billable: 0, entries: 0 }

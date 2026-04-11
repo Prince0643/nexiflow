@@ -1,7 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
-import { MessageCircle, X, Send, AlertCircle, Wallet } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { X, Send, AlertCircle, Wallet } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
 import { useTheme } from '../../contexts/ThemeContext'
 import { openaiService } from '../../services/openaiService'
+import { projectApiService } from '../../services/projectApiService'
+import { timeEntryApiService } from '../../services/timeEntryApiService'
+import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
+import { Client, Project } from '../../types'
+import { canAccessFeature } from '../../utils/permissions'
 
 // Custom Logo Component
 const CustomLogo = ({ className }: { className?: string }) => (
@@ -21,6 +27,39 @@ interface AIChatMessage {
   timestamp: Date
 }
 
+type AIResponseResult = {
+  reply: string
+  actionRequest?: StopTimerRequirementsRequest
+  shouldDelay: boolean
+}
+
+type StopTimerRequirementsRequest = {
+  type: 'stop_timer_requirements'
+  missingFields?: string[]
+  runningTimer?: {
+    id?: string
+    clientId?: string
+    projectId?: string
+    description?: string
+  } | null
+}
+
+interface PendingStopFormState {
+  request: StopTimerRequirementsRequest
+  clientId: string
+  projectId: string
+  description: string
+  summary: string
+}
+
+const AI_EXAMPLE_PROMPTS = [
+  'Start my timer',
+  'Where is the calendar?',
+  'How do I create a project?'
+]
+
+const AI_REPLY_DELAY_MS = 2000
+
 export default function AIChatWidget() {
   const [isOpen, setIsOpen] = useState(false)
   const [messageText, setMessageText] = useState('')
@@ -33,13 +72,117 @@ export default function AIChatWidget() {
   const [position, setPosition] = useState({ x: 0, y: 0 })
   // Visibility state
   const [isHidden, setIsHidden] = useState(false)
+  const [pendingStopForm, setPendingStopForm] = useState<PendingStopFormState | null>(null)
+  const [stopFormClients, setStopFormClients] = useState<Client[]>([])
+  const [stopFormProjects, setStopFormProjects] = useState<Project[]>([])
+  const [isStopFormSubmitting, setIsStopFormSubmitting] = useState(false)
+  const [stopFormError, setStopFormError] = useState<string | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const resizeRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<HTMLDivElement>(null)
   const toggleButtonRef = useRef<HTMLButtonElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const { currentUser, currentCompany } = useMySQLAuth()
   const { isDarkMode } = useTheme()
+  const location = useLocation()
+
+  const stopFormFilteredProjects = useMemo(() => {
+    if (!pendingStopForm?.clientId) return stopFormProjects
+    return stopFormProjects.filter((project) => project.clientId === pendingStopForm.clientId)
+  }, [pendingStopForm?.clientId, stopFormProjects])
+
+  const appendAssistantMessage = (content: string) => {
+    const aiMessage: AIChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      role: 'assistant',
+      content,
+      timestamp: new Date()
+    }
+    setMessages((prev) => [...prev, aiMessage])
+  }
+
+  const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+  const focusInputSoon = () => {
+    window.setTimeout(() => {
+      inputRef.current?.focus()
+    }, 0)
+  }
+
+  const handleExamplePromptClick = (prompt: string) => {
+    setIsOpen(true)
+    setMessageText(prompt)
+    focusInputSoon()
+  }
+
+  const getCurrentPageLabel = (pathname: string) => {
+    if (pathname === '/' || pathname === '/root') return 'Dashboard'
+    if (pathname.startsWith('/tracker')) return 'Time Tracker'
+    if (pathname.startsWith('/calendar')) return 'Calendar'
+    if (pathname.startsWith('/projects')) return 'Projects'
+    if (pathname === '/clients') return 'Clients'
+    if (pathname.startsWith('/clients/edit/')) return 'Edit Client'
+    if (pathname.startsWith('/clients/')) return 'Client Details'
+    if (pathname.startsWith('/reports')) return 'Reports'
+    if (pathname.startsWith('/management')) return 'Project Management'
+    if (pathname === '/teams') return 'Teams'
+    if (pathname.startsWith('/teams/')) return 'Team Details'
+    if (pathname.startsWith('/admin')) return 'Admin Dashboard'
+    if (pathname.startsWith('/settings')) return 'Settings'
+    if (pathname.startsWith('/pdf-settings')) return 'PDF Settings'
+    if (pathname.startsWith('/chat')) return 'Team Chat'
+    if (pathname === '/invoicing') return 'Invoicing'
+    if (pathname.startsWith('/invoicing/new')) return 'New Invoice'
+    if (pathname.startsWith('/upgrade')) return 'Upgrade'
+    if (pathname.startsWith('/system')) return 'System Settings'
+    return 'NexiFlow'
+  }
+
+  const getVisibleNavigationItems = () => {
+    if (currentUser?.role === 'root') {
+      return [
+        { name: 'Root Dashboard', href: '/root' },
+        { name: 'System Settings', href: '/system' }
+      ]
+    }
+
+    let items = [
+      { name: 'Dashboard', href: '/', requiredFeature: null },
+      { name: 'Time Tracker', href: '/tracker', requiredFeature: null },
+      { name: 'Calendar', href: '/calendar', requiredFeature: null },
+      { name: 'Projects', href: '/projects', requiredFeature: 'projects' },
+      { name: 'Clients', href: '/clients', requiredFeature: 'clients' },
+      { name: 'Task Management', href: '/management', requiredFeature: null },
+      { name: 'Teams', href: '/teams', requiredFeature: 'teams' },
+      { name: 'Reports', href: '/reports', requiredFeature: null },
+      { name: 'Invoicing', href: '/invoicing', requiredFeature: null },
+      { name: 'Admin Dashboard', href: '/admin', requiredFeature: 'admin-dashboard' },
+      { name: 'Settings', href: '/settings', requiredFeature: null }
+    ]
+
+    if (currentCompany?.pricingLevel === 'solo') {
+      items = items.filter((item) => !['Task Management', 'Teams', 'Reports', 'Invoicing'].includes(item.name))
+      items.push({ name: 'Upgrade', href: '/upgrade', requiredFeature: null })
+    }
+
+    return items
+      .filter((item) => !item.requiredFeature || (currentUser?.role && canAccessFeature(currentUser.role, item.requiredFeature)))
+      .map(({ name, href }) => ({ name, href }))
+  }
+
+  const buildStopRequirementSummary = (request: StopTimerRequirementsRequest) => {
+    const missingFields = Array.isArray(request.missingFields)
+      ? request.missingFields.filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+      : []
+
+    if (!missingFields.length) {
+      return 'I found your running timer, but it cannot be stopped yet because required details are missing.'
+    }
+
+    return `I found your running timer, but it cannot be stopped yet because these required fields are missing: ${missingFields.join(', ')}.`
+  }
 
   // Load saved widget height from localStorage
   useEffect(() => {
@@ -134,7 +277,66 @@ export default function AIChatWidget() {
     setIsResizing(true)
   }
 
-  const callOpenAI = async (prompt: string, contextMessages: AIChatMessage[] = []): Promise<string> => {
+  const loadStopFormOptions = async () => {
+    if (!currentUser) {
+      throw new Error('Session expired. Please log in again.')
+    }
+
+    const [clients, projects] = await Promise.all([
+      currentUser.companyId
+        ? projectApiService.getClientsForCompany(currentUser.companyId)
+        : projectApiService.getClients(),
+      currentUser.companyId
+        ? projectApiService.getProjectsForCompany(currentUser.companyId)
+        : projectApiService.getProjects()
+    ])
+
+    setStopFormClients(clients)
+    setStopFormProjects(projects)
+    return { clients, projects }
+  }
+
+  const hydrateStopRequirementsForm = async (request: StopTimerRequirementsRequest) => {
+    setStopFormError(null)
+    const { clients, projects } = await loadStopFormOptions()
+
+    if (!clients.length) {
+      setPendingStopForm(null)
+      appendAssistantMessage('You do not have any clients yet. Please create a client first, then I can help stop the timer with required details.')
+      return
+    }
+
+    if (!projects.length) {
+      setPendingStopForm(null)
+      appendAssistantMessage('You do not have any projects yet. Please create a project and assign it to a client, then I can stop the timer.')
+      return
+    }
+
+    const prefilledClientId = request.runningTimer?.clientId || ''
+    const prefilledProjectId = request.runningTimer?.projectId || ''
+    const prefilledDescription = request.runningTimer?.description || ''
+    const selectedProject = projects.find((project) => project.id === prefilledProjectId)
+    const resolvedClientId = prefilledClientId || selectedProject?.clientId || clients[0]?.id || ''
+    const selectedClientExists = !resolvedClientId || clients.some((client) => client.id === resolvedClientId)
+    const selectedProjectExists = !prefilledProjectId || projects.some((project) => project.id === prefilledProjectId)
+    const projectsForSelectedClient = projects.filter((project) => project.clientId === resolvedClientId)
+    const defaultProjectId = selectedProjectExists
+      ? prefilledProjectId
+      : (projectsForSelectedClient[0]?.id || '')
+
+    setPendingStopForm({
+      request,
+      clientId: selectedClientExists ? resolvedClientId : '',
+      projectId: defaultProjectId,
+      description: prefilledDescription,
+      summary: buildStopRequirementSummary(request)
+    })
+  }
+
+  const callOpenAI = async (
+    prompt: string,
+    contextMessages: AIChatMessage[] = []
+  ): Promise<AIResponseResult> => {
     try {
       setIsAIProcessing(true)
       setError(null)
@@ -144,13 +346,28 @@ export default function AIChatWidget() {
         role: message.role,
         content: message.content
       }))
-      const response = await openaiService.generateResponseWithContext(prompt, context)
-      
-      return response
+      const response = await openaiService.generateResponseWithContextDetailed(prompt, context, {
+        currentPath: location.pathname,
+        currentPage: getCurrentPageLabel(location.pathname),
+        visibleNavigation: getVisibleNavigationItems()
+      })
+      const actionRequest = response.meta?.actionRequest
+      const normalizedActionRequest = actionRequest?.type === 'stop_timer_requirements'
+        ? actionRequest as StopTimerRequirementsRequest
+        : undefined
+      const timerAction = response.meta?.timerSync?.action
+      const isAutomatedTimerReply = timerAction === 'started' || timerAction === 'stopped'
+      const shouldDelay = isAutomatedTimerReply
+
+      if (shouldDelay) {
+        await sleep(AI_REPLY_DELAY_MS)
+      }
+
+      return { reply: response.reply, actionRequest: normalizedActionRequest, shouldDelay }
     } catch (error: any) {
       console.error('Error calling OpenAI:', error)
       setError(error.message || 'Failed to get response from AI assistant.')
-      return 'Sorry, I encountered an error processing your request.'
+      return { reply: 'Sorry, I encountered an error processing your request.', shouldDelay: false }
     } finally {
       setIsAIProcessing(false)
     }
@@ -173,16 +390,34 @@ export default function AIChatWidget() {
     try {
       // Call OpenAI
       const response = await callOpenAI(messageText, messages)
-      
-      // Add AI response to chat
-      const aiMessage: AIChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response,
-        timestamp: new Date()
+
+      if (response.actionRequest?.type === 'stop_timer_requirements') {
+        await hydrateStopRequirementsForm(response.actionRequest)
+        setMessages((prev) => {
+          if (pendingStopForm) {
+            return prev
+          }
+
+          const aiMessage: AIChatMessage = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: response.reply,
+            timestamp: new Date()
+          }
+
+          return [...prev, aiMessage]
+        })
+      } else {
+        // Add AI response to chat
+        const aiMessage: AIChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response.reply,
+          timestamp: new Date()
+        }
+
+        setMessages(prev => [...prev, aiMessage])
       }
-      
-      setMessages(prev => [...prev, aiMessage])
     } catch (error) {
       console.error('Error processing message:', error)
     }
@@ -190,9 +425,69 @@ export default function AIChatWidget() {
     setMessageText('')
   }
 
+  const updatePendingStopForm = (updates: Partial<Omit<PendingStopFormState, 'request'>>) => {
+    setPendingStopForm((prev) => (prev ? { ...prev, ...updates } : prev))
+  }
+
+  const handleStopFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!currentUser || !pendingStopForm || isStopFormSubmitting) return
+
+    setStopFormError(null)
+
+    if (!pendingStopForm.clientId || !pendingStopForm.projectId || !pendingStopForm.description.trim()) {
+      setStopFormError('Client, project, and description are required to stop the timer.')
+      return
+    }
+
+    setIsStopFormSubmitting(true)
+
+    try {
+      const runningEntry = await timeEntryApiService.getRunningTimeEntry(currentUser.uid)
+      if (!runningEntry?.id) {
+        throw new Error('No running timer found. Please start a timer first.')
+      }
+
+      const selectedProject = stopFormProjects.find((project) => project.id === pendingStopForm.projectId)
+      const selectedClient = stopFormClients.find((client) => client.id === pendingStopForm.clientId)
+
+      await timeEntryApiService.updateTimeEntry(runningEntry.id, {
+        projectId: pendingStopForm.projectId,
+        projectName: selectedProject?.name,
+        clientId: pendingStopForm.clientId,
+        clientName: selectedClient?.name,
+        description: pendingStopForm.description.trim()
+      })
+
+      await timeEntryApiService.stopTimeEntry(runningEntry.id)
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('timeEntry:changed', {
+          detail: {
+            source: 'ai',
+            action: 'stopped'
+          }
+        }))
+      }
+
+      setPendingStopForm(null)
+      appendAssistantMessage('Timer stopped successfully.')
+    } catch (error: any) {
+      const message = error?.message || 'Failed to stop timer from the form.'
+      setStopFormError(message)
+      appendAssistantMessage(`I could not stop the timer: ${message}`)
+    } finally {
+      setIsStopFormSubmitting(false)
+    }
+  }
+
   const clearChat = () => {
     setMessages([])
     setError(null)
+    setPendingStopForm(null)
+    setStopFormClients([])
+    setStopFormProjects([])
+    setStopFormError(null)
   }
 
   // Check if the error is related to quota/billing
@@ -206,21 +501,69 @@ export default function AIChatWidget() {
   return (
     <>
       {/* Widget Toggle Button - Fixed at bottom right */}
-      <button
-        ref={toggleButtonRef}
-        onClick={() => setIsOpen(!isOpen)}
-        className={`fixed p-3 rounded-full shadow-lg hover:bg-gray-100 transition-colors z-40 ${isDarkMode ? 'bg-white text-gray-800' : 'bg-white text-gray-800'}`}
-        title="AI Assistant"
-        style={{ 
-          right: '20px', 
-          bottom: '20px',
-          cursor: 'pointer'
+      <div
+        className="fixed z-40 flex items-end gap-3"
+        style={{
+          right: '20px',
+          bottom: '20px'
         }}
       >
-        <div className="relative">
-          <CustomLogo className="h-6 w-6" />
-        </div>
-      </button>
+        {!isOpen && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(true)
+              focusInputSoon()
+            }}
+            className={`hidden sm:flex max-w-[220px] flex-col rounded-2xl border px-4 py-3 text-left shadow-lg transition-transform hover:-translate-y-0.5 ${
+              isDarkMode
+                ? 'border-gray-700 bg-gray-800 text-gray-100'
+                : 'border-gray-200 bg-white text-gray-900'
+            }`}
+          >
+            <span className="text-sm font-semibold">Need help?</span>
+            <span className={`mt-1 text-xs leading-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+              Ask AI to start your timer, find a page, or explain a workflow.
+            </span>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {AI_EXAMPLE_PROMPTS.slice(0, 2).map((prompt) => (
+                <span
+                  key={prompt}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleExamplePromptClick(prompt)
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[11px] ${
+                    isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {prompt}
+                </span>
+              ))}
+            </div>
+          </button>
+        )}
+
+        <button
+          ref={toggleButtonRef}
+          onClick={() => setIsOpen(!isOpen)}
+          className={`relative p-3 rounded-full shadow-lg hover:bg-gray-100 transition-colors ${isDarkMode ? 'bg-white text-gray-800' : 'bg-white text-gray-800'}`}
+          title="AI Assistant"
+          style={{
+            cursor: 'pointer'
+          }}
+        >
+          {!isOpen && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500"></span>
+            </span>
+          )}
+          <div className="relative">
+            <CustomLogo className="h-6 w-6" />
+          </div>
+        </button>
+      </div>
 
       {/* AI Chat Widget - Fixed at bottom right */}
       {isOpen && (
@@ -297,15 +640,31 @@ export default function AIChatWidget() {
           )}
 
           {/* Messages */}
-          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-1 py-2 space-y-2 scrollbar-visible">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-2 py-3 space-y-2 scrollbar-visible">
             {messages.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-center">
-                <div>
+              <div className="flex h-full items-center justify-center px-4 py-6 text-center">
+                <div className="w-full max-w-[280px]">
                   <CustomLogo className={`h-12 w-12 mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`} />
                   <h4 className={`text-lg font-medium mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>NexiFlow AI Assistant</h4>
-                  <p className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>
-                    Ask me about NexiFlow features and productivity tips!
+                  <p className={`mx-auto max-w-[260px] leading-7 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Ask AI to start or stop your timer, find a page, or show you how something works.
                   </p>
+                  <div className="mt-5 space-y-2.5 text-left">
+                    {AI_EXAMPLE_PROMPTS.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => handleExamplePromptClick(prompt)}
+                        className={`block w-full rounded-xl px-3.5 py-2.5 text-left text-xs transition-colors ${
+                          isDarkMode
+                            ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {`Try: "${prompt}"`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -315,15 +674,12 @@ export default function AIChatWidget() {
                     key={message.id} 
                     className={`group flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} w-full px-1`}
                   >
-                    <div className={`flex ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'} max-w-[92%] w-auto`}>
-                      <div 
-                        className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${message.role === 'user' ? 'ml-2' : 'mr-2'} self-start`}
-                        style={{ backgroundColor: message.role === 'user' ? '#3B82F6' : '#10B981' }}
-                      >
-                        {message.role === 'user' ? 'You' : 'AI'}
-                      </div>
+                    <div className={`flex max-w-[92%] w-auto ${message.role === 'user' ? 'justify-end' : 'items-start'}`}>
+                      {message.role === 'assistant' && (
+                        <CustomLogo className="mr-2 h-8 w-8 flex-shrink-0 self-start" />
+                      )}
                       <div className="flex-1 min-w-0">
-                        <div className={`flex items-baseline ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'} space-x-1 mb-1`}>
+                        <div className={`mb-1 flex items-baseline gap-1.5 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                           <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
                             {message.role === 'user' ? 'You' : 'AI Assistant'}
                           </h4>
@@ -346,19 +702,101 @@ export default function AIChatWidget() {
                     </div>
                   </div>
                 ))}
+
+                {pendingStopForm && (
+                  <div className="group flex justify-start w-full px-1">
+                    <div className="flex flex-row max-w-[92%] w-auto">
+                      <CustomLogo className="mr-2 h-8 w-8 flex-shrink-0 self-start" />
+                      <div className="flex-1 min-w-0">
+                        <div className="mb-1 flex items-baseline gap-1.5">
+                          <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>AI Assistant</h4>
+                          <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            Action Required
+                          </span>
+                        </div>
+                        <div className={`p-3 rounded-2xl rounded-tl-none ${isDarkMode ? 'bg-gray-700 text-gray-100' : 'bg-gray-100 text-gray-800'}`}>
+                          <p className="text-sm mb-3">
+                            {pendingStopForm.summary}
+                          </p>
+
+                          {pendingStopForm.request.missingFields && pendingStopForm.request.missingFields.length > 0 && (
+                            <p className={`text-xs mb-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                              Missing: {pendingStopForm.request.missingFields.join(', ')}
+                            </p>
+                          )}
+
+                          <form onSubmit={handleStopFormSubmit} className="space-y-2">
+                            <select
+                              value={pendingStopForm.clientId}
+                              onChange={(e) => {
+                                const nextClientId = e.target.value
+                                const currentProject = stopFormProjects.find((project) => project.id === pendingStopForm.projectId)
+                                updatePendingStopForm({
+                                  clientId: nextClientId,
+                                  projectId: currentProject?.clientId === nextClientId ? pendingStopForm.projectId : ''
+                                })
+                              }}
+                              className={`w-full border rounded px-2 py-2 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'}`}
+                              required
+                            >
+                              <option value="">Select client</option>
+                              {stopFormClients.map((client) => (
+                                <option key={client.id} value={client.id}>
+                                  {client.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={pendingStopForm.projectId}
+                              onChange={(e) => updatePendingStopForm({ projectId: e.target.value })}
+                              className={`w-full border rounded px-2 py-2 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'}`}
+                              required
+                            >
+                              <option value="">Select project</option>
+                              {stopFormFilteredProjects.map((project) => (
+                                <option key={project.id} value={project.id}>
+                                  {project.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <textarea
+                              value={pendingStopForm.description}
+                              onChange={(e) => updatePendingStopForm({ description: e.target.value })}
+                              placeholder="Enter description"
+                              className={`w-full border rounded px-2 py-2 text-sm resize-none ${isDarkMode ? 'bg-gray-800 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'}`}
+                              rows={2}
+                              required
+                            />
+
+                            {stopFormError && (
+                              <p className={`text-xs ${isDarkMode ? 'text-red-300' : 'text-red-600'}`}>
+                                {stopFormError}
+                              </p>
+                            )}
+
+                            <button
+                              type="submit"
+                              disabled={isStopFormSubmitting}
+                              className="w-full px-3 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {isStopFormSubmitting ? 'Stopping timer...' : 'Save and stop timer'}
+                            </button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Display AI Processing Indicator */}
                 {isAIProcessing && (
                   <div className="group flex justify-start w-full px-1">
                     <div className="flex flex-row max-w-[92%] w-auto">
-                      <div 
-                        className="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-white text-sm font-medium mr-2 self-start"
-                        style={{ backgroundColor: '#10B981' }}
-                      >
-                        AI
-                      </div>
+                      <CustomLogo className="mr-2 h-8 w-8 flex-shrink-0 self-start" />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline flex-row space-x-1 mb-1">
+                        <div className="mb-1 flex items-baseline gap-1.5">
                           <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>AI Assistant</h4>
                           <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                             Typing...
@@ -388,13 +826,14 @@ export default function AIChatWidget() {
           </div>
 
           {/* Message Input */}
-          <form onSubmit={handleSendMessage} className={`border-t p-4 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <form onSubmit={handleSendMessage} className={`border-t px-4 py-3 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <div className="flex space-x-2">
               <textarea
+                ref={inputRef}
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
-                placeholder="Ask about NexiFlow features..."
-                className={`flex-grow resize-none border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 disabled:bg-gray-800' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100'}`}
+                placeholder="Ask AI to start a timer or show you how to do something..."
+                className={`flex-grow resize-none border rounded-xl px-3.5 py-2.5 text-sm leading-6 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 disabled:bg-gray-800' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100'}`}
                 rows={2}
                 disabled={isAIProcessing}
                 onKeyDown={(e) => {
@@ -407,7 +846,7 @@ export default function AIChatWidget() {
               <button
                 type="submit"
                 disabled={!messageText.trim() || isAIProcessing}
-                className={`px-3 py-2 rounded-lg hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-[36px] ${isDarkMode ? 'bg-gray-200 text-gray-800' : 'bg-gray-200 text-gray-800'}`}
+                className={`px-3 py-2 rounded-xl hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-[38px] self-center ${isDarkMode ? 'bg-gray-200 text-gray-800' : 'bg-gray-200 text-gray-800'}`}
               >
                 {isAIProcessing ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -418,8 +857,8 @@ export default function AIChatWidget() {
             </div>
             
             {/* AI Instructions */}
-            <div className={`text-xs mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-              Ask about features, productivity tips, or navigation help
+            <div className={`text-xs mt-2 px-1 leading-5 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              Try: "Start my timer", "Where is Reports?", or "How do I create a client?"
             </div>
           </form>
         </div>

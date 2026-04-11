@@ -20,6 +20,8 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const billingEmailService = require('./services/billingEmailService');
+const { isStartTimerIntent, isStopTimerIntent } = require('./aiTimerIntent.cjs');
+const { sanitizeAIReply } = require('./aiReplyFormatting.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -613,7 +615,31 @@ async function authenticateToken(req, res, next) {
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const AI_HISTORY_LIMIT = 10;
-const AI_SYSTEM_PROMPT = `You are an AI assistant integrated into NexiFlow, a comprehensive time tracking and project management application.
+const AI_TOOL_MAX_STEPS = 4;
+const AI_TOOL_TIMEOUT_MS = 8000;
+const buildAISystemPrompt = (pageContext = {}) => {
+  const currentPath = typeof pageContext?.currentPath === 'string' ? pageContext.currentPath.trim() : '';
+  const currentPage = typeof pageContext?.currentPage === 'string' ? pageContext.currentPage.trim() : '';
+  const visibleNavigation = Array.isArray(pageContext?.visibleNavigation)
+    ? pageContext.visibleNavigation
+        .filter((item) => item && typeof item.name === 'string' && typeof item.href === 'string')
+        .slice(0, 20)
+    : [];
+  const pageContextLines = [];
+
+  if (currentPage) {
+    pageContextLines.push(`- The user is currently on the ${currentPage} page.`)
+  }
+
+  if (currentPath) {
+    pageContextLines.push(`- Current route: ${currentPath}`)
+  }
+
+  if (visibleNavigation.length) {
+    pageContextLines.push(`- Visible sidebar navigation: ${visibleNavigation.map((item) => `${item.name} (${item.href})`).join(', ')}`)
+  }
+
+  return `You are an AI assistant integrated into NexiFlow, a comprehensive time tracking and project management application.
 
 Key features of NexiFlow include:
 1. Time Tracking - Start/stop timers, manual entries, project/task association, tags, billable hours
@@ -628,7 +654,164 @@ When helping users:
 - Use exact names and terminology from NexiFlow
 - Include references to UI elements like buttons, icons, and menu items
 - Ask clarifying questions when user intent is vague
-- Keep responses concise but complete`;
+- Keep responses concise but complete
+- When the user asks how to do something in NexiFlow, act like a tutor:
+  1. Briefly state where to go
+  2. Give short numbered steps
+  3. Mention the relevant page, button, form, or menu name
+  4. End with one short follow-up offer when helpful
+- For factual questions, first infer what the user actually wants from their wording before answering.
+- If the user asks for one metric, answer that metric directly and do not add unrelated metrics unless the user asks for a fuller summary.
+- Examples:
+  - "How much time did I use this week?" -> answer with time used for the week.
+  - "How much did I make this week?" -> answer with estimated earnings for the week.
+  - "How many billable hours do I have this month?" -> answer with billable time for the month.
+- If the user's current page is relevant, anchor the answer to that page first instead of giving generic navigation.
+- Treat the provided visible sidebar navigation as source-of-truth for whether a page exists and what it is called in the UI.
+- If a page appears in visible sidebar navigation, do not say it does not exist.
+- When the user asks where to find a page that appears in visible sidebar navigation, direct them to that exact sidebar label.
+- Use tools for current time and time/earnings summaries when the user asks factual questions like "what time is it?" or "how much did I make this week?".
+- Write replies as plain chat text. Do not use markdown emphasis like **bold** or __underline__.
+- If you are unsure whether a feature exists, say what you do know and avoid inventing settings, buttons, or workflows.
+
+Tool usage policy:
+- Use tools for timer operations. Do not invent IDs.
+- Start timer only on explicit user intent (for example: "start timer" or "clock me in").
+- If a timer is already running, clearly tell the user it is already running and do not auto-stop it.
+- Starting a timer does not require project, client, or description.
+- No confirmation is required for explicit stop intent; execute stop flow directly.
+- Before stopping a timer, ensure client, project, and description are set. If any are missing, ask only for missing fields, then update the running timer and retry stop.
+
+Current UI context:
+${pageContextLines.length ? pageContextLines.join('\n') : '- Current page is unknown.'}`;
+};
+
+const AI_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_current_time',
+      description: 'Get the current local time for the authenticated user based on their profile timezone.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_period_summary',
+      description: 'Get raw summary data for today, this week, or this month including total time, billable time, entry count, hourly rate, and estimated earnings. Use only the fields needed to answer the user\'s specific question.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          period: {
+            type: 'string',
+            enum: ['today', 'week', 'month']
+          }
+        },
+        required: ['period']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_running_timer',
+      description: 'Get the authenticated user\'s currently running timer, if any.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_projects',
+      description: 'List projects available to the authenticated user. Use search when user provides project text.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          search: { type: 'string' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_clients',
+      description: 'List clients available to the authenticated user. Optional projectId narrows to the project\'s client.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          projectId: { type: 'string' },
+          search: { type: 'string' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'start_timer',
+      description: 'Start a new running timer for the authenticated user. Use projectId only when resolved from tool data.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          projectId: { type: 'string' },
+          description: { type: 'string' },
+          isBillable: { type: 'boolean' },
+          tags: {
+            type: 'array',
+            items: { type: 'string' }
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_running_timer',
+      description: 'Update the authenticated user\'s currently running timer fields before stopping or correcting context.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          projectId: { type: 'string' },
+          clientId: { type: 'string' },
+          description: { type: 'string' },
+          isBillable: { type: 'boolean' },
+          tags: {
+            type: 'array',
+            items: { type: 'string' }
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'stop_running_timer',
+      description: 'Stop the authenticated user\'s current running timer. Requires projectId, clientId, and non-empty description.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      }
+    }
+  }
+];
 
 const normalizeAIHistory = (history) => {
   if (!Array.isArray(history)) return [];
@@ -642,8 +825,647 @@ const normalizeAIHistory = (history) => {
     }));
 };
 
+const toSafeString = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const parseToolArguments = (rawArgs) => {
+  if (!rawArgs || typeof rawArgs !== 'string') {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawArgs);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const runWithTimeout = async (promise, timeoutMs) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Tool execution timed out')), timeoutMs);
+    })
+  ]);
+};
+
+const sanitizeTags = (tags) => {
+  if (!Array.isArray(tags)) return [];
+  return Array.from(new Set(tags
+    .filter((tag) => typeof tag === 'string')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 20)));
+};
+
+const getRunningTimerRowForUser = async (connection, userId) => {
+  const [rows] = await connection.execute(
+    `SELECT * FROM time_entries
+     WHERE user_id = ? AND is_running = 1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  return rows.length ? rows[0] : null;
+};
+
+const getAccessibleProject = async (connection, req, projectId) => {
+  if (!projectId) return null;
+
+  if (req.user.role !== 'root' && req.user.companyId) {
+    const [rows] = await connection.execute(
+      `SELECT id, name, client_id
+       FROM projects
+       WHERE id = ? AND company_id = ?
+       LIMIT 1`,
+      [projectId, req.user.companyId]
+    );
+    return rows.length ? rows[0] : null;
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT id, name, client_id
+     FROM projects
+     WHERE id = ?
+     LIMIT 1`,
+    [projectId]
+  );
+  return rows.length ? rows[0] : null;
+};
+
+const getAccessibleClient = async (connection, req, clientId) => {
+  if (!clientId) return null;
+
+  if (req.user.role !== 'root' && req.user.companyId) {
+    const [rows] = await connection.execute(
+      `SELECT id, name
+       FROM clients
+       WHERE id = ? AND company_id = ?
+       LIMIT 1`,
+      [clientId, req.user.companyId]
+    );
+    return rows.length ? rows[0] : null;
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT id, name
+     FROM clients
+     WHERE id = ?
+     LIMIT 1`,
+    [clientId]
+  );
+  return rows.length ? rows[0] : null;
+};
+
+const mapTimeEntryRow = (row) => ({
+  id: row.id,
+  userId: row.user_id,
+  companyId: row.company_id,
+  projectId: row.project_id,
+  projectName: row.project_name,
+  clientId: row.client_id,
+  clientName: row.client_name,
+  description: row.description,
+  startTime: row.start_time,
+  endTime: row.end_time,
+  duration: row.duration,
+  isRunning: row.is_running === 1,
+  isBillable: row.is_billable === 1,
+  tags: row.tags ? JSON.parse(row.tags) : [],
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
+
+const getAuthenticatedUserDetails = async (connection, userId) => {
+  const [rows] = await connection.execute(
+    'SELECT id, name, timezone, hourly_rate FROM users WHERE id = ? LIMIT 1',
+    [userId]
+  );
+  return rows.length ? rows[0] : null;
+};
+
+const resolvePeriodRange = (period) => {
+  const now = new Date();
+
+  if (period === 'today') {
+    return {
+      startDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+      endDate: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+    };
+  }
+
+  if (period === 'week') {
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    return {
+      startDate: new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate()),
+      endDate: new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6, 23, 59, 59, 999)
+    };
+  }
+
+  return {
+    startDate: new Date(now.getFullYear(), now.getMonth(), 1),
+    endDate: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+  };
+};
+
+const buildPeriodSummary = async (connection, req, period) => {
+  const { startDate, endDate } = resolvePeriodRange(period);
+  const params = [req.user.uid, startDate, endDate];
+  let query = 'SELECT duration, is_billable FROM time_entries WHERE user_id = ? AND start_time >= ? AND start_time <= ?';
+
+  if (req.user.role !== 'root' && req.user.companyId) {
+    query += ' AND company_id = ?';
+    params.push(req.user.companyId);
+  }
+
+  const [rows] = await connection.execute(query, params);
+  const totalDuration = rows.reduce((sum, row) => sum + Number(row.duration || 0), 0);
+  const billableDuration = rows.reduce((sum, row) => sum + (row.is_billable === 1 ? Number(row.duration || 0) : 0), 0);
+  const userDetails = await getAuthenticatedUserDetails(connection, req.user.uid);
+  const hourlyRate = Number(userDetails?.hourly_rate || 0);
+  const estimatedEarnings = Number((((billableDuration / 3600) * hourlyRate) || 0).toFixed(2));
+
+  return {
+    period,
+    totalDuration,
+    billableDuration,
+    totalEntries: rows.length,
+    formattedTotal: formatTimeFromSeconds(totalDuration),
+    formattedBillable: formatTimeFromSeconds(billableDuration),
+    hourlyRate,
+    estimatedEarnings
+  };
+};
+
+const toolHandlers = {
+  async get_current_time(req) {
+    const connection = await pool.getConnection();
+    try {
+      const userDetails = await getAuthenticatedUserDetails(connection, req.user.uid);
+      const timezone = userDetails?.timezone || 'UTC';
+      const now = new Date();
+      const formatted = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric'
+      }).format(now);
+
+      return {
+        success: true,
+        timezone,
+        currentTime: formatted
+      };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async get_period_summary(req, args) {
+    const period = ['today', 'week', 'month'].includes(args?.period) ? args.period : 'today';
+    const connection = await pool.getConnection();
+    try {
+      const summary = await buildPeriodSummary(connection, req, period);
+      return {
+        success: true,
+        summary
+      };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async get_running_timer(req) {
+    const connection = await pool.getConnection();
+    try {
+      const runningRow = await getRunningTimerRowForUser(connection, req.user.uid);
+      if (!runningRow) {
+        return { success: true, running: false, timer: null };
+      }
+
+      return { success: true, running: true, timer: mapTimeEntryRow(runningRow) };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async list_projects(req, args) {
+    const search = toSafeString(args?.search);
+    const params = [0];
+    let where = 'WHERE is_archived = ?';
+
+    if (req.user.role !== 'root' && req.user.companyId) {
+      where += ' AND company_id = ?';
+      params.push(req.user.companyId);
+    }
+
+    if (search) {
+      where += ' AND (name LIKE ? OR description LIKE ?)';
+      const like = `%${search}%`;
+      params.push(like, like);
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, name, client_id, client_name, status
+         FROM projects
+         ${where}
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        params
+      );
+
+      return {
+        success: true,
+        projects: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          clientId: row.client_id,
+          clientName: row.client_name,
+          status: row.status
+        }))
+      };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async list_clients(req, args) {
+    const search = toSafeString(args?.search);
+    const projectId = toSafeString(args?.projectId);
+    const params = [];
+    let where = 'WHERE 1=1';
+
+    if (req.user.role !== 'root' && req.user.companyId) {
+      where += ' AND company_id = ?';
+      params.push(req.user.companyId);
+    }
+
+    if (search) {
+      where += ' AND (name LIKE ? OR email LIKE ?)';
+      const like = `%${search}%`;
+      params.push(like, like);
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      if (projectId) {
+        let projectQuery = 'SELECT client_id FROM projects WHERE id = ?';
+        const projectParams = [projectId];
+
+        if (req.user.role !== 'root' && req.user.companyId) {
+          projectQuery += ' AND company_id = ?';
+          projectParams.push(req.user.companyId);
+        }
+
+        const [projectRows] = await connection.execute(projectQuery, projectParams);
+        if (!projectRows.length) {
+          return { success: false, errorCode: 'PROJECT_NOT_FOUND', message: 'Project not found.' };
+        }
+
+        const linkedClientId = projectRows[0].client_id;
+        if (!linkedClientId) {
+          return { success: true, clients: [] };
+        }
+
+        const [clientRows] = await connection.execute(
+          'SELECT id, name, email FROM clients WHERE id = ? LIMIT 1',
+          [linkedClientId]
+        );
+
+        return {
+          success: true,
+          clients: clientRows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            email: row.email
+          }))
+        };
+      }
+
+      const [rows] = await connection.execute(
+        `SELECT id, name, email
+         FROM clients
+         ${where}
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        params
+      );
+
+      return {
+        success: true,
+        clients: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          email: row.email
+        }))
+      };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async start_timer(req, args) {
+    const userId = req.user.uid;
+    const companyId = req.user.companyId || null;
+    const projectId = toSafeString(args?.projectId) || null;
+    const description = toSafeString(args?.description) || null;
+    const isBillable = Boolean(args?.isBillable);
+    const tags = sanitizeTags(args?.tags);
+
+    const connection = await pool.getConnection();
+    try {
+      const [runningRows] = await connection.execute(
+        `SELECT * FROM time_entries
+         WHERE user_id = ? AND is_running = 1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (runningRows.length) {
+        return {
+          success: false,
+          errorCode: 'TIMER_ALREADY_RUNNING',
+          message: 'A timer is already running. Please stop the current timer before starting a new one.',
+          timer: mapTimeEntryRow(runningRows[0])
+        };
+      }
+
+      let projectName = null;
+      let clientId = null;
+      let clientName = null;
+
+      if (projectId) {
+        let projectQuery = 'SELECT id, name, company_id, client_id FROM projects WHERE id = ? LIMIT 1';
+        const projectParams = [projectId];
+
+        if (req.user.role !== 'root' && companyId) {
+          projectQuery = 'SELECT id, name, company_id, client_id FROM projects WHERE id = ? AND company_id = ? LIMIT 1';
+          projectParams.push(companyId);
+        }
+
+        const [projectRows] = await connection.execute(projectQuery, projectParams);
+        if (!projectRows.length) {
+          return {
+            success: false,
+            errorCode: 'PROJECT_NOT_FOUND',
+            message: 'Project not found or not accessible.'
+          };
+        }
+
+        const project = projectRows[0];
+        projectName = project.name;
+        clientId = project.client_id || null;
+
+        if (clientId) {
+          const [clientRows] = await connection.execute(
+            'SELECT id, name FROM clients WHERE id = ? LIMIT 1',
+            [clientId]
+          );
+          if (clientRows.length) {
+            clientName = clientRows[0].name;
+          }
+        }
+      }
+
+      const entryId = uuidv4();
+      const now = new Date();
+
+      await connection.execute(
+        `INSERT INTO time_entries (
+          id, user_id, company_id, project_id, project_name, client_id, client_name,
+          description, start_time, end_time, duration, is_running, is_billable, tags, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entryId,
+          userId,
+          companyId,
+          projectId,
+          projectName,
+          clientId,
+          clientName,
+          description,
+          now,
+          null,
+          0,
+          1,
+          isBillable ? 1 : 0,
+          JSON.stringify(tags),
+          now,
+          now
+        ]
+      );
+
+      const [rows] = await connection.execute('SELECT * FROM time_entries WHERE id = ? LIMIT 1', [entryId]);
+      return { success: true, timer: rows.length ? mapTimeEntryRow(rows[0]) : null };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async update_running_timer(req, args) {
+    const userId = req.user.uid;
+    const projectId = toSafeString(args?.projectId) || null;
+    const clientId = toSafeString(args?.clientId) || null;
+    const rawDescription = toSafeString(args?.description);
+    const hasDescriptionArg = Object.prototype.hasOwnProperty.call(args || {}, 'description');
+    const isBillableProvided = Object.prototype.hasOwnProperty.call(args || {}, 'isBillable');
+    const tagsProvided = Object.prototype.hasOwnProperty.call(args || {}, 'tags');
+    const tags = sanitizeTags(args?.tags);
+
+    const connection = await pool.getConnection();
+    try {
+      const runningRow = await getRunningTimerRowForUser(connection, userId);
+      if (!runningRow) {
+        return {
+          success: false,
+          errorCode: 'NO_RUNNING_TIMER',
+          message: 'No running timer found to update.'
+        };
+      }
+
+      const fields = [];
+      const values = [];
+      let resolvedProjectName = runningRow.project_name || null;
+      let resolvedClientId = runningRow.client_id || null;
+      let resolvedClientName = runningRow.client_name || null;
+
+      if (projectId) {
+        const project = await getAccessibleProject(connection, req, projectId);
+        if (!project) {
+          return {
+            success: false,
+            errorCode: 'PROJECT_NOT_FOUND',
+            message: 'Project not found or not accessible.'
+          };
+        }
+        resolvedProjectName = project.name;
+        resolvedClientId = project.client_id || null;
+
+        fields.push('project_id = ?');
+        values.push(projectId);
+        fields.push('project_name = ?');
+        values.push(resolvedProjectName);
+
+        if (resolvedClientId) {
+          const projectClient = await getAccessibleClient(connection, req, resolvedClientId);
+          resolvedClientName = projectClient?.name || null;
+          fields.push('client_id = ?');
+          values.push(resolvedClientId);
+          fields.push('client_name = ?');
+          values.push(resolvedClientName);
+        }
+      }
+
+      if (clientId) {
+        const client = await getAccessibleClient(connection, req, clientId);
+        if (!client) {
+          return {
+            success: false,
+            errorCode: 'CLIENT_NOT_FOUND',
+            message: 'Client not found or not accessible.'
+          };
+        }
+
+        resolvedClientId = client.id;
+        resolvedClientName = client.name;
+        fields.push('client_id = ?');
+        values.push(resolvedClientId);
+        fields.push('client_name = ?');
+        values.push(resolvedClientName);
+      }
+
+      if (hasDescriptionArg) {
+        fields.push('description = ?');
+        values.push(rawDescription || null);
+      }
+
+      if (isBillableProvided) {
+        fields.push('is_billable = ?');
+        values.push(Boolean(args?.isBillable) ? 1 : 0);
+      }
+
+      if (tagsProvided) {
+        fields.push('tags = ?');
+        values.push(JSON.stringify(tags));
+      }
+
+      if (!fields.length) {
+        return { success: true, message: 'No changes provided.', timer: mapTimeEntryRow(runningRow) };
+      }
+
+      fields.push('updated_at = ?');
+      values.push(new Date());
+      values.push(runningRow.id);
+
+      await connection.execute(
+        `UPDATE time_entries
+         SET ${fields.join(', ')}
+         WHERE id = ?`,
+        values
+      );
+
+      const [rows] = await connection.execute(
+        'SELECT * FROM time_entries WHERE id = ? LIMIT 1',
+        [runningRow.id]
+      );
+
+      return {
+        success: true,
+        timer: rows.length ? mapTimeEntryRow(rows[0]) : null
+      };
+    } finally {
+      connection.release();
+    }
+  },
+
+  async stop_running_timer(req) {
+    const userId = req.user.uid;
+    const connection = await pool.getConnection();
+    try {
+      const runningRow = await getRunningTimerRowForUser(connection, userId);
+      if (!runningRow) {
+        return {
+          success: false,
+          errorCode: 'NO_RUNNING_TIMER',
+          message: 'No running timer found.'
+        };
+      }
+
+      const missingRequiredFields = [];
+      if (!runningRow.client_id) missingRequiredFields.push('client');
+      if (!runningRow.project_id) missingRequiredFields.push('project');
+      if (!toSafeString(runningRow.description)) missingRequiredFields.push('description');
+
+      if (missingRequiredFields.length) {
+        return {
+          success: false,
+          errorCode: 'MISSING_REQUIRED_FIELDS',
+          message: 'Client, project, and description are required before stopping a timer.',
+          missingRequiredFields,
+          timer: mapTimeEntryRow(runningRow)
+        };
+      }
+
+      const endTime = new Date();
+      const startTime = new Date(runningRow.start_time);
+      const duration = Math.max(0, Math.floor((endTime.getTime() - startTime.getTime()) / 1000));
+
+      await connection.execute(
+        `UPDATE time_entries
+         SET end_time = ?, duration = ?, is_running = 0, updated_at = ?
+         WHERE id = ?`,
+        [endTime, duration, new Date(), runningRow.id]
+      );
+
+      const [rows] = await connection.execute(
+        'SELECT * FROM time_entries WHERE id = ? LIMIT 1',
+        [runningRow.id]
+      );
+
+      return {
+        success: true,
+        timer: rows.length ? mapTimeEntryRow(rows[0]) : null
+      };
+    } finally {
+      connection.release();
+    }
+  }
+};
+
+const executeAIToolCall = async (req, toolCall) => {
+  const toolName = toolCall?.function?.name;
+  const rawArgs = toolCall?.function?.arguments;
+  const handler = toolHandlers[toolName];
+
+  if (!handler) {
+    return {
+      success: false,
+      errorCode: 'UNKNOWN_TOOL',
+      message: `Unknown tool: ${toolName || 'unknown'}`
+    };
+  }
+
+  const args = parseToolArguments(rawArgs);
+  try {
+    return await runWithTimeout(handler(req, args), AI_TOOL_TIMEOUT_MS);
+  } catch (error) {
+    return {
+      success: false,
+      errorCode: 'TOOL_EXECUTION_ERROR',
+      message: error?.message || 'Tool execution failed'
+    };
+  }
+};
+
 app.post('/api/ai/chat', authenticateToken, aiChatLimiter, async (req, res) => {
-  const { prompt, history } = req.body || {};
+  const { prompt, history, pageContext } = req.body || {};
   const trimmedPrompt = typeof prompt === 'string' ? prompt.trim() : '';
 
   if (!trimmedPrompt) {
@@ -655,36 +1477,178 @@ app.post('/api/ai/chat', authenticateToken, aiChatLimiter, async (req, res) => {
   }
 
   const messages = [
-    { role: 'system', content: AI_SYSTEM_PROMPT },
+    { role: 'system', content: buildAISystemPrompt(pageContext) },
     ...normalizeAIHistory(history),
     { role: 'user', content: trimmedPrompt }
   ];
 
   try {
-    const openAIResponse = await axios.post(
-      OPENAI_API_URL,
-      {
-        model: OPENAI_MODEL,
-        messages,
-        temperature: 0.7,
-        max_tokens: 500
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
+    if (isStartTimerIntent(trimmedPrompt)) {
+      const startResult = await runWithTimeout(toolHandlers.start_timer(req, {}), AI_TOOL_TIMEOUT_MS);
+
+      if (startResult?.success) {
+        return res.json({
+          success: true,
+          reply: 'Your timer has been started.',
+          meta: {
+            toolCallsUsed: 1,
+            truncatedByMaxSteps: false,
+            timerSync: { changed: true, action: 'started', source: 'ai' }
+          }
+        });
       }
-    );
 
-    const reply = openAIResponse.data?.choices?.[0]?.message?.content;
+      if (startResult?.errorCode === 'TIMER_ALREADY_RUNNING') {
+        return res.json({
+          success: true,
+          reply: 'A timer is already running. Please stop the current timer before starting a new one.',
+          meta: { toolCallsUsed: 1, truncatedByMaxSteps: false }
+        });
+      }
 
-    if (!reply || typeof reply !== 'string') {
+      return res.status(502).json({ success: false, error: startResult?.message || 'Failed to start timer' });
+    }
+
+    if (isStopTimerIntent(trimmedPrompt)) {
+      const stopResult = await runWithTimeout(toolHandlers.stop_running_timer(req), AI_TOOL_TIMEOUT_MS);
+
+      if (stopResult?.success) {
+        return res.json({
+          success: true,
+          reply: 'Timer stopped successfully.',
+          meta: {
+            toolCallsUsed: 1,
+            truncatedByMaxSteps: false,
+            timerSync: { changed: true, action: 'stopped', source: 'ai' }
+          }
+        });
+      }
+
+      if (stopResult?.errorCode === 'NO_RUNNING_TIMER') {
+        return res.json({
+          success: true,
+          reply: 'No running timer was found.',
+          meta: { toolCallsUsed: 1, truncatedByMaxSteps: false }
+        });
+      }
+
+      if (stopResult?.errorCode === 'MISSING_REQUIRED_FIELDS') {
+        const missingFields = Array.isArray(stopResult?.missingRequiredFields) ? stopResult.missingRequiredFields : [];
+        const missingFieldsLabel = missingFields.length ? missingFields.join(', ') : 'client, project, description';
+        return res.json({
+          success: true,
+          reply: `I found your running timer, but it cannot be stopped yet because these required fields are missing: ${missingFieldsLabel}. Complete them below, then stop the timer.`,
+          meta: {
+            toolCallsUsed: 1,
+            truncatedByMaxSteps: false,
+            actionRequest: {
+              type: 'stop_timer_requirements',
+              missingFields,
+              runningTimer: stopResult?.timer || null
+            }
+          }
+        });
+      }
+
+      return res.status(502).json({ success: false, error: stopResult?.message || 'Failed to stop timer' });
+    }
+
+    let reply = '';
+    let truncatedByMaxSteps = false;
+    let toolCallsUsed = 0;
+    let timerSync = null;
+    let actionRequest = null;
+
+    for (let step = 0; step < AI_TOOL_MAX_STEPS; step += 1) {
+      const openAIResponse = await axios.post(
+        OPENAI_API_URL,
+        {
+          model: OPENAI_MODEL,
+          messages,
+          tools: AI_TOOLS,
+          tool_choice: 'auto',
+          temperature: 0.5,
+          max_tokens: 500
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      const assistantMessage = openAIResponse.data?.choices?.[0]?.message;
+      const assistantContent = sanitizeAIReply(typeof assistantMessage?.content === 'string' ? assistantMessage.content : '');
+      const toolCalls = Array.isArray(assistantMessage?.tool_calls) ? assistantMessage.tool_calls : [];
+
+      if (!assistantMessage) {
+        return res.status(502).json({ success: false, error: 'Invalid AI response format' });
+      }
+
+      if (!toolCalls.length) {
+        reply = assistantContent;
+        break;
+      }
+
+      toolCallsUsed += toolCalls.length;
+
+      messages.push({
+        role: 'assistant',
+        content: sanitizeAIReply(assistantMessage.content || ''),
+        tool_calls: toolCalls
+      });
+
+      for (const toolCall of toolCalls) {
+        const toolResult = await executeAIToolCall(req, toolCall);
+        const toolName = toolCall?.function?.name;
+
+        if (toolResult?.success === true) {
+          if (toolName === 'start_timer') {
+            timerSync = { changed: true, action: 'started', source: 'ai' };
+          } else if (toolName === 'stop_running_timer') {
+            timerSync = { changed: true, action: 'stopped', source: 'ai' };
+          }
+        } else if (toolName === 'stop_running_timer' && toolResult?.errorCode === 'MISSING_REQUIRED_FIELDS') {
+          actionRequest = {
+            type: 'stop_timer_requirements',
+            missingFields: Array.isArray(toolResult?.missingRequiredFields) ? toolResult.missingRequiredFields : [],
+            runningTimer: toolResult?.timer || null
+          };
+        }
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult)
+        });
+      }
+
+      if (step === AI_TOOL_MAX_STEPS - 1) {
+        truncatedByMaxSteps = true;
+      }
+    }
+
+    if (!reply) {
+      if (truncatedByMaxSteps) {
+        return res.json({
+          success: true,
+          reply: sanitizeAIReply('I could not complete that action in time. Please try again with a more specific request.')
+        });
+      }
+
       return res.status(502).json({ success: false, error: 'Invalid AI response format' });
     }
 
-    return res.json({ success: true, reply });
+    const meta = {
+      toolCallsUsed,
+      truncatedByMaxSteps,
+      ...(actionRequest ? { actionRequest } : {}),
+      ...(timerSync ? { timerSync } : {})
+    };
+
+    return res.json({ success: true, reply: sanitizeAIReply(reply), meta });
   } catch (error) {
     const providerStatus = error?.response?.status;
     const providerMessage = error?.response?.data?.error?.message;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Square, Clock, DollarSign, Tag, FileText, Building2, X } from 'lucide-react'
 import { TimeEntry, CreateTimeEntryData, Project, Client } from '../types'
 // Replace direct MySQL service import with API service
@@ -154,7 +154,7 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   }, [currentEntry]);
 
   // Extract the running timer check to a separate function
-  const checkForRunningTimer = async () => {
+  const checkForRunningTimer = useCallback(async () => {
     if (!currentUser) return
     
     const runningEntry = await timeEntryService.getRunningTimeEntry(currentUser.uid)
@@ -211,7 +211,7 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
     }
 
     return false
-  }
+  }, [currentUser])
 
   useEffect(() => {
     const clearScheduledPoll = () => {
@@ -293,7 +293,21 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('online', handleOnline)
     }
-  }, [currentUser])
+  }, [currentUser, checkForRunningTimer])
+
+  useEffect(() => {
+    if (!currentUser) return undefined
+
+    const handleTimeEntryChanged = () => {
+      runningEntryPollDelayRef.current = RUNNING_ENTRY_ACTIVE_POLL_INTERVAL_MS
+      void checkForRunningTimer()
+    }
+
+    window.addEventListener('timeEntry:changed', handleTimeEntryChanged as EventListener)
+    return () => {
+      window.removeEventListener('timeEntry:changed', handleTimeEntryChanged as EventListener)
+    }
+  }, [currentUser, checkForRunningTimer])
 
   const loadInitialData = async () => {
     if (!currentUser) return

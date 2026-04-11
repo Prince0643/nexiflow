@@ -15,6 +15,69 @@ type AIHistoryMessage = {
   content: string
 }
 
+type AIPageContext = {
+  currentPath?: string
+  currentPage?: string
+  visibleNavigation?: Array<{
+    name: string
+    href: string
+  }>
+}
+
+type TimerSyncMeta = {
+  changed?: boolean
+  action?: string
+  source?: string
+}
+
+type StopTimerRequirementsRequest = {
+  type: 'stop_timer_requirements'
+  missingFields?: string[]
+  runningTimer?: {
+    id?: string
+    clientId?: string
+    projectId?: string
+    description?: string
+  } | null
+}
+
+export type AIResponseMeta = {
+  timerSync?: TimerSyncMeta
+  actionRequest?: StopTimerRequirementsRequest
+}
+
+export type AIResponsePayload = {
+  reply: string
+  meta?: AIResponseMeta
+}
+
+const emitTimeEntryChangedEvent = (action?: string): void => {
+  if (typeof window === 'undefined') return
+
+  window.dispatchEvent(new CustomEvent('timeEntry:changed', {
+    detail: {
+      source: 'ai',
+      action: action || 'updated'
+    }
+  }))
+}
+
+const parseAIResponsePayload = (payload: any): AIResponsePayload => {
+  const reply = payload?.reply
+  const meta = payload?.meta && typeof payload.meta === 'object' ? payload.meta as AIResponseMeta : undefined
+
+  if (!payload?.success || typeof reply !== 'string') {
+    throw new Error('Invalid AI response from server.')
+  }
+
+  const timerSync = meta?.timerSync
+  if (timerSync?.changed === true) {
+    emitTimeEntryChangedEvent(typeof timerSync.action === 'string' ? timerSync.action : undefined)
+  }
+
+  return { reply, meta }
+}
+
 const normalizeHistory = (context: AIContextMessage[]): AIHistoryMessage[] => {
   return context
     .filter((msg): msg is AIHistoryMessage => (msg.role === 'user' || msg.role === 'assistant') && typeof msg.content === 'string')
@@ -26,7 +89,11 @@ const readErrorMessage = async (response: Response): Promise<string> => {
   return payload?.error || `HTTP error ${response.status}`
 }
 
-const requestAIReply = async (prompt: string, history: AIHistoryMessage[] = []): Promise<string> => {
+const requestAIReplyPayload = async (
+  prompt: string,
+  history: AIHistoryMessage[] = [],
+  pageContext?: AIPageContext
+): Promise<AIResponsePayload> => {
   const token = getAuthToken()
   if (!token) {
     throw new Error('Session expired. Please log in again.')
@@ -38,7 +105,7 @@ const requestAIReply = async (prompt: string, history: AIHistoryMessage[] = []):
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({ prompt, history })
+    body: JSON.stringify({ prompt, history, pageContext })
   })
 
   if (!response.ok) {
@@ -60,13 +127,12 @@ const requestAIReply = async (prompt: string, history: AIHistoryMessage[] = []):
   }
 
   const payload = await response.json().catch(() => ({}))
-  const reply = payload?.reply
+  return parseAIResponsePayload(payload)
+}
 
-  if (!payload?.success || typeof reply !== 'string') {
-    throw new Error('Invalid AI response from server.')
-  }
-
-  return reply
+const requestAIReply = async (prompt: string, history: AIHistoryMessage[] = [], pageContext?: AIPageContext): Promise<string> => {
+  const payload = await requestAIReplyPayload(prompt, history, pageContext)
+  return payload.reply
 }
 
 export const openaiService = {
@@ -76,9 +142,9 @@ export const openaiService = {
   },
 
   // Generate a response from OpenAI
-  async generateResponse(prompt: string, _systemMessage?: string): Promise<string> {
+  async generateResponse(prompt: string, _systemMessage?: string, pageContext?: AIPageContext): Promise<string> {
     try {
-      return await requestAIReply(prompt)
+      return await requestAIReply(prompt, [], pageContext)
     } catch (error: any) {
       console.error('Error calling AI endpoint:', error)
       throw new Error(error?.message || 'Failed to generate AI response.')
@@ -86,9 +152,26 @@ export const openaiService = {
   },
 
   // Generate a response with conversation history
-  async generateResponseWithContext(prompt: string, context: Array<{role: string, content: string}>): Promise<string> {
+  async generateResponseWithContext(
+    prompt: string,
+    context: Array<{role: string, content: string}>,
+    pageContext?: AIPageContext
+  ): Promise<string> {
     try {
-      return await requestAIReply(prompt, normalizeHistory(context))
+      return await requestAIReply(prompt, normalizeHistory(context), pageContext)
+    } catch (error: any) {
+      console.error('Error calling AI endpoint:', error)
+      throw new Error(error?.message || 'Failed to generate AI response.')
+    }
+  },
+
+  async generateResponseWithContextDetailed(
+    prompt: string,
+    context: Array<{role: string, content: string}>,
+    pageContext?: AIPageContext
+  ): Promise<AIResponsePayload> {
+    try {
+      return await requestAIReplyPayload(prompt, normalizeHistory(context), pageContext)
     } catch (error: any) {
       console.error('Error calling AI endpoint:', error)
       throw new Error(error?.message || 'Failed to generate AI response.')
