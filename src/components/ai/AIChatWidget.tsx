@@ -366,7 +366,7 @@ export default function AIChatWidget() {
       return { reply: response.reply, actionRequest: normalizedActionRequest, shouldDelay }
     } catch (error: any) {
       console.error('Error calling OpenAI:', error)
-      setError(error.message || 'Failed to get response from AI assistant.')
+      setError(error.message || 'Failed to get response from Nexie.')
       return { reply: 'Sorry, I encountered an error processing your request.', shouldDelay: false }
     } finally {
       setIsAIProcessing(false)
@@ -548,7 +548,7 @@ export default function AIChatWidget() {
           ref={toggleButtonRef}
           onClick={() => setIsOpen(!isOpen)}
           className={`relative p-3 rounded-full shadow-lg hover:bg-gray-100 transition-colors ${isDarkMode ? 'bg-white text-gray-800' : 'bg-white text-gray-800'}`}
-          title="AI Assistant"
+          title="Nexie"
           style={{
             cursor: 'pointer'
           }}
@@ -589,7 +589,7 @@ export default function AIChatWidget() {
           <div className={`flex items-center justify-between p-4 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} rounded-t-lg pt-3`}>
             <div className="flex-1">
               <h3 className={`font-semibold ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-                NexiFlow AI Assistant
+                Nexie
               </h3>
               <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                 {messages.length} messages
@@ -645,7 +645,7 @@ export default function AIChatWidget() {
               <div className="flex h-full items-center justify-center px-4 py-6 text-center">
                 <div className="w-full max-w-[280px]">
                   <CustomLogo className={`h-12 w-12 mx-auto mb-4 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`} />
-                  <h4 className={`text-lg font-medium mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>NexiFlow AI Assistant</h4>
+                  <h4 className={`text-lg font-medium mb-2 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Nexie</h4>
                   <p className={`mx-auto max-w-[260px] leading-7 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     Ask AI to start or stop your timer, find a page, or show you how something works.
                   </p>
@@ -681,7 +681,7 @@ export default function AIChatWidget() {
                       <div className="flex-1 min-w-0">
                         <div className={`mb-1 flex items-baseline gap-1.5 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                           <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-                            {message.role === 'user' ? 'You' : 'AI Assistant'}
+                            {message.role === 'user' ? 'You' : 'Nexie'}
                           </h4>
                           <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -709,7 +709,7 @@ export default function AIChatWidget() {
                       <CustomLogo className="mr-2 h-8 w-8 flex-shrink-0 self-start" />
                       <div className="flex-1 min-w-0">
                         <div className="mb-1 flex items-baseline gap-1.5">
-                          <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>AI Assistant</h4>
+                          <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Nexie</h4>
                           <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                             Action Required
                           </span>
@@ -797,7 +797,7 @@ export default function AIChatWidget() {
                       <CustomLogo className="mr-2 h-8 w-8 flex-shrink-0 self-start" />
                       <div className="flex-1 min-w-0">
                         <div className="mb-1 flex items-baseline gap-1.5">
-                          <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>AI Assistant</h4>
+                          <h4 className={`text-sm font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Nexie</h4>
                           <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                             Typing...
                           </span>

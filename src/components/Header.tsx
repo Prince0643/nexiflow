@@ -440,7 +440,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
               <button
                 onClick={toggleAIWidgetVisibility}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title={isAIWidgetHidden ? "Show AI Assistant" : "Hide AI Assistant"}
+                title={isAIWidgetHidden ? "Show Nexie" : "Hide Nexie"}
               >
                 <Bot className="h-5 w-5 text-gray-600 dark:text-gray-300" />
                 {isAIWidgetHidden && (
@@ -530,7 +530,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                       className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                     >
                       <Bot className="h-5 w-5 text-gray-600 dark:text-gray-300 mr-3" />
-                      {isAIWidgetHidden ? "Show AI Assistant" : "Hide AI Assistant"}
+                      {isAIWidgetHidden ? "Show Nexie" : "Hide Nexie"}
                     </button>
                   </div>
                 </div>
