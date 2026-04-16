@@ -4,6 +4,7 @@ import { TimeEntry, Project, User as UserType } from '../../types'
 import { timeEntryService } from '../../services/timeEntryService'
 import { projectService } from '../../services/projectService'
 import { userService } from '../../services/userService'
+import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 
 interface TimeEntryEditModalProps {
   isOpen: boolean
@@ -13,13 +14,14 @@ interface TimeEntryEditModalProps {
   onDelete: (entryId: string) => void
 }
 
-export default function TimeEntryEditModal({ 
-  isOpen, 
-  onClose, 
-  timeEntry, 
-  onSave, 
-  onDelete 
+export default function TimeEntryEditModal({
+  isOpen,
+  onClose,
+  timeEntry,
+  onSave,
+  onDelete
 }: TimeEntryEditModalProps) {
+  const { currentUser } = useMySQLAuth()
   const [loading, setLoading] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [users, setUsers] = useState<UserType[]>([])
@@ -145,8 +147,16 @@ export default function TimeEntryEditModal({
         isBillable: formData.isBillable
       }
 
-      await timeEntryService.updateTimeEntry(timeEntry.id, updates)
-      
+      // Use admin endpoint if current user is admin/super_admin and editing another user's entry
+      const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'root'
+      const isEditingOtherUser = timeEntry.userId !== currentUser?.uid
+
+      if (isAdmin && isEditingOtherUser) {
+        await timeEntryService.updateTimeEntryAsAdmin(timeEntry.id, updates)
+      } else {
+        await timeEntryService.updateTimeEntry(timeEntry.id, updates)
+      }
+
       // Create updated entry object
       const updatedEntry: TimeEntry = {
         ...timeEntry,

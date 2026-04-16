@@ -208,6 +208,26 @@ export const timeEntryApiService = {
     }
   },
 
+  // Update a time entry as admin (for editing other users' entries)
+  async updateTimeEntryAsAdmin(entryId: string, updates: Partial<CreateTimeEntryData & { projectName?: string, clientName?: string }>): Promise<void> {
+    // Validate entryId
+    if (!entryId) {
+      throw new Error('Entry ID is required');
+    }
+
+    const response = await apiRequest<{
+      success: boolean
+      message: string
+    }>(`/admin/time-entries/${entryId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+
+    if (!response.success) {
+      throw new Error(response.message || 'Failed to update time entry')
+    }
+  },
+
   // Delete a time entry
   async deleteTimeEntry(entryId: string): Promise<void> {
     // Validate entryId

@@ -79,6 +79,11 @@ export const timeEntryService = {
     return timeEntryApiService.updateTimeEntry(entryId, updates)
   },
 
+  // Update a time entry as admin (for editing other users' entries)
+  async updateTimeEntryAsAdmin(entryId: string, updates: Partial<CreateTimeEntryData & { projectName?: string, clientName?: string }>): Promise<void> {
+    return timeEntryApiService.updateTimeEntryAsAdmin(entryId, updates)
+  },
+
   // Delete a time entry
   async deleteTimeEntry(entryId: string): Promise<void> {
     return timeEntryApiService.deleteTimeEntry(entryId)
