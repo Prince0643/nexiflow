@@ -27,7 +27,10 @@ interface MySQLAuthContextType {
   loading: boolean
   authActionLoading: boolean
   login: (credentials: LoginCredentials) => Promise<{ success: boolean; error?: string }>
-  signup: (credentials: SignupCredentials, companyName?: string) => Promise<{ success: boolean; error?: string }>
+  signup: (
+    credentials: SignupCredentials,
+    companyName?: string
+  ) => Promise<{ success: boolean; error?: string; requiresEmailVerification?: boolean }>
   logout: () => Promise<void>
   resetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
 }
@@ -126,6 +129,9 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       }
       
       if (!response.ok || !data.success) {
+        if (response.status === 403 && (data?.error || data?.message)) {
+          return { success: false, error: data.error || data.message }
+        }
         return { success: false, error: data.error || data.message || 'Login failed. Please check your credentials.' }
       }
       
@@ -139,7 +145,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
         teamId: data.user.teamId || null,
         teamRole: data.user.teamRole || null,
         avatar: data.user.avatar || null,
-        emailVerified: true // MySQL doesn't have email verification like Firebase
+        emailVerified: data.user.emailVerified ?? true
       }
       
       // Store in state and localStorage
@@ -189,7 +195,12 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       const data = await response.json()
       
       if (!data.success) {
-        return { success: false, error: data.error }
+        return { success: false, error: data.error || 'Signup failed. Please try again.' }
+      }
+
+      if (data.requiresEmailVerification) {
+        localStorage.setItem('pendingVerificationEmail', credentials.email)
+        return { success: true, requiresEmailVerification: true }
       }
       
       // Create AuthUser object
@@ -202,7 +213,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
         teamId: data.user.teamId || null,
         teamRole: data.user.teamRole || null,
         avatar: data.user.avatar || null,
-        emailVerified: true
+        emailVerified: data.user.emailVerified ?? true
       }
       
       // Store in state and localStorage

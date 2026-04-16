@@ -521,6 +521,26 @@ CREATE TABLE `time_entry_tags` (
 -- Table structure for table `users`
 --
 
+--
+-- Table structure for table `email_verification_tokens`
+--
+
+DROP TABLE IF EXISTS `email_verification_tokens`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `email_verification_tokens` (
+  `id` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
+  `user_id` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
+  `token_hash` varchar(64) COLLATE utf8mb4_general_ci NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `used_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_email_verification_user_id` (`user_id`),
+  KEY `idx_email_verification_token_hash` (`token_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 DROP TABLE IF EXISTS `users`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -538,6 +558,7 @@ CREATE TABLE `users` (
   `timezone` varchar(100) COLLATE utf8mb4_general_ci DEFAULT 'GMT+0 (Greenwich Mean Time)',
   `hourly_rate` decimal(10,2) DEFAULT '25.00',
   `is_active` tinyint(1) DEFAULT '1',
+  `email_verified` tinyint(1) DEFAULT '0',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

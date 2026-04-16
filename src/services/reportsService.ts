@@ -1,5 +1,3 @@
-// import { ref, get, query, orderByChild, equalTo, startAt, endAt } from 'firebase/database'
-// import { database } from '../config/firebase'
 import { 
   TimeAnalytics, 
   ProjectAnalytics, 
@@ -7,8 +5,7 @@ import {
   WeeklyAnalytics, 
   MonthlyAnalytics, 
   ReportFilters,
-  TimeEntry,
-  // Project
+  TimeEntry
 } from '../types'
 import { timeEntryService } from './timeEntryService'
 import { projectService } from './projectService'

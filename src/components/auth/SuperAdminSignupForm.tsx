@@ -186,6 +186,10 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
       )
 
       if (result.success) {
+        if (result.requiresEmailVerification) {
+          navigate(`/verify-email?email=${encodeURIComponent(formData.email)}`)
+          return
+        }
         if (formData.plan === 'office' || formData.plan === 'enterprise') {
           const token = localStorage.getItem('authToken')
           if (!token) {

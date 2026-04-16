@@ -1,41 +1,107 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { CheckCircle, AlertCircle, Loader } from 'lucide-react'
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
 export default function EmailVerification() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { currentUser } = useMySQLAuth()
-  const [verificationStatus, setVerificationStatus] = useState<'pending' | 'success' | 'error'>('pending')
-  const [message, setMessage] = useState('')
+  const token = searchParams.get('token') || ''
+
+  const initialEmail = useMemo(() => {
+    const qEmail = (searchParams.get('email') || '').trim()
+    if (qEmail) return qEmail
+    return (localStorage.getItem('pendingVerificationEmail') || '').trim()
+  }, [searchParams])
+
+  const [email, setEmail] = useState(initialEmail)
+  const [verificationStatus, setVerificationStatus] = useState<'idle' | 'verifying' | 'success' | 'error'>(
+    token ? 'verifying' : 'idle'
+  )
+  const [message, setMessage] = useState(token ? 'Verifying your email…' : 'Check your inbox to verify your email.')
+  const [actionLoading, setActionLoading] = useState(false)
 
   useEffect(() => {
-    // MySQL/JWT auth does not use Firebase email verification callbacks.
-    // If user is logged in, just send them to the app.
-    if (currentUser) {
-      setVerificationStatus('success')
-      setMessage('Your account is ready. Redirecting...')
-      const t = window.setTimeout(() => navigate('/'), 800)
-      return () => window.clearTimeout(t)
+    if (!token) return
+
+    let cancelled = false
+    const run = async () => {
+      setVerificationStatus('verifying')
+      setMessage('Verifying your email…')
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/verify-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token })
+        })
+
+        const data = await response.json().catch(() => null)
+        if (!response.ok || !data?.success) {
+          const err = data?.error || 'Verification failed. Please request a new link.'
+          if (!cancelled) {
+            setVerificationStatus('error')
+            setMessage(err)
+          }
+          return
+        }
+
+        if (!cancelled) {
+          localStorage.removeItem('pendingVerificationEmail')
+          setVerificationStatus('success')
+          setMessage('Email verified. Redirecting to sign in…')
+          window.setTimeout(() => navigate('/auth'), 1200)
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setVerificationStatus('error')
+          setMessage(err?.message || 'Verification failed. Please try again.')
+        }
+      }
     }
 
-    // If user arrived here from an old Firebase verification email, explain the migration.
-    const mode = searchParams.get('mode')
-    const oobCode = searchParams.get('oobCode')
-
-    if (mode === 'verifyEmail' && oobCode) {
-      setVerificationStatus('error')
-      setMessage('Email verification is no longer handled by Firebase. Please sign in again.')
-      return
+    run()
+    return () => {
+      cancelled = true
     }
-
-    setVerificationStatus('error')
-    setMessage('Email verification is not required. Please sign in to continue.')
-  }, [searchParams, currentUser, navigate])
+  }, [token, navigate])
 
   const handleSignIn = () => {
     navigate('/auth')
+  }
+
+  const handleResend = async () => {
+    const normalized = email.trim()
+    if (!normalized) {
+      setMessage('Please enter your email address to resend the verification email.')
+      setVerificationStatus('error')
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalized })
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success) {
+        setVerificationStatus('error')
+        setMessage(data?.error || 'Failed to resend verification email. Please try again.')
+        return
+      }
+
+      localStorage.setItem('pendingVerificationEmail', normalized)
+      setVerificationStatus('idle')
+      setMessage('If that email is registered and unverified, a new verification link has been sent.')
+    } catch (err: any) {
+      setVerificationStatus('error')
+      setMessage(err?.message || 'Failed to resend verification email. Please try again.')
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   return (
@@ -53,10 +119,40 @@ export default function EmailVerification() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 dark:bg-gray-800 dark:border-gray-700">
-          {verificationStatus === 'pending' && (
+          {verificationStatus === 'verifying' && (
             <div className="text-center">
               <Loader className="h-12 w-12 text-primary-600 animate-spin mx-auto mb-4" />
               <p className="text-gray-600 dark:text-gray-300">{message}</p>
+            </div>
+          )}
+
+          {verificationStatus === 'idle' && (
+            <div className="text-center space-y-5">
+              <CheckCircle className="h-12 w-12 text-primary-600 mx-auto" />
+              <div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2 dark:text-white">Check your email</h2>
+                <p className="text-gray-600 dark:text-gray-300">{message}</p>
+              </div>
+
+              <div className="text-left">
+                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  placeholder="you@company.com"
+                  disabled={actionLoading}
+                />
+              </div>
+
+              <button onClick={handleResend} disabled={actionLoading} className="w-full btn-primary py-3">
+                {actionLoading ? 'Sending…' : 'Resend verification email'}
+              </button>
+
+              <button onClick={handleSignIn} className="w-full btn-secondary py-3">
+                Return to Sign In
+              </button>
             </div>
           )}
 
@@ -75,14 +171,28 @@ export default function EmailVerification() {
           )}
 
           {verificationStatus === 'error' && (
-            <div className="text-center">
+            <div className="text-center space-y-5">
               <AlertCircle className="h-12 w-12 text-red-600 mx-auto mb-4" />
               <h2 className="text-xl font-bold text-gray-900 mb-2 dark:text-white">Verification Failed</h2>
-              <p className="text-gray-600 mb-6 dark:text-gray-300">{message}</p>
-              <button
-                onClick={handleSignIn}
-                className="w-full btn-primary py-3"
-              >
+              <p className="text-gray-600 dark:text-gray-300">{message}</p>
+
+              <div className="text-left">
+                <label className="block text-sm font-medium text-gray-700 mb-2 dark:text-gray-200">Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  placeholder="you@company.com"
+                  disabled={actionLoading}
+                />
+              </div>
+
+              <button onClick={handleResend} disabled={actionLoading} className="w-full btn-primary py-3">
+                {actionLoading ? 'Sending…' : 'Resend verification email'}
+              </button>
+
+              <button onClick={handleSignIn} className="w-full btn-secondary py-3">
                 Return to Sign In
               </button>
             </div>

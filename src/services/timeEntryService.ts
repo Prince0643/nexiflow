@@ -1,334 +1,102 @@
-import { ref, set, get, push, remove, update, query, orderByChild, equalTo, onValue, off, limitToLast, Query as FirebaseQuery } from 'firebase/database'
-import { database } from '../config/firebase'
 import { TimeEntry, CreateTimeEntryData, TimeSummary } from '../types'
 import { timeEntryApiService } from './timeEntryApiService'
+
+const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+
+const getAuthToken = async (): Promise<string | null> => {
+  try {
+    return localStorage.getItem('authToken') || null
+  } catch (error) {
+    console.error('Error getting auth token:', error)
+    return null
+  }
+}
+
+// Helper to fetch all time entries for admin use
+const fetchAllTimeEntries = async (): Promise<TimeEntry[]> => {
+  const token = await getAuthToken()
+  const response = await fetch(`${API_BASE_URL}/time-entries`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  })
+  if (!response.ok) return []
+  const data = await response.json()
+  if (!data.success) return []
+  return data.data.map((entry: any) => ({
+    ...entry,
+    startTime: new Date(entry.startTime),
+    endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+    createdAt: new Date(entry.createdAt),
+    updatedAt: new Date(entry.updatedAt)
+  }))
+}
 
 export const timeEntryService = {
   // Create a new time entry
   async createTimeEntry(entryData: CreateTimeEntryData, userId: string, projectName?: string, companyId?: string | null, clientName?: string): Promise<string> {
-    if (!database) {
-      throw new Error('Realtime time tracking is disabled (Firebase is disabled).')
-    }
     // First check if user already has a running timer to prevent multiple concurrent timers
     const existingRunningEntry = await this.getRunningTimeEntry(userId)
     if (existingRunningEntry) {
       throw new Error('Cannot start a new timer: You already have a timer running. Please stop the current timer first.')
     }
-    
-    const entryRef = push(ref(database, 'timeEntries'))
-    const now = new Date()
-    const newEntry: TimeEntry = {
-      ...entryData,
-      id: entryRef.key!,
-      userId,
-      companyId: companyId || undefined,
-      projectName: projectName,
-      clientName: clientName, // Add clientName
-      startTime: now,
-      duration: 0,
-      isRunning: true,
-      isBillable: entryData.isBillable || false,
-      createdAt: now,
-      updatedAt: now
-    }
-    
-    const dataToSave: any = {
-      ...newEntry,
-      startTime: now.toISOString(),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString()
-    }
-    
-    // Remove undefined values to avoid Firebase errors
-    if (!dataToSave.companyId) {
-      delete dataToSave.companyId
-    }
-    if (!dataToSave.projectId) {
-      delete dataToSave.projectId
-    }
-    if (!dataToSave.projectName) {
-      delete dataToSave.projectName
-    }
-    if (!dataToSave.clientId) {
-      delete dataToSave.clientId
-    }
-    if (!dataToSave.clientName) {
-      delete dataToSave.clientName
-    }
-    if (!dataToSave.description) {
-      delete dataToSave.description
-    }
-    if (!dataToSave.tags || dataToSave.tags.length === 0) {
-      delete dataToSave.tags
-    }
-    
-    await set(entryRef, dataToSave)
-    return entryRef.key!
+
+    return timeEntryApiService.createTimeEntry(entryData, userId, projectName, companyId, clientName)
   },
 
   // Get all time entries for a user
   async getTimeEntries(userId: string): Promise<TimeEntry[]> {
-    if (!database) {
-      return timeEntryApiService.getTimeEntries(userId)
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
-    const snapshot = await get(q)
-    
-    if (snapshot.exists()) {
-      const entries = snapshot.val()
-      return Object.values(entries)
-        .map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-          createdAt: new Date(entry.createdAt),
-          updatedAt: new Date(entry.updatedAt)
-        }))
-        .sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
-    
-    return []
+    return timeEntryApiService.getTimeEntries(userId)
   },
 
   // Get all time entries (for admin use)
   async getAllTimeEntries(): Promise<TimeEntry[]> {
-    if (!database) {
-      return []
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const snapshot = await get(entriesRef)
-    
-    if (snapshot.exists()) {
-      const entries = snapshot.val()
-      return Object.values(entries)
-        .map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-          createdAt: new Date(entry.createdAt),
-          updatedAt: new Date(entry.updatedAt)
-        }))
-        .sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
-    
-    return []
+    return fetchAllTimeEntries()
   },
 
   // Get time entries for a specific date range
   async getTimeEntriesByDateRange(userId: string, startDate: Date, endDate: Date): Promise<TimeEntry[]> {
-    if (!database) {
-      return timeEntryApiService.getTimeEntriesByDateRange(userId, startDate, endDate)
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const q = query(
-      entriesRef, 
-      orderByChild('userId'), 
-      equalTo(userId)
-    )
-    const snapshot = await get(q)
-    
-    if (snapshot.exists()) {
-      const entries = snapshot.val()
-      
-      // Fix for date range filtering: set end date to end of day to include all entries for that day
-      const adjustedEndDate = new Date(endDate)
-      adjustedEndDate.setHours(23, 59, 59, 999)
-      
-      return Object.values(entries)
-        .map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-          createdAt: new Date(entry.createdAt),
-          updatedAt: new Date(entry.updatedAt)
-        }))
-        .filter((entry: TimeEntry) => {
-          const entryDate = new Date(entry.startTime)
-          return entryDate >= startDate && entryDate <= adjustedEndDate
-        })
-        .sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
-    
-    return []
+    return timeEntryApiService.getTimeEntriesByDateRange(userId, startDate, endDate)
   },
 
   // Get currently running time entry
   async getRunningTimeEntry(userId: string): Promise<TimeEntry | null> {
-    if (!database) {
-      return timeEntryApiService.getRunningTimeEntry(userId)
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
-    const snapshot = await get(q)
-    
-    if (snapshot.exists()) {
-      const entries = snapshot.val()
-      const runningEntry = Object.values(entries)
-        .map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-          createdAt: new Date(entry.createdAt),
-          updatedAt: new Date(entry.updatedAt)
-        }))
-        .find((entry: TimeEntry) => entry.isRunning && entry.userId === userId)
-      
-      return runningEntry || null
-    }
-    
-    return null
+    return timeEntryApiService.getRunningTimeEntry(userId)
   },
 
   // Stop a running time entry
-  async stopTimeEntry(entryId: string, userId: string): Promise<void> {
-    if (!database) {
-      throw new Error('Realtime time tracking is disabled (Firebase is disabled).')
-    }
-    try {
-      const entryRef = ref(database, `timeEntries/${entryId}`)
-      const snapshot = await get(entryRef)
-    
-    if (snapshot.exists()) {
-      const entry = snapshot.val()
-      const endTime = new Date()
-      const duration = Math.floor((endTime.getTime() - new Date(entry.startTime).getTime()) / 1000)
-      
-      await update(entryRef, {
-        endTime: endTime.toISOString(),
-        duration,
-        isRunning: false,
-        updatedAt: new Date().toISOString()
-      })
-    }
-    } catch (error) {
-      console.error(error)
-    }
+  async stopTimeEntry(entryId: string, _userId: string): Promise<void> {
+    await timeEntryApiService.stopTimeEntry(entryId)
   },
 
   // Stop a running time entry for another user (admin feature)
   async stopOtherUserTimeEntry(entryId: string): Promise<void> {
-    if (!database) {
-      throw new Error('Realtime time tracking is disabled (Firebase is disabled).')
-    }
-    try {
-      const entryRef = ref(database, `timeEntries/${entryId}`)
-      const snapshot = await get(entryRef)
-    
-    if (snapshot.exists()) {
-      const entry = snapshot.val()
-      const endTime = new Date()
-      const duration = Math.floor((endTime.getTime() - new Date(entry.startTime).getTime()) / 1000)
-      
-      await update(entryRef, {
-        endTime: endTime.toISOString(),
-        duration,
-        isRunning: false,
-        updatedAt: new Date().toISOString()
-      })
-    }
-    } catch (error) {
-      console.error(error)
-    }
+    await timeEntryApiService.stopTimeEntry(entryId)
   },
 
   // Update a time entry
   async updateTimeEntry(entryId: string, updates: Partial<CreateTimeEntryData & { projectName?: string, clientName?: string }>): Promise<void> {
-    if (!database) {
-      return
-    }
-    const entryRef = ref(database, `timeEntries/${entryId}`)
-    
-    const dataToUpdate: any = {
-      ...updates,
-      updatedAt: new Date().toISOString()
-    }
-    
-    // Remove undefined values to avoid Firebase errors
-    Object.keys(dataToUpdate).forEach(key => {
-      if (dataToUpdate[key] === undefined) {
-        delete dataToUpdate[key]
-      }
-    })
-    
-    // Handle empty tags array
-    if (dataToUpdate.tags && Array.isArray(dataToUpdate.tags) && dataToUpdate.tags.length === 0) {
-      delete dataToUpdate.tags
-    }
-    
-    await update(entryRef, dataToUpdate)
+    return timeEntryApiService.updateTimeEntry(entryId, updates)
   },
 
   // Delete a time entry
   async deleteTimeEntry(entryId: string): Promise<void> {
-    if (!database) {
-      throw new Error('Time entry deletion is disabled (Firebase is disabled).')
-    }
-    const entryRef = ref(database, `timeEntries/${entryId}`)
-    await remove(entryRef)
+    return timeEntryApiService.deleteTimeEntry(entryId)
   },
 
   // Get all running time entries (for admin use)
   async getAllRunningTimeEntries(companyId?: string | null): Promise<TimeEntry[]> {
-    if (!database) {
-      return []
+    const allEntries = await fetchAllTimeEntries()
+    const running = allEntries.filter(entry => entry.isRunning)
+    if (companyId) {
+      return running.filter(entry => entry.companyId === companyId)
     }
-    const entriesRef = ref(database, 'timeEntries')
-    const snapshot = await get(entriesRef)
-    
-    if (snapshot.exists()) {
-      const entries = snapshot.val()
-      let filteredEntries = Object.values(entries)
-        .map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-          createdAt: new Date(entry.createdAt),
-          updatedAt: new Date(entry.updatedAt)
-        }))
-        .filter((entry: TimeEntry) => entry.isRunning)
-        
-      // Apply company filtering if companyId is provided
-      if (companyId) {
-        filteredEntries = filteredEntries.filter((entry: TimeEntry) => entry.companyId === companyId)
-      }
-        
-      return filteredEntries.sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
-    
-    return []
+    return running
   },
 
   // Get time summary for dashboard
   async getTimeSummary(userId: string): Promise<TimeSummary> {
-    if (!database) {
-      return timeEntryApiService.getTimeSummary(userId)
-    }
-    const now = new Date()
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const startOfWeek = new Date(startOfDay)
-    startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay())
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-
-    const [todayEntries, weekEntries, monthEntries] = await Promise.all([
-      this.getTimeEntriesByDateRange(userId, startOfDay, now),
-      this.getTimeEntriesByDateRange(userId, startOfWeek, now),
-      this.getTimeEntriesByDateRange(userId, startOfMonth, now)
-    ])
-
-    const calculateStats = (entries: TimeEntry[]) => {
-      const total = entries.reduce((sum, entry) => sum + entry.duration, 0)
-      const billable = entries
-        .filter(entry => entry.isBillable)
-        .reduce((sum, entry) => sum + entry.duration, 0)
-      return { total, billable, entries: entries.length }
-    }
-
-    return {
-      today: calculateStats(todayEntries),
-      thisWeek: calculateStats(weekEntries),
-      thisMonth: calculateStats(monthEntries)
-    }
+    return timeEntryApiService.getTimeSummary(userId)
   },
 
   // Get time entries for a specific project
@@ -339,148 +107,94 @@ export const timeEntryService = {
 
   // Get time entries for all users by date range (for admin use)
   async getAllTimeEntriesByDateRange(startDate: Date, endDate: Date): Promise<TimeEntry[]> {
-    if (!database) {
-      return []
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const snapshot = await get(entriesRef)
+    const allEntries = await fetchAllTimeEntries()
     
-    if (snapshot.exists()) {
-      const entries = snapshot.val()
-      
-      // Fix for date range filtering: set end date to end of day to include all entries for that day
-      const adjustedEndDate = new Date(endDate)
-      adjustedEndDate.setHours(23, 59, 59, 999)
-      
-      return Object.values(entries)
-        .map((entry: any) => ({
-          ...entry,
-          startTime: new Date(entry.startTime),
-          endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-          createdAt: new Date(entry.createdAt),
-          updatedAt: new Date(entry.updatedAt)
-        }))
-        .filter((entry: TimeEntry) => {
-          const entryDate = new Date(entry.startTime)
-          return entryDate >= startDate && entryDate <= adjustedEndDate
-        })
-        .sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-    }
+    // Adjust end date to end of day to include all entries for that day
+    const adjustedEndDate = new Date(endDate)
+    adjustedEndDate.setHours(23, 59, 59, 999)
     
-    return []
+    return allEntries.filter((entry: TimeEntry) => {
+      const entryDate = new Date(entry.startTime)
+      return entryDate >= startDate && entryDate <= adjustedEndDate
+    })
   }
 }
 
-// Real-time listeners
+// Polling-based "real-time" listeners (replaces Firebase onValue)
+const POLLING_INTERVAL = 30000 // 30 seconds
+
 const realtimeListeners = {
-  // Subscribe to time entries for a specific user
+  // Subscribe to time entries for a specific user (polling-based)
   subscribeToTimeEntries(userId: string, callback: (entries: TimeEntry[]) => void): () => void {
-    if (!database) {
-      console.warn('[timeEntryService] Firebase is disabled; skipping subscribeToTimeEntries.')
-      callback([])
-      return () => {}
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
+    let cancelled = false
     
-    const unsubscribe = onValue(q, (snapshot) => {
-      if (snapshot.exists()) {
-        const entries = snapshot.val()
-        const formattedEntries = Object.values(entries)
-          .map((entry: any) => ({
-            ...entry,
-            startTime: new Date(entry.startTime),
-            endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-            createdAt: new Date(entry.createdAt),
-            updatedAt: new Date(entry.updatedAt)
-          }))
-          .sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-        
-        callback(formattedEntries)
-      } else {
-        callback([])
+    const loadEntries = async () => {
+      try {
+        const entries = await timeEntryApiService.getTimeEntries(userId)
+        if (!cancelled) callback(entries)
+      } catch (error) {
+        console.error('[timeEntryService] Failed to poll time entries:', error)
       }
-    })
+    }
     
-    return unsubscribe
+    loadEntries()
+    const interval = window.setInterval(loadEntries, POLLING_INTERVAL)
+    
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
   },
 
-  // Subscribe to all time entries (for admin use) - SCOPED VERSION
+  // Subscribe to all time entries (for admin use) - polling-based
   subscribeToAllTimeEntries(
     callback: (entries: TimeEntry[]) => void, 
     companyId?: string | null,
-    limit?: number
+    _limit?: number
   ): () => void {
-    if (!database) {
-      console.warn('[timeEntryService] Firebase is disabled; skipping subscribeToAllTimeEntries.')
-      callback([])
-      return () => {}
-    }
-    // Start with base reference
-    let entriesQuery: FirebaseQuery | ReturnType<typeof ref> = ref(database, 'timeEntries')
+    let cancelled = false
     
-    // If companyId is provided, scope to that company
-    if (companyId) {
-      entriesQuery = query(entriesQuery, orderByChild('companyId'), equalTo(companyId))
-    }
-    
-    // Add limit if provided
-    if (limit) {
-      entriesQuery = query(entriesQuery, limitToLast(limit))
-    }
-    
-    const unsubscribe = onValue(entriesQuery, (snapshot) => {
-      if (snapshot.exists()) {
-        const entries = snapshot.val()
-        const formattedEntries = Object.values(entries)
-          .map((entry: any) => ({
-            ...entry,
-            startTime: new Date(entry.startTime),
-            endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-            createdAt: new Date(entry.createdAt),
-            updatedAt: new Date(entry.updatedAt)
-          }))
-          .sort((a: TimeEntry, b: TimeEntry) => b.createdAt.getTime() - a.createdAt.getTime())
-        
-        callback(formattedEntries)
-      } else {
-        callback([])
+    const loadEntries = async () => {
+      try {
+        let entries = await fetchAllTimeEntries()
+        if (companyId) {
+          entries = entries.filter(entry => entry.companyId === companyId)
+        }
+        if (!cancelled) callback(entries)
+      } catch (error) {
+        console.error('[timeEntryService] Failed to poll all time entries:', error)
       }
-    })
+    }
     
-    return unsubscribe
+    loadEntries()
+    const interval = window.setInterval(loadEntries, POLLING_INTERVAL)
+    
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
   },
 
-  // Subscribe to running time entry for real-time timer updates
+  // Subscribe to running time entry (polling-based)
   subscribeToRunningTimeEntry(userId: string, callback: (entry: TimeEntry | null) => void): () => void {
-    if (!database) {
-      console.warn('[timeEntryService] Firebase is disabled; skipping subscribeToRunningTimeEntry.')
-      callback(null)
-      return () => {}
-    }
-    const entriesRef = ref(database, 'timeEntries')
-    const q = query(entriesRef, orderByChild('userId'), equalTo(userId))
+    let cancelled = false
     
-    const unsubscribe = onValue(q, (snapshot) => {
-      if (snapshot.exists()) {
-        const entries = snapshot.val()
-        const runningEntry = Object.values(entries)
-          .map((entry: any) => ({
-            ...entry,
-            startTime: new Date(entry.startTime),
-            endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-            createdAt: new Date(entry.createdAt),
-            updatedAt: new Date(entry.updatedAt)
-          }))
-          .find((entry: TimeEntry) => entry.isRunning && entry.userId === userId)
-        
-        callback(runningEntry || null)
-      } else {
-        callback(null)
+    const loadRunning = async () => {
+      try {
+        const entry = await timeEntryApiService.getRunningTimeEntry(userId)
+        if (!cancelled) callback(entry)
+      } catch (error) {
+        console.error('[timeEntryService] Failed to poll running entry:', error)
       }
-    })
+    }
     
-    return unsubscribe
+    loadRunning()
+    const interval = window.setInterval(loadRunning, 10000) // 10 seconds for running timer
+    
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
   }
 }
 

@@ -210,6 +210,59 @@ Need help? Contact support.
 }
 
 /**
+ * Send email verification email
+ */
+async function sendEmailVerificationEmail(user, verifyLink) {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Verify Your Email</h2>
+      <p>Hello ${user.name || 'there'},</p>
+      <p>Thanks for signing up for NexiFlow. Please verify your email address to activate your account.</p>
+
+      <p>
+        <a href="${verifyLink}"
+           style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+          Verify Email
+        </a>
+      </p>
+
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        This link will expire in 24 hours. If you did not create a NexiFlow account, you can safely ignore this email.
+      </p>
+    </div>
+  `;
+
+  const text = `
+Verify Your Email
+
+Hello ${user.name || 'there'},
+
+Thanks for signing up for NexiFlow. Please verify your email address to activate your account.
+
+Verify your email using this link (expires in 24 hours):
+${verifyLink}
+
+If you did not create a NexiFlow account, you can safely ignore this email.
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: user.email,
+      subject: 'Verify your NexiFlow email',
+      text,
+      html
+    });
+
+    console.log(`Email verification sent to ${user.email}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send email verification email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Send downgrade notification email
  */
 async function sendDowngradeNotification(company, superAdmin) {
@@ -287,5 +340,6 @@ module.exports = {
   sendPaymentReminder,
   sendGracePeriodNotification,
   sendDowngradeNotification,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendEmailVerificationEmail
 };

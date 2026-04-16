@@ -140,6 +140,7 @@ app.post('/api/auth/login', async (req, res) => {
         timezone: user.timezone,
         hourlyRate: user.hourly_rate,
         isActive: user.is_active === 1,
+        emailVerified: user.email_verified === 1,
         createdAt: user.created_at,
         updatedAt: user.updated_at
       };
@@ -280,6 +281,7 @@ app.post('/api/auth/signup', async (req, res) => {
         timezone: user.timezone,
         hourlyRate: user.hourly_rate,
         isActive: user.is_active === 1,
+        emailVerified: user.email_verified === 1,
         createdAt: user.created_at,
         updatedAt: user.updated_at
       };
@@ -493,8 +495,8 @@ app.post('/api/admin/users', async (req, res) => {
 
       const query = `
         INSERT INTO users (
-          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, email_verified, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       await connection.execute(query, [
@@ -511,6 +513,7 @@ app.post('/api/admin/users', async (req, res) => {
         userData.timezone || 'America/New_York',
         userData.hourlyRate || 25,
         1, // is_active
+        1, // email_verified - auto-verify admin-created accounts
         now,
         now
       ]);
@@ -527,6 +530,7 @@ app.post('/api/admin/users', async (req, res) => {
         timezone: userData.timezone || 'America/New_York',
         hourlyRate: userData.hourlyRate || 25,
         isActive: true,
+        emailVerified: true, // Admin-created accounts are auto-verified
         createdAt: now,
         updatedAt: now
       };
@@ -2049,56 +2053,6 @@ app.get('/api/task-priorities', async (req, res) => {
 });
 
 // Get clients for company
-app.get('/api/projects/company/:companyId', async (req, res) => {
-  try {
-    const { companyId } = req.params;
-
-    const connection = await pool.getConnection();
-    try {
-      const query = `
-        SELECT * FROM projects 
-        WHERE company_id = ? AND is_archived = 0
-        ORDER BY created_at DESC
-      `;
-
-      const [rows] = await connection.execute(query, [companyId]);
-      const projects = rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        color: row.color,
-        status: row.status,
-        priority: row.priority,
-        startDate: row.start_date ? new Date(row.start_date) : undefined,
-        endDate: row.end_date ? new Date(row.end_date) : undefined,
-        budget: row.budget,
-        clientId: row.client_id,
-        clientName: row.client_name,
-        isArchived: row.is_archived === 1,
-        createdBy: row.created_by,
-        createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at)
-      }));
-
-      res.json({
-        success: true,
-        data: projects,
-        count: projects.length
-      });
-
-    } finally {
-      connection.release();
-    }
-
-  } catch (error) {
-    console.error('Get projects error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get projects'
-    });
-  }
-});
-
 app.get('/api/clients/company/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;

@@ -312,8 +312,11 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
   const loadInitialData = async () => {
     if (!currentUser) return
     
+    console.log('[TimeTracker] Loading data for user:', currentUser.uid, 'company:', currentUser.companyId)
+    
     try {
       // Load both clients and projects
+      console.log('[TimeTracker] Calling APIs...')
       const [clientsData, projectsData] = await Promise.all([
         currentUser?.companyId 
           ? projectService.getClientsForCompany(currentUser.companyId)
@@ -323,10 +326,12 @@ export default function TimeTracker({ onTimeUpdate }: TimeTrackerProps) {
           : projectService.getProjects()
       ])
       
+      console.log('[TimeTracker] Loaded', clientsData.length, 'clients and', projectsData.length, 'projects')
       setClients(clientsData)
       setProjects(projectsData)
     } catch (error) {
-      console.error('Error loading data:', error)
+      console.error('[TimeTracker] Error loading data:', error)
+      setError(`Failed to load data: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 

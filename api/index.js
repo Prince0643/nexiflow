@@ -46,6 +46,45 @@ const pool = mysql.createPool({
     : 10000
 });
 
+const ensureEmailVerificationTables = async () => {
+  const connection = await pool.getConnection();
+  try {
+    // Ensure `users.email_verified` exists (some environments may not have run migrations yet)
+    const [columnRows] = await connection.execute(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'users'
+          AND COLUMN_NAME = 'email_verified'
+        LIMIT 1
+      `
+    );
+    if (!columnRows.length) {
+      await connection.execute(`ALTER TABLE users ADD COLUMN email_verified TINYINT(1) DEFAULT 0 AFTER is_active`);
+    }
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(64) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used_at DATETIME DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_email_verification_user_id (user_id),
+        INDEX idx_email_verification_token_hash (token_hash)
+      )
+    `);
+  } finally {
+    connection.release();
+  }
+}
+
+ensureEmailVerificationTables().catch((error) => {
+  console.error('Error ensuring email verification tables exist:', error);
+});
+
 const ensureSystemLogsTable = async () => {
   const connection = await pool.getConnection();
   try {
@@ -135,6 +174,28 @@ console.log('MySQL config:', {
   user: process.env.MYSQL_USER || 'root',
   database: process.env.MYSQL_DATABASE || 'clockistry'
 });
+
+function sha256Hex(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function getFrontendUrl() {
+  return (process.env.FRONTEND_URL || '').replace(/\/$/, '') || 'http://localhost:3000';
+}
+
+async function createEmailVerificationToken(connection, userId) {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = sha256Hex(rawToken);
+  const tokenId = uuidv4();
+  const expiresAt = moment().add(24, 'hours').toDate();
+
+  await connection.execute(
+    `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, used_at) VALUES (?, ?, ?, ?, NULL)`,
+    [tokenId, userId, tokenHash, expiresAt]
+  );
+
+  return { rawToken, expiresAt };
+}
 
 // Configure uploads directory
 const uploadsDir = path.join(__dirname, 'uploads', 'avatars');
@@ -2395,13 +2456,22 @@ app.post('/api/auth/login', async (req, res) => {
       }
       
       const user = userRows[0];
-      
+
       // Verify the password
       const isPasswordValid = await bcrypt.compare(password, user.password_hash);
       if (!isPasswordValid) {
         return res.status(401).json({ 
           success: false, 
           error: 'Invalid email or password. Please check your credentials and try again.' 
+        });
+      }
+
+      const emailVerified = user.email_verified === 1;
+      if (!emailVerified) {
+        return res.status(403).json({
+          success: false,
+          error: 'Please verify your email before signing in.',
+          emailVerified: false
         });
       }
       
@@ -2460,6 +2530,7 @@ app.post('/api/auth/login', async (req, res) => {
         teamId: user.team_id || null,
         teamRole: user.team_role || null,
         avatar: user.avatar || null,
+        emailVerified,
         timezone: user.timezone,
         hourlyRate: user.hourly_rate,
         isActive: user.is_active === 1,
@@ -3032,8 +3103,8 @@ app.post('/api/auth/signup', async (req, res) => {
       const now = new Date();
       const userQuery = `
         INSERT INTO users (
-          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?)
+          id, uid, name, email, password_hash, role, company_id, team_id, team_role, avatar, timezone, hourly_rate, is_active, email_verified, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, 0, ?, ?)
       `;
       
       await connection.execute(userQuery, [
@@ -3119,37 +3190,26 @@ app.post('/api/auth/signup', async (req, res) => {
       }
       
       // Get the created user
-      const getUserQuery = `SELECT * FROM users WHERE id = ?`;
-      const [userRows] = await connection.execute(getUserQuery, [userId]);
-      const user = userRows[0];
-      
-      // Generate JWT token
-      const token = jwt.sign(
-        { userId: user.id, email: user.email },
-        process.env.JWT_SECRET || 'clockistry_secret_key',
-        { expiresIn: '24h' }
+      const [userRows] = await connection.execute(
+        `SELECT id, name, email, role FROM users WHERE id = ? LIMIT 1`,
+        [userId]
       );
-      
-      const userData = {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        companyId: user.company_id || null,
-        teamId: user.team_id || null,
-        teamRole: user.team_role || null,
-        avatar: user.avatar || null,
-        timezone: user.timezone,
-        hourlyRate: user.hourly_rate,
-        isActive: user.is_active === 1,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at
-      };
-      
-      res.status(201).json({ 
-        success: true, 
-        token,
-        user: userData,
+      const user = userRows[0];
+
+      const { rawToken } = await createEmailVerificationToken(connection, userId);
+      const verifyLink = `${getFrontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}`;
+      await billingEmailService.sendEmailVerificationEmail({ name: user.name, email: user.email }, verifyLink);
+
+      res.status(201).json({
+        success: true,
+        requiresEmailVerification: true,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          emailVerified: false
+        },
         company: companyData
       });
       
@@ -3163,6 +3223,86 @@ app.post('/api/auth/signup', async (req, res) => {
       success: false, 
       error: 'Signup failed. Please try again.' 
     });
+  }
+});
+
+// Verify email endpoint
+app.post('/api/auth/verify-email', async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'Verification token is required' });
+    }
+
+    const tokenHash = sha256Hex(token);
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `
+          SELECT id, user_id, expires_at, used_at
+          FROM email_verification_tokens
+          WHERE token_hash = ?
+          LIMIT 1
+        `,
+        [tokenHash]
+      );
+
+      if (!rows.length) {
+        return res.status(400).json({ success: false, error: 'Invalid or expired verification token' });
+      }
+
+      const record = rows[0];
+      const now = new Date();
+      if (record.used_at) {
+        return res.status(400).json({ success: false, error: 'This verification link has already been used' });
+      }
+      if (new Date(record.expires_at).getTime() < now.getTime()) {
+        return res.status(400).json({ success: false, error: 'This verification link has expired' });
+      }
+
+      await connection.execute('UPDATE users SET email_verified = 1, updated_at = NOW() WHERE id = ?', [record.user_id]);
+      await connection.execute('UPDATE email_verification_tokens SET used_at = ? WHERE id = ?', [now, record.id]);
+
+      res.json({ success: true });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Verify email error:', error);
+    res.status(500).json({ success: false, error: 'Email verification failed. Please try again.' });
+  }
+});
+
+// Resend verification endpoint
+app.post('/api/auth/resend-verification', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (!normalizedEmail) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [userRows] = await connection.execute(
+        'SELECT id, name, email, email_verified FROM users WHERE email = ? AND is_active = 1 LIMIT 1',
+        [normalizedEmail]
+      );
+
+      if (userRows.length && userRows[0].email_verified !== 1) {
+        const user = userRows[0];
+        const { rawToken } = await createEmailVerificationToken(connection, user.id);
+        const verifyLink = `${getFrontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(normalizedEmail)}`;
+        await billingEmailService.sendEmailVerificationEmail({ name: user.name, email: user.email }, verifyLink);
+      }
+
+      res.json({ success: true });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ success: false, error: 'Failed to resend verification email. Please try again.' });
   }
 });
 
