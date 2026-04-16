@@ -43,6 +43,8 @@ import NewInvoice from './pages/NewInvoice'
 // Import billing pages
 import BillingSuccess from './pages/billing/BillingSuccess'
 import BillingCancel from './pages/billing/BillingCancel'
+import PayPalSuccess from './pages/billing/PayPalSuccess'
+import PayPalCancel from './pages/billing/PayPalCancel'
 import BillingStatusBanner from './components/billing/BillingStatusBanner'
 import { soundManager } from './utils/soundManager'
 
@@ -219,6 +221,16 @@ function AppContent() {
                 <Route path="/billing/cancel" element={
                   <ProtectedRoute>
                     <BillingCancel />
+                  </ProtectedRoute>
+                } />
+                <Route path="/billing/paypal-success" element={
+                  <ProtectedRoute>
+                    <PayPalSuccess />
+                  </ProtectedRoute>
+                } />
+                <Route path="/billing/paypal-cancel" element={
+                  <ProtectedRoute>
+                    <PayPalCancel />
                   </ProtectedRoute>
                 } />
               </>

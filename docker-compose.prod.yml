@@ -39,6 +39,10 @@ services:
       # OpenAI (server-side only)
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # PayPal Configuration
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET}
+      PAYPAL_ENVIRONMENT: ${PAYPAL_ENVIRONMENT:-live}
     volumes:
       - ./api/uploads:/app/api/uploads
     healthcheck:

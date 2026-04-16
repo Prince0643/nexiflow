@@ -22,6 +22,7 @@ const axios = require('axios');
 const billingEmailService = require('./services/billingEmailService');
 const { isStartTimerIntent, isStopTimerIntent } = require('./aiTimerIntent.cjs');
 const { sanitizeAIReply } = require('./aiReplyFormatting.cjs');
+const paypal = require('@paypal/checkout-server-sdk');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -208,6 +209,31 @@ app.use('/api/mention-notifications', mentionReadLimiter);
 app.use('/api/tasks/:id', taskLiveReadLimiter);
 app.use('/api/tasks/:id/', taskLiveReadLimiter);
 app.use('/api/', limiter);
+
+// ============================================
+// PAYPAL CONFIGURATION
+// ============================================
+const paypalEnvironment = () => {
+  const clientId = process.env.PAYPAL_CLIENT_ID;
+  const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+  const environment = process.env.PAYPAL_ENVIRONMENT || 'sandbox';
+
+  if (!clientId || !clientSecret) {
+    console.warn('PayPal credentials not configured. PayPal payments will be disabled.');
+    return null;
+  }
+
+  if (environment === 'live') {
+    return new paypal.core.LiveEnvironment(clientId, clientSecret);
+  }
+  return new paypal.core.SandboxEnvironment(clientId, clientSecret);
+};
+
+const getPayPalClient = () => {
+  const environment = paypalEnvironment();
+  if (!environment) return null;
+  return new paypal.core.PayPalHttpClient(environment);
+};
 
 const mapTaskRow = (row) => ({
   id: row.id,
@@ -6104,7 +6130,7 @@ app.put('/api/mention-notifications/read-all', authenticateToken, async (req, re
 });
 
 // ============================================
-// BILLING API - Paymongo Integration
+// BILLING API - External Payment Integration
 // ============================================
 
 // Create checkout session for plan upgrade via external PayMongo backend
@@ -6413,7 +6439,7 @@ app.get('/api/billing/seat-limit', authenticateToken, async (req, res) => {
   }
 });
 
-// Webhook handler for Paymongo events (from external backend or direct)
+// Webhook handler for payment events from external backend
 const handlePaymongoWebhook = async (req, res) => {
   try {
     console.log('=== WEBHOOK RECEIVED ===');
@@ -6438,35 +6464,18 @@ const handlePaymongoWebhook = async (req, res) => {
       return res.status(200).json({ received: true, error: 'Invalid JSON' });
     }
 
-    // Check if this is from external backend (forwarded format) or direct PayMongo
-    // External backend format has: { eventType, checkoutSessionId, metadata, status }
-    // PayMongo format has: { data: { attributes: { type, data: { id, attributes: { metadata } } } } }
+    // Expected format from external backend: { eventType, checkoutSessionId, metadata, status }
     const isExternalBackendFormat = payload.eventType !== undefined && payload.metadata !== undefined;
-    const isPaymongoFormat = payload.data?.attributes?.type !== undefined;
     
-    console.log('Webhook format detected:', { isExternalBackendFormat, isPaymongoFormat });
-    console.log('Full payload:', JSON.stringify(payload, null, 2));
-
-    let eventType, checkoutSessionId, metadata, status;
-
-    if (isExternalBackendFormat) {
-      // External backend forwarded format
-      console.log('Processing external backend webhook format');
-      eventType = payload.eventType;
-      checkoutSessionId = payload.checkoutSessionId;
-      metadata = payload.metadata;
-      status = payload.status;
-    } else if (isPaymongoFormat) {
-      // Direct PayMongo format
-      console.log('Processing direct PayMongo webhook format');
-      eventType = payload.data?.attributes?.type;
-      const checkoutSession = payload.data?.attributes?.data;
-      checkoutSessionId = checkoutSession?.id;
-      metadata = checkoutSession?.attributes?.metadata;
-    } else {
-      console.error('Unknown webhook format - cannot process');
+    if (!isExternalBackendFormat) {
+      console.error('Unknown webhook format - expected external backend format');
       return res.status(200).json({ received: true, warning: 'Unknown format' });
     }
+    
+    console.log('Processing external backend webhook');
+    console.log('Full payload:', JSON.stringify(payload, null, 2));
+
+    const { eventType, checkoutSessionId, metadata, status } = payload;
 
     console.log('Extracted values:', { eventType, checkoutSessionId, metadata, status });
 
@@ -6596,9 +6605,8 @@ const handlePaymongoWebhook = async (req, res) => {
   }
 };
 
-// Accept both paths (PayMongo config currently points to /webhook)
+// Webhook endpoint for external payment backend
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handlePaymongoWebhook);
-app.post('/webhook', express.raw({ type: 'application/json' }), handlePaymongoWebhook);
 
 // Get billing history for company
 app.get('/api/billing/history', authenticateToken, async (req, res) => {
@@ -6732,6 +6740,412 @@ app.get('/api/billing/status', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching billing status:', error);
     res.status(500).json({ error: 'Failed to fetch billing status' });
+  }
+});
+
+// ============================================
+// PAYPAL PAYMENT ENDPOINTS
+// ============================================
+
+// Create PayPal order for plan upgrade or seat purchase
+app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res) => {
+  try {
+    const { plan, additionalSeats, successUrl, cancelUrl } = req.body;
+    const companyId = req.user.companyId;
+    const userId = req.user.uid;
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    // Check PayPal configuration
+    const paypalClient = getPayPalClient();
+    if (!paypalClient) {
+      return res.status(503).json({ error: 'PayPal is not configured' });
+    }
+    
+    // Validate either plan upgrade or seat purchase
+    const isPlanUpgrade = plan && ['office', 'enterprise'].includes(plan);
+    const isSeatPurchase = additionalSeats && parseInt(additionalSeats) >= 1;
+    
+    if (!isPlanUpgrade && !isSeatPurchase) {
+      return res.status(400).json({ error: 'Invalid request. Must provide plan (office/enterprise) or additionalSeats' });
+    }
+    
+    // Only super_admin can purchase seats
+    if (isSeatPurchase && req.user.role !== 'super_admin' && req.user.role !== 'root') {
+      return res.status(403).json({ error: 'Only super admins can purchase additional seats' });
+    }
+    
+    // Get user and company details
+    const connection = await pool.getConnection();
+    let customerEmail = '';
+    let customerName = '';
+    let companyPricingLevel = plan;
+    let unitAmount = 0;
+    let quantity = 1;
+    let description = '';
+    
+    try {
+      const [userRows] = await connection.execute(
+        'SELECT email, name FROM users WHERE id = ?',
+        [userId]
+      );
+      if (userRows.length > 0) {
+        customerEmail = userRows[0].email;
+        customerName = userRows[0].name || '';
+      }
+      
+      if (isSeatPurchase) {
+        const [companyRows] = await connection.execute(
+          'SELECT pricing_level FROM companies WHERE id = ?',
+          [companyId]
+        );
+        if (companyRows.length === 0) {
+          return res.status(404).json({ error: 'Company not found' });
+        }
+        companyPricingLevel = companyRows[0].pricing_level;
+        const pricePerUser = companyPricingLevel === 'enterprise' ? 12 : 9;
+        unitAmount = pricePerUser;
+        quantity = parseInt(additionalSeats);
+        description = `${quantity} additional seat${quantity > 1 ? 's' : ''} for ${companyPricingLevel} plan`;
+      } else {
+        // Plan upgrade
+        unitAmount = plan === 'office' ? 9 : 12;
+        quantity = 1; // Start with 1 seat for upgrade
+        description = `Upgrade to ${plan} plan`;
+      }
+    } finally {
+      connection.release();
+    }
+    
+    // Calculate total
+    const totalAmount = unitAmount * quantity;
+    
+    // Create PayPal order
+    const request = new paypal.orders.OrdersCreateRequest();
+    request.requestBody({
+      intent: 'CAPTURE',
+      purchase_units: [{
+        amount: {
+          currency_code: 'USD',
+          value: totalAmount.toString(),
+          breakdown: {
+            item_total: {
+              currency_code: 'USD',
+              value: totalAmount.toString()
+            }
+          }
+        },
+        description: description,
+        custom_id: companyId,
+        invoice_id: `TXN-${uuidv4()}`,
+        items: [{
+          name: description,
+          quantity: quantity.toString(),
+          unit_amount: {
+            currency_code: 'USD',
+            value: unitAmount.toString()
+          }
+        }]
+      }],
+      application_context: {
+        brand_name: 'NexiFlow',
+        landing_page: 'BILLING',
+        user_action: 'PAY_NOW',
+        return_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/paypal-success`,
+        cancel_url: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/paypal-cancel`
+      },
+      payer: {
+        email_address: customerEmail,
+        name: {
+          given_name: customerName.split(' ')[0] || '',
+          surname: customerName.split(' ').slice(1).join(' ') || ''
+        }
+      }
+    });
+    
+    const order = await paypalClient.execute(request);
+    
+    // Store transaction in local database
+    const transactionId = uuidv4();
+    const conn = await pool.getConnection();
+    try {
+      const metadata = {
+        payment_provider: 'paypal',
+        pricing_level: isPlanUpgrade ? plan : companyPricingLevel,
+        user_count: isPlanUpgrade ? 1 : quantity,
+        type: isSeatPurchase ? 'seat_addon' : 'plan_upgrade',
+        additional_seats: isSeatPurchase ? quantity : null,
+        price_per_user: unitAmount * 100, // Store in cents for consistency
+        paypal_order_id: order.result.id
+      };
+      
+      await conn.execute(
+        `INSERT INTO payment_transactions 
+         (id, company_id, checkout_session_id, amount, currency, status, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          transactionId,
+          companyId,
+          order.result.id, // Use PayPal order ID as checkout_session_id
+          totalAmount * 100, // Store in cents
+          'USD',
+          'pending',
+          JSON.stringify(metadata)
+        ]
+      );
+    } finally {
+      conn.release();
+    }
+    
+    // Find the approval URL
+    const approvalLink = order.result.links.find(link => link.rel === 'approve');
+    
+    res.json({
+      success: true,
+      orderId: order.result.id,
+      transactionId: transactionId,
+      approvalUrl: approvalLink ? approvalLink.href : null,
+      amount: totalAmount,
+      currency: 'USD'
+    });
+    
+  } catch (error) {
+    console.error('PayPal order creation error:', error);
+    res.status(500).json({ error: 'Failed to create PayPal order: ' + (error.message || 'Unknown error') });
+  }
+});
+
+// Capture PayPal order after user approval
+app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    const companyId = req.user.companyId;
+    
+    if (!orderId) {
+      return res.status(400).json({ error: 'Order ID is required' });
+    }
+    
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    
+    // Check PayPal configuration
+    const paypalClient = getPayPalClient();
+    if (!paypalClient) {
+      return res.status(503).json({ error: 'PayPal is not configured' });
+    }
+    
+    // Capture the order
+    const request = new paypal.orders.OrdersCaptureRequest(orderId);
+    request.requestBody({});
+    
+    const capture = await paypalClient.execute(request);
+    
+    if (capture.result.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'Payment not completed', status: capture.result.status });
+    }
+    
+    // Get transaction details from database
+    const connection = await pool.getConnection();
+    try {
+      const [txRows] = await connection.execute(
+        'SELECT * FROM payment_transactions WHERE checkout_session_id = ? AND company_id = ?',
+        [orderId, companyId]
+      );
+      
+      if (txRows.length === 0) {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+      
+      const transaction = txRows[0];
+      const metadata = JSON.parse(transaction.metadata || '{}');
+      
+      // Calculate billing period
+      const now = new Date();
+      const nextBillingDate = new Date(now);
+      nextBillingDate.setDate(nextBillingDate.getDate() + 30);
+      
+      // Update transaction status
+      await connection.execute(
+        `UPDATE payment_transactions 
+         SET status = 'paid', 
+             paid_at = NOW(),
+             billing_period_start = CURDATE(),
+             billing_period_end = ?,
+             is_renewal = 1
+         WHERE checkout_session_id = ?`,
+        [nextBillingDate, orderId]
+      );
+      
+      // Handle seat add-on or plan upgrade
+      if (metadata.type === 'seat_addon' && metadata.additional_seats) {
+        await connection.execute(
+          `UPDATE companies 
+           SET max_members = max_members + ?,
+               last_payment_date = CURDATE(),
+               next_billing_date = ?,
+               billing_status = 'active',
+               updated_at = NOW()
+           WHERE id = ?`,
+          [parseInt(metadata.additional_seats), nextBillingDate, companyId]
+        );
+      } else {
+        await connection.execute(
+          `UPDATE companies 
+           SET pricing_level = ?, 
+               max_members = ?, 
+               last_payment_date = CURDATE(),
+               next_billing_date = ?,
+               billing_status = 'active',
+               is_in_grace_period = 0,
+               grace_period_end_date = NULL,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [metadata.pricing_level, parseInt(metadata.user_count) || 1, nextBillingDate, companyId]
+        );
+      }
+      
+      res.json({
+        success: true,
+        message: 'Payment captured successfully',
+        orderId: orderId,
+        captureId: capture.result.purchase_units[0].payments.captures[0].id
+      });
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    console.error('PayPal capture error:', error);
+    res.status(500).json({ error: 'Failed to capture PayPal payment: ' + (error.message || 'Unknown error') });
+  }
+});
+
+// PayPal webhook handler (for async payment notifications)
+app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    console.log('=== PAYPAL WEBHOOK RECEIVED ===');
+    
+    // Parse the body
+    const rawBodyBuffer = req.rawBody
+      ? req.rawBody
+      : Buffer.isBuffer(req.body)
+        ? req.body
+        : Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {}));
+    const rawBodyString = rawBodyBuffer.toString('utf8');
+    
+    let payload;
+    try {
+      payload = JSON.parse(rawBodyString);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError.message);
+      return res.status(200).json({ received: true, error: 'Invalid JSON' });
+    }
+    
+    console.log('PayPal webhook payload:', JSON.stringify(payload, null, 2));
+    
+    const { event_type, resource } = payload;
+    
+    // Handle payment capture completed
+    if (event_type === 'CHECKOUT.ORDER.APPROVED' || event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+      const orderId = resource.id || resource.order_id;
+      
+      if (!orderId) {
+        console.log('No order ID in webhook payload');
+        return res.status(200).json({ received: true, warning: 'No order ID' });
+      }
+      
+      const connection = await pool.getConnection();
+      try {
+        // Find the transaction
+        const [txRows] = await connection.execute(
+          'SELECT * FROM payment_transactions WHERE checkout_session_id = ? AND status = ?',
+          [orderId, 'pending']
+        );
+        
+        if (txRows.length === 0) {
+          console.log('Transaction not found or already processed:', orderId);
+          return res.status(200).json({ received: true, warning: 'Transaction not found' });
+        }
+        
+        const transaction = txRows[0];
+        const metadata = JSON.parse(transaction.metadata || '{}');
+        
+        const now = new Date();
+        const nextBillingDate = new Date(now);
+        nextBillingDate.setDate(nextBillingDate.getDate() + 30);
+        
+        // Update transaction
+        await connection.execute(
+          `UPDATE payment_transactions 
+           SET status = 'paid', 
+               paid_at = NOW(),
+               billing_period_start = CURDATE(),
+               billing_period_end = ?,
+               is_renewal = 1
+           WHERE checkout_session_id = ?`,
+          [nextBillingDate, orderId]
+        );
+        
+        // Update company
+        if (metadata.type === 'seat_addon' && metadata.additional_seats) {
+          await connection.execute(
+            `UPDATE companies 
+             SET max_members = max_members + ?,
+                 last_payment_date = CURDATE(),
+                 next_billing_date = ?,
+                 billing_status = 'active',
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [parseInt(metadata.additional_seats), nextBillingDate, transaction.company_id]
+          );
+        } else {
+          await connection.execute(
+            `UPDATE companies 
+             SET pricing_level = ?, 
+                 max_members = ?, 
+                 last_payment_date = CURDATE(),
+                 next_billing_date = ?,
+                 billing_status = 'active',
+                 is_in_grace_period = 0,
+                 grace_period_end_date = NULL,
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [metadata.pricing_level, parseInt(metadata.user_count) || 1, nextBillingDate, transaction.company_id]
+          );
+        }
+        
+        console.log('=== PAYPAL WEBHOOK PROCESSED ===', { orderId, companyId: transaction.company_id });
+      } finally {
+        connection.release();
+      }
+    }
+    
+    // Handle payment failures
+    if (event_type === 'PAYMENT.CAPTURE.DENIED' || event_type === 'CHECKOUT.ORDER.DECLINED') {
+      const orderId = resource.id || resource.order_id;
+      
+      if (orderId) {
+        const connection = await pool.getConnection();
+        try {
+          await connection.execute(
+            `UPDATE payment_transactions 
+             SET status = 'failed', failed_at = NOW()
+             WHERE checkout_session_id = ?`,
+            [orderId]
+          );
+        } finally {
+          connection.release();
+        }
+      }
+    }
+    
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    console.error('PayPal webhook error:', error);
+    return res.status(200).json({ received: true, error: error.message });
   }
 });
 
