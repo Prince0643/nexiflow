@@ -296,8 +296,10 @@ export default function Clients() {
     const clientProjects = projects.filter(project => project.clientId === client.id)
     const clientProjectIds = clientProjects.map(project => project.id)
     
+    // Match by project association OR by direct clientId on time entry
     const clientTimeEntries = timeEntries.filter(entry => 
-      entry.projectId && clientProjectIds.includes(entry.projectId)
+      (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+      entry.clientId === client.id
     )
 
     const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
@@ -449,9 +451,10 @@ export default function Clients() {
         const clientProjects = projects.filter(project => project.clientId === exportClient.id)
         const clientProjectIds = clientProjects.map(project => project.id)
         
-        // Filter time entries for this client's projects
+        // Filter time entries for this client's projects OR by direct clientId
         const filteredClientTimeEntries = clientTimeEntries.filter(entry => 
-          entry.projectId && clientProjectIds.includes(entry.projectId)
+          (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+          entry.clientId === exportClient.id
         )
         
         // Get daily time data for the selected period
@@ -653,8 +656,10 @@ export default function Clients() {
       const clientProjects = projects.filter(project => project.clientId === client.id)
       const clientProjectIds = clientProjects.map(project => project.id)
       
+      // Match by project association OR by direct clientId on time entry
       const clientTimeEntries = timeEntriesForPeriod.filter(entry => 
-        entry.projectId && clientProjectIds.includes(entry.projectId)
+        (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+        entry.clientId === client.id
       )
 
       const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
@@ -696,8 +701,10 @@ export default function Clients() {
       const clientProjects = projects.filter(project => project.clientId === client.id)
       const clientProjectIds = clientProjects.map(project => project.id)
       
+      // Match by project association OR by direct clientId on time entry
       const clientTimeEntries = timeEntriesForPeriod.filter(entry => 
-        entry.projectId && clientProjectIds.includes(entry.projectId)
+        (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+        entry.clientId === client.id
       )
 
       const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
@@ -712,8 +719,10 @@ export default function Clients() {
       const clientProjects = projects.filter(project => project.clientId === client.id)
       const clientProjectIds = clientProjects.map(project => project.id)
       
+      // Match by project association OR by direct clientId on time entry
       const clientTimeEntries = timeEntriesForPeriod.filter(entry => 
-        entry.projectId && clientProjectIds.includes(entry.projectId)
+        (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+        entry.clientId === client.id
       )
 
       return sum + clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
@@ -727,8 +736,10 @@ export default function Clients() {
       const clientProjects = projects.filter(project => project.clientId === client.id)
       const clientProjectIds = clientProjects.map(project => project.id)
       
+      // Match by project association OR by direct clientId on time entry
       const clientTimeEntries = timeEntriesForPeriod.filter(entry => 
-        entry.projectId && clientProjectIds.includes(entry.projectId)
+        (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+        entry.clientId === client.id
       )
 
       const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
@@ -766,9 +777,10 @@ export default function Clients() {
     const clientProjects = projects.filter(project => project.clientId === client.id)
     const clientProjectIds = clientProjects.map(project => project.id)
     
-    // Filter time entries for this client's projects
+    // Filter time entries for this client's projects OR by direct clientId
     const clientTimeEntries = timeEntriesForPeriod.filter(entry => 
-      entry.projectId && clientProjectIds.includes(entry.projectId)
+      (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+      entry.clientId === client.id
     )
     
     // Fix for date range filtering: set end date to end of day to include all entries for that day
@@ -1488,9 +1500,10 @@ export default function Clients() {
                   const clientProjects = projects.filter(project => project.clientId === viewingClientTimeEntries.id)
                   const clientProjectIds = clientProjects.map(project => project.id)
                   
-                  // Get time entries for this client's projects
+                  // Get time entries for this client's projects OR by direct clientId
                   const clientTimeEntries = timeEntries.filter(entry => 
-                    entry.projectId && clientProjectIds.includes(entry.projectId)
+                    (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+                    entry.clientId === viewingClientTimeEntries.id
                   )
                   
                   return clientTimeEntries.length > 0 ? (
@@ -1547,9 +1560,10 @@ export default function Clients() {
                   const clientProjects = projects.filter(project => project.clientId === viewingClientTimeEntries.id)
                   const clientProjectIds = clientProjects.map(project => project.id)
                   
-                  // Get time entries for this client's projects
+                  // Get time entries for this client's projects OR by direct clientId
                   const clientTimeEntries = timeEntries.filter(entry => 
-                    entry.projectId && clientProjectIds.includes(entry.projectId)
+                    (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+                    entry.clientId === viewingClientTimeEntries.id
                   )
                   
                   const totalDuration = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
