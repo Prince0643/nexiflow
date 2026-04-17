@@ -167,12 +167,13 @@ export default function ExportModal({
         const { startDate, endDate } = getSelectedDateRange()
         const timeEntries = await timeEntryService.getAllTimeEntriesByDateRange(startDate, endDate)
         
-        // Filter time entries for this client's projects
+        // Filter time entries for this client's projects OR by direct clientId
         const clientProjects = projects.filter(project => project.clientId === client.id)
         const clientProjectIds = clientProjects.map(project => project.id)
         
         const clientTimeEntries = timeEntries.filter(entry => 
-          entry.projectId && clientProjectIds.includes(entry.projectId)
+          (entry.projectId && clientProjectIds.includes(entry.projectId)) ||
+          entry.clientId === client.id
         )
 
         const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)

@@ -25,6 +25,9 @@ const fetchAllTimeEntries = async (): Promise<TimeEntry[]> => {
   if (!data.success) return []
   return data.data.map((entry: any) => ({
     ...entry,
+    clientId: entry.client_id || entry.clientId,
+    clientName: entry.client_name || entry.clientName,
+    projectName: entry.project_name || entry.projectName,
     startTime: new Date(entry.startTime),
     endTime: entry.endTime ? new Date(entry.endTime) : undefined,
     createdAt: new Date(entry.createdAt),
