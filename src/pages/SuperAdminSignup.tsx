@@ -54,7 +54,7 @@ export default function SuperAdminSignup() {
 
         {/* Footer */}
         <div className="mt-8 text-center text-xs text-gray-400 dark:text-gray-500">
-          <p>&copy; 2024 NexiFlow. All rights reserved.</p>
+          <p>&copy; 2025 NexiFlow. All rights reserved.</p>
         </div>
       </div>
     </div>

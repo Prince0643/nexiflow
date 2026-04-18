@@ -646,7 +646,7 @@ const About = () => {
               </a>
             </div>
             <p className="mt-8 text-base text-gray-600 dark:text-gray-400 md:mt-0 md:order-1">
-              &copy; 2024 NexiFlow. All rights reserved.
+              &copy; 2025 NexiFlow. All rights reserved.
             </p>
           </div>
         </div>

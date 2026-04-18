@@ -6273,6 +6273,12 @@ app.put('/api/mention-notifications/read-all', authenticateToken, async (req, re
 // BILLING API - External Payment Integration
 // ============================================
 
+function getPlanMaxMembers(pricingLevel) {
+  if (pricingLevel === 'enterprise') return 100;
+  if (pricingLevel === 'office') return 10;
+  return 1;
+}
+
 // Create checkout session for plan upgrade via external PayMongo backend
 app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
   try {
@@ -6288,13 +6294,14 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
       return res.status(400).json({ error: 'Invalid plan. Must be office or enterprise' });
     }
     
-    // Default included seats per plan (always start with 1 seat)
-    const count = 1;
+    // Bill per active user (up to the plan cap)
+    const planMaxMembers = getPlanMaxMembers(plan);
     
     // Get user details for customer info
     const connection = await pool.getConnection();
     let customerEmail = '';
     let customerName = '';
+    let billableUserCount = 1;
     try {
       const [userRows] = await connection.execute(
         'SELECT email, name FROM users WHERE id = ?',
@@ -6304,6 +6311,13 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
         customerEmail = userRows[0].email;
         customerName = userRows[0].name || '';
       }
+
+      const [userCountRows] = await connection.execute(
+        'SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_active = 1',
+        [companyId]
+      );
+      const activeUsers = Number(userCountRows[0]?.count || 0);
+      billableUserCount = Math.max(1, Math.min(planMaxMembers, activeUsers));
     } finally {
       connection.release();
     }
@@ -6312,7 +6326,7 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
     const externalApiUrl = process.env.EXTERNAL_PAYMONGO_API_URL || 'https://api.nexistrydigitalsolutions.com';
     
     console.log('Calling external PayMongo API:', `${externalApiUrl}/api/clockistry/create-payment-intent`);
-    console.log('Request data:', { companyId, userId, plan, userCount: count });
+    console.log('Request data:', { companyId, userId, plan, userCount: billableUserCount });
     
     const response = await axios.post(
       `${externalApiUrl}/api/clockistry/create-payment-intent`,
@@ -6320,7 +6334,7 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
         companyId: companyId,
         userId: userId,
         plan: plan,
-        userCount: count,
+        userCount: billableUserCount,
         successUrl: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/success`,
         cancelUrl: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/cancel`,
         customerEmail: customerEmail,
@@ -6360,7 +6374,7 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
           'pending',
           JSON.stringify({
             pricing_level: plan,
-            user_count: count,
+            user_count: billableUserCount,
             price_per_user: pricePerUserCents,
             source: 'external_api'
           })
@@ -6395,127 +6409,9 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
 // Create checkout session for purchasing additional seats
 app.post('/api/billing/purchase-seats', authenticateToken, async (req, res) => {
   try {
-    const { additionalSeats } = req.body;
-    const companyId = req.user.companyId;
-    const userId = req.user.uid;
-    
-    // Only super_admin can purchase seats
-    if (req.user.role !== 'super_admin' && req.user.role !== 'root') {
-      return res.status(403).json({ error: 'Only super admins can purchase additional seats' });
-    }
-    
-    if (!companyId) {
-      return res.status(400).json({ error: 'User must belong to a company' });
-    }
-    
-    const seats = parseInt(additionalSeats);
-    if (!seats || seats < 1) {
-      return res.status(400).json({ error: 'Invalid seat count. Must be at least 1' });
-    }
-    
-    // Get company info to determine pricing
-    const connection = await pool.getConnection();
-    let company, customerEmail = '', customerName = '';
-    
-    try {
-      const [companyRows] = await connection.execute(
-        'SELECT * FROM companies WHERE id = ?',
-        [companyId]
-      );
-      
-      if (companyRows.length === 0) {
-        return res.status(404).json({ error: 'Company not found' });
-      }
-      
-      company = companyRows[0];
-      
-      // Get user details for customer info
-      const [userRows] = await connection.execute(
-        'SELECT email, name FROM users WHERE id = ?',
-        [userId]
-      );
-      if (userRows.length > 0) {
-        customerEmail = userRows[0].email;
-        customerName = userRows[0].name || '';
-      }
-    } finally {
-      connection.release();
-    }
-    
-    // Determine price per seat based on current plan
-    const pricePerUserUSD = company.pricing_level === 'enterprise' ? 12 : 9;
-    const totalAmount = pricePerUserUSD * seats;
-    
-    // Call external PayMongo backend for seat add-on
-    const externalApiUrl = process.env.EXTERNAL_PAYMONGO_API_URL || 'https://api.nexistrydigitalsolutions.com';
-    
-    console.log('Creating seat add-on checkout:', { companyId, userId, additionalSeats: seats, totalAmount });
-    
-    const response = await axios.post(
-      `${externalApiUrl}/api/clockistry/create-payment-intent`,
-      {
-        companyId: companyId,
-        userId: userId,
-        type: 'seat_addon',
-        additionalSeats: seats,
-        plan: company.pricing_level,
-        successUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/seats-success`,
-        cancelUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/seats-cancel`,
-        customerEmail: customerEmail,
-        customerName: customerName
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
-      }
-    );
-    
-    const data = response.data;
-    
-    if (!data.success) {
-      throw new Error(data.error || 'External API returned unsuccessful response');
-    }
-    
-    // Store transaction in local database
-    const conn = await pool.getConnection();
-    try {
-      const pricePerUserCents = pricePerUserUSD * 100;
-      
-      await conn.execute(
-        `INSERT INTO payment_transactions 
-         (id, company_id, checkout_session_id, amount, currency, status, metadata, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [
-          data.transactionId,
-          companyId,
-          data.checkoutSessionId,
-          data.amount,
-          'USD',
-          'pending',
-          JSON.stringify({
-            type: 'seat_addon',
-            pricing_level: company.pricing_level,
-            additional_seats: seats,
-            price_per_user: pricePerUserCents,
-            source: 'external_api'
-          })
-        ]
-      );
-    } finally {
-      conn.release();
-    }
-    
-    res.json({
-      success: true,
-      checkoutUrl: data.checkoutUrl,
-      checkoutSessionId: data.checkoutSessionId,
-      transactionId: data.transactionId,
-      additionalSeats: seats,
-      totalAmount: totalAmount
+    return res.status(400).json({
+      error: 'Seat add-ons are not supported. NexiFlow bills per active user per month up to your plan limit (Office: 10, Enterprise: 100).'
     });
-    
   } catch (error) {
     console.error('Seat purchase error:', error);
     if (error.response) {
@@ -6661,43 +6557,26 @@ const handlePaymongoWebhook = async (req, res) => {
 
         console.log('Transaction update result:', { affectedRows: txResult?.affectedRows });
 
-        // Check if this is a seat_addon or plan_upgrade
-        if (type === 'seat_addon' && additionalSeats) {
-          // Handle seat add-on: increase max_members
-          console.log('Processing seat add-on:', { companyId, additionalSeats });
-          
-          const [companyResult] = await connection.execute(
-            `UPDATE companies 
-             SET max_members = max_members + ?,
-                 last_payment_date = CURDATE(),
-                 next_billing_date = ?,
-                 billing_status = 'active',
-                 updated_at = NOW()
-             WHERE id = ?`,
-            [parseInt(additionalSeats), nextBillingDate, companyId]
-          );
-          
-          console.log('Seat add-on processed:', { companyId, additionalSeats, affectedRows: companyResult?.affectedRows });
-        } else {
-          // Handle plan upgrade: set pricing_level and max_members
-          console.log('Updating company plan and billing dates:', { companyId, pricingLevel, userCount, nextBillingDate });
-          
-          const [companyResult] = await connection.execute(
-            `UPDATE companies 
-             SET pricing_level = ?, 
-                 max_members = ?, 
-                 last_payment_date = CURDATE(),
-                 next_billing_date = ?,
-                 billing_status = 'active',
-                 is_in_grace_period = 0,
-                 grace_period_end_date = NULL,
-                 updated_at = NOW()
-             WHERE id = ?`,
-            [pricingLevel, parseInt(userCount) || 1, nextBillingDate, companyId]
-          );
+        // Seat add-ons are deprecated; always reset the plan cap based on pricing level.
+        const planMaxMembers = getPlanMaxMembers(pricingLevel);
 
-          console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
-        }
+        console.log('Updating company plan and billing dates:', { companyId, pricingLevel, planMaxMembers, nextBillingDate });
+        
+        const [companyResult] = await connection.execute(
+          `UPDATE companies 
+           SET pricing_level = ?, 
+               max_members = ?, 
+               last_payment_date = CURDATE(),
+               next_billing_date = ?,
+               billing_status = 'active',
+               is_in_grace_period = 0,
+               grace_period_end_date = NULL,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [pricingLevel, planMaxMembers, nextBillingDate, companyId]
+        );
+
+        console.log('Company update result:', { affectedRows: companyResult?.affectedRows });
 
         console.log('=== PAYMENT SUCCESS PROCESSED ===', {
           companyId,
@@ -6911,6 +6790,12 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
     if (!isPlanUpgrade && !isSeatPurchase) {
       return res.status(400).json({ error: 'Invalid request. Must provide plan (office/enterprise) or additionalSeats' });
     }
+
+    if (isSeatPurchase) {
+      return res.status(400).json({
+        error: 'Seat add-ons are not supported. NexiFlow bills per active user per month up to your plan limit (Office: 10, Enterprise: 100).'
+      });
+    }
     
     // Only super_admin can purchase seats
     if (isSeatPurchase && req.user.role !== 'super_admin' && req.user.role !== 'root') {
@@ -6935,26 +6820,18 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
         customerEmail = userRows[0].email;
         customerName = userRows[0].name || '';
       }
-      
-      if (isSeatPurchase) {
-        const [companyRows] = await connection.execute(
-          'SELECT pricing_level FROM companies WHERE id = ?',
-          [companyId]
-        );
-        if (companyRows.length === 0) {
-          return res.status(404).json({ error: 'Company not found' });
-        }
-        companyPricingLevel = companyRows[0].pricing_level;
-        const pricePerUser = companyPricingLevel === 'enterprise' ? 12 : 9;
-        unitAmount = pricePerUser;
-        quantity = parseInt(additionalSeats);
-        description = `${quantity} additional seat${quantity > 1 ? 's' : ''} for ${companyPricingLevel} plan`;
-      } else {
-        // Plan upgrade
-        unitAmount = plan === 'office' ? 9 : 12;
-        quantity = 1; // Start with 1 seat for upgrade
-        description = `Upgrade to ${plan} plan`;
-      }
+
+      // Plan upgrade (billed per active user up to plan cap)
+      unitAmount = plan === 'office' ? 9 : 12;
+      const planMaxMembers = getPlanMaxMembers(plan);
+
+      const [userCountRows] = await connection.execute(
+        'SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_active = 1',
+        [companyId]
+      );
+      const activeUsers = Number(userCountRows[0]?.count || 0);
+      quantity = Math.max(1, Math.min(planMaxMembers, activeUsers));
+      description = `${plan} plan (${quantity} user${quantity !== 1 ? 's' : ''})`;
     } finally {
       connection.release();
     }
@@ -7013,10 +6890,10 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
     try {
       const metadata = {
         payment_provider: 'paypal',
-        pricing_level: isPlanUpgrade ? plan : companyPricingLevel,
-        user_count: isPlanUpgrade ? 1 : quantity,
-        type: isSeatPurchase ? 'seat_addon' : 'plan_upgrade',
-        additional_seats: isSeatPurchase ? quantity : null,
+        pricing_level: plan,
+        user_count: quantity,
+        type: 'plan_upgrade',
+        additional_seats: null,
         price_per_user: unitAmount * 100, // Store in cents for consistency
         paypal_order_id: order.result.id
       };
@@ -7119,33 +6996,21 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
         [nextBillingDate, orderId]
       );
       
-      // Handle seat add-on or plan upgrade
-      if (metadata.type === 'seat_addon' && metadata.additional_seats) {
-        await connection.execute(
-          `UPDATE companies 
-           SET max_members = max_members + ?,
-               last_payment_date = CURDATE(),
-               next_billing_date = ?,
-               billing_status = 'active',
-               updated_at = NOW()
-           WHERE id = ?`,
-          [parseInt(metadata.additional_seats), nextBillingDate, companyId]
-        );
-      } else {
-        await connection.execute(
-          `UPDATE companies 
-           SET pricing_level = ?, 
-               max_members = ?, 
-               last_payment_date = CURDATE(),
-               next_billing_date = ?,
-               billing_status = 'active',
-               is_in_grace_period = 0,
-               grace_period_end_date = NULL,
-               updated_at = NOW()
-           WHERE id = ?`,
-          [metadata.pricing_level, parseInt(metadata.user_count) || 1, nextBillingDate, companyId]
-        );
-      }
+      // Always reset plan cap based on pricing_level (billable user_count is stored in metadata).
+      const planMaxMembers = getPlanMaxMembers(metadata.pricing_level);
+      await connection.execute(
+        `UPDATE companies 
+         SET pricing_level = ?, 
+             max_members = ?, 
+             last_payment_date = CURDATE(),
+             next_billing_date = ?,
+             billing_status = 'active',
+             is_in_grace_period = 0,
+             grace_period_end_date = NULL,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [metadata.pricing_level, planMaxMembers, nextBillingDate, companyId]
+      );
       
       res.json({
         success: true,
@@ -7229,33 +7094,21 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
           [nextBillingDate, orderId]
         );
         
-        // Update company
-        if (metadata.type === 'seat_addon' && metadata.additional_seats) {
-          await connection.execute(
-            `UPDATE companies 
-             SET max_members = max_members + ?,
-                 last_payment_date = CURDATE(),
-                 next_billing_date = ?,
-                 billing_status = 'active',
-                 updated_at = NOW()
-             WHERE id = ?`,
-            [parseInt(metadata.additional_seats), nextBillingDate, transaction.company_id]
-          );
-        } else {
-          await connection.execute(
-            `UPDATE companies 
-             SET pricing_level = ?, 
-                 max_members = ?, 
-                 last_payment_date = CURDATE(),
-                 next_billing_date = ?,
-                 billing_status = 'active',
-                 is_in_grace_period = 0,
-                 grace_period_end_date = NULL,
-                 updated_at = NOW()
-             WHERE id = ?`,
-            [metadata.pricing_level, parseInt(metadata.user_count) || 1, nextBillingDate, transaction.company_id]
-          );
-        }
+        // Update company (seat add-ons deprecated; always reset cap from pricing level)
+        const planMaxMembers = getPlanMaxMembers(metadata.pricing_level);
+        await connection.execute(
+          `UPDATE companies 
+           SET pricing_level = ?, 
+               max_members = ?, 
+               last_payment_date = CURDATE(),
+               next_billing_date = ?,
+               billing_status = 'active',
+               is_in_grace_period = 0,
+               grace_period_end_date = NULL,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [metadata.pricing_level, planMaxMembers, nextBillingDate, transaction.company_id]
+        );
         
         console.log('=== PAYPAL WEBHOOK PROCESSED ===', { orderId, companyId: transaction.company_id });
       } finally {
