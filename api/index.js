@@ -1584,6 +1584,34 @@ app.post('/api/ai/chat', authenticateToken, aiChatLimiter, async (req, res) => {
     return res.status(400).json({ success: false, error: 'Prompt is required' });
   }
 
+  // Disable AI chat for Solo plan companies (root users are exempt).
+  try {
+    if (req.user?.role !== 'root') {
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return res.status(403).json({ success: false, error: 'AI chat is unavailable on the Solo plan.' });
+      }
+
+      const connection = await pool.getConnection();
+      try {
+        const [companyRows] = await connection.execute(
+          'SELECT pricing_level FROM companies WHERE id = ? LIMIT 1',
+          [companyId]
+        );
+
+        const pricingLevel = companyRows?.[0]?.pricing_level;
+        if (!pricingLevel || pricingLevel === 'solo') {
+          return res.status(403).json({ success: false, error: 'AI chat is unavailable on the Solo plan.' });
+        }
+      } finally {
+        connection.release();
+      }
+    }
+  } catch (error) {
+    console.error('Error validating AI chat access:', error);
+    return res.status(500).json({ success: false, error: 'Failed to validate AI chat access' });
+  }
+
   if (!process.env.OPENAI_API_KEY) {
     return res.status(503).json({ success: false, error: 'AI is not configured on the server' });
   }

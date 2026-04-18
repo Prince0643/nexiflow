@@ -39,7 +39,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const updatesRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   
-  const { currentUser, logout } = useMySQLAuth()
+  const { currentUser, currentCompany, logout } = useMySQLAuth()
   const { searchQuery, setSearchQuery, searchResults, isSearching, performSearch, clearSearch } = useSearch()
   const { notifications, unreadCount, markAsRead, markAllAsRead, refreshNotifications } = useNotifications()
   const { isDarkMode, toggleDarkMode } = useTheme()
@@ -48,17 +48,20 @@ export default function Header({ onMenuClick }: HeaderProps) {
 
   // AI Widget visibility state
   const [isAIWidgetHidden, setIsAIWidgetHidden] = useState(false);
+  const canUseAIWidget = currentUser?.role === 'root' || (currentCompany && currentCompany.pricingLevel !== 'solo')
 
   // Load AI widget visibility state from localStorage
   useEffect(() => {
+    if (!canUseAIWidget) return
     const savedHidden = localStorage.getItem('aiChatWidgetHidden');
     if (savedHidden) {
       setIsAIWidgetHidden(JSON.parse(savedHidden));
     }
-  }, []);
+  }, [canUseAIWidget]);
 
   // Toggle AI widget visibility
   const toggleAIWidgetVisibility = () => {
+    if (!canUseAIWidget) return
     const newHidden = !isAIWidgetHidden;
     setIsAIWidgetHidden(newHidden);
     localStorage.setItem('aiChatWidgetHidden', JSON.stringify(newHidden));
@@ -437,18 +440,20 @@ export default function Header({ onMenuClick }: HeaderProps) {
               </div>
 
               {/* AI Chat Widget Toggle */}
-              <button
-                onClick={toggleAIWidgetVisibility}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title={isAIWidgetHidden ? "Show Nexie" : "Hide Nexie"}
-              >
-                <Bot className="h-5 w-5 text-gray-600 dark:text-gray-300" />
-                {isAIWidgetHidden && (
-                  <span className="absolute top-1 right-1 flex h-3 w-3">
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-gray-400"></span>
-                  </span>
-                )}
-              </button>
+              {canUseAIWidget && (
+                <button
+                  onClick={toggleAIWidgetVisibility}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title={isAIWidgetHidden ? "Show Nexie" : "Hide Nexie"}
+                >
+                  <Bot className="h-5 w-5 text-gray-600 dark:text-gray-300" />
+                  {isAIWidgetHidden && (
+                    <span className="absolute top-1 right-1 flex h-3 w-3">
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-gray-400"></span>
+                    </span>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* Mobile menu button - visible only on mobile */}
@@ -522,16 +527,18 @@ export default function Header({ onMenuClick }: HeaderProps) {
                     </button>
 
                     {/* AI Chat Widget Toggle */}
-                    <button
-                      onClick={() => {
-                        toggleAIWidgetVisibility();
-                        setShowMobileMenu(false);
-                      }}
-                      className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-                    >
-                      <Bot className="h-5 w-5 text-gray-600 dark:text-gray-300 mr-3" />
-                      {isAIWidgetHidden ? "Show Nexie" : "Hide Nexie"}
-                    </button>
+                    {canUseAIWidget && (
+                      <button
+                        onClick={() => {
+                          toggleAIWidgetVisibility();
+                          setShowMobileMenu(false);
+                        }}
+                        className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+                      >
+                        <Bot className="h-5 w-5 text-gray-600 dark:text-gray-300 mr-3" />
+                        {isAIWidgetHidden ? "Show Nexie" : "Hide Nexie"}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

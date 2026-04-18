@@ -88,6 +88,12 @@ export default function AIChatWidget() {
   const { isDarkMode } = useTheme()
   const location = useLocation()
 
+  // Hide AI chat for Solo plan companies (and when company context is missing).
+  // Root users are exempt (no company context, but need access for admin/testing).
+  if (currentUser?.role !== 'root' && (!currentCompany || currentCompany.pricingLevel === 'solo')) {
+    return null
+  }
+
   const stopFormFilteredProjects = useMemo(() => {
     if (!pendingStopForm?.clientId) return stopFormProjects
     return stopFormProjects.filter((project) => project.clientId === pendingStopForm.clientId)
