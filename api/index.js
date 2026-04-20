@@ -7047,14 +7047,9 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
 app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res) => {
   try {
     const { orderId } = req.body;
-    const companyId = req.user.companyId;
     
     if (!orderId) {
       return res.status(400).json({ error: 'Order ID is required' });
-    }
-    
-    if (!companyId) {
-      return res.status(400).json({ error: 'User must belong to a company' });
     }
     
     // Check PayPal configuration
@@ -7067,8 +7062,8 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
     const connection = await pool.getConnection();
     try {
       const [txRows] = await connection.execute(
-        'SELECT * FROM payment_transactions WHERE checkout_session_id = ? AND company_id = ?',
-        [orderId, companyId]
+        'SELECT * FROM payment_transactions WHERE checkout_session_id = ? LIMIT 1',
+        [orderId]
       );
       
       if (txRows.length === 0) {
@@ -7076,36 +7071,47 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
       }
       
       const transaction = txRows[0];
+      const transactionCompanyId = transaction.company_id || null;
       const metadata = JSON.parse(transaction.metadata || '{}');
 
-      if (transaction.status === 'paid') {
-        return res.json({
-          success: true,
-          alreadyProcessed: true,
-          message: 'Payment already processed',
-          orderId
-        });
+      // Authorization: only allow capturing/updating for your own company (root exempt).
+      if (req.user.role !== 'root') {
+        if (!req.user.companyId) {
+          return res.status(400).json({ error: 'User must belong to a company' });
+        }
+        if (!transactionCompanyId || String(req.user.companyId) !== String(transactionCompanyId)) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+      }
+
+      const pricingLevel = metadata?.pricing_level;
+      if (!pricingLevel || !['office', 'enterprise'].includes(pricingLevel)) {
+        return res.status(400).json({ error: 'Invalid transaction metadata: pricing_level must be office or enterprise' });
       }
 
       // Capture the order (may already be captured; treat as success and continue DB updates)
       let captureId = null;
       let captureStatus = null;
-      try {
-        const request = new paypal.orders.OrdersCaptureRequest(orderId);
-        request.requestBody({});
-        const capture = await paypalClient.execute(request);
-        captureStatus = capture?.result?.status || null;
-        captureId = capture?.result?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
-      } catch (captureError) {
-        const msg = (captureError && (captureError.message || captureError.toString())) || '';
-        const isAlreadyCaptured =
-          msg.includes('ORDER_ALREADY_CAPTURED') ||
-          msg.includes('ORDER_ALREADY_COMPLETED') ||
-          msg.includes('ORDER_ALREADY_PROCESSED');
-        if (!isAlreadyCaptured) {
-          console.error('PayPal capture execute error:', captureError);
-          return res.status(500).json({ error: 'Failed to capture PayPal payment: ' + (captureError.message || 'Unknown error') });
+      if (transaction.status !== 'paid') {
+        try {
+          const request = new paypal.orders.OrdersCaptureRequest(orderId);
+          request.requestBody({});
+          const capture = await paypalClient.execute(request);
+          captureStatus = capture?.result?.status || null;
+          captureId = capture?.result?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+        } catch (captureError) {
+          const msg = (captureError && (captureError.message || captureError.toString())) || '';
+          const isAlreadyCaptured =
+            msg.includes('ORDER_ALREADY_CAPTURED') ||
+            msg.includes('ORDER_ALREADY_COMPLETED') ||
+            msg.includes('ORDER_ALREADY_PROCESSED');
+          if (!isAlreadyCaptured) {
+            console.error('PayPal capture execute error:', captureError);
+            return res.status(500).json({ error: 'Failed to capture PayPal payment: ' + (captureError.message || 'Unknown error') });
+          }
+          captureStatus = 'COMPLETED';
         }
+      } else {
         captureStatus = 'COMPLETED';
       }
 
@@ -7118,21 +7124,24 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
       const nextBillingDate = new Date(now);
       nextBillingDate.setDate(nextBillingDate.getDate() + 30);
       
-      // Update transaction status
-      await connection.execute(
-        `UPDATE payment_transactions 
-         SET status = 'paid', 
-             paid_at = NOW(),
-             billing_period_start = CURDATE(),
-             billing_period_end = ?,
-             is_renewal = 1
-         WHERE checkout_session_id = ?`,
-        [nextBillingDate, orderId]
-      );
+      // Update transaction status (idempotent)
+      if (transaction.status !== 'paid') {
+        await connection.execute(
+          `UPDATE payment_transactions 
+           SET status = 'paid', 
+               paid_at = NOW(),
+               billing_period_start = CURDATE(),
+               billing_period_end = ?,
+               is_renewal = 1
+           WHERE checkout_session_id = ?`,
+          [nextBillingDate, orderId]
+        );
+      }
       
       // Always reset plan cap based on pricing_level (billable user_count is stored in metadata).
-      const planMaxMembers = getPlanMaxMembers(metadata.pricing_level);
-      await connection.execute(
+      const planMaxMembers = getPlanMaxMembers(pricingLevel);
+      const targetCompanyId = transactionCompanyId || req.user.companyId;
+      const [companyResult] = await connection.execute(
         `UPDATE companies 
          SET pricing_level = ?, 
              max_members = ?, 
@@ -7143,14 +7152,26 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
              grace_period_end_date = NULL,
              updated_at = NOW()
          WHERE id = ?`,
-        [metadata.pricing_level, planMaxMembers, nextBillingDate, companyId]
+        [pricingLevel, planMaxMembers, nextBillingDate, targetCompanyId]
       );
+
+      if (!companyResult?.affectedRows) {
+        return res.status(500).json({
+          error: 'Failed to update company plan after payment capture',
+          orderId,
+          companyId: targetCompanyId,
+          pricingLevel
+        });
+      }
       
       res.json({
         success: true,
-        message: 'Payment captured successfully',
-        orderId: orderId,
-        captureId
+        message: transaction.status === 'paid' ? 'Payment already processed' : 'Payment captured successfully',
+        alreadyProcessed: transaction.status === 'paid',
+        orderId,
+        captureId,
+        companyId: targetCompanyId,
+        pricingLevel
       });
     } finally {
       connection.release();
@@ -7221,8 +7242,8 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
       try {
         // Find the transaction
         const [txRows] = await connection.execute(
-          'SELECT * FROM payment_transactions WHERE checkout_session_id = ? AND status = ?',
-          [orderId, 'pending']
+          'SELECT * FROM payment_transactions WHERE checkout_session_id = ? LIMIT 1',
+          [orderId]
         );
         
         if (txRows.length === 0) {
@@ -7232,25 +7253,32 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
         
         const transaction = txRows[0];
         const metadata = JSON.parse(transaction.metadata || '{}');
+        const pricingLevel = metadata?.pricing_level;
+        if (!pricingLevel || !['office', 'enterprise'].includes(pricingLevel)) {
+          console.log('Invalid pricing_level in transaction metadata:', pricingLevel);
+          return res.status(200).json({ received: true, warning: 'Invalid metadata' });
+        }
         
         const now = new Date();
         const nextBillingDate = new Date(now);
         nextBillingDate.setDate(nextBillingDate.getDate() + 30);
         
-        // Update transaction
-        await connection.execute(
-          `UPDATE payment_transactions 
-           SET status = 'paid', 
-               paid_at = NOW(),
-               billing_period_start = CURDATE(),
-               billing_period_end = ?,
-               is_renewal = 1
-           WHERE checkout_session_id = ?`,
-          [nextBillingDate, orderId]
-        );
+        // Update transaction (idempotent)
+        if (transaction.status !== 'paid') {
+          await connection.execute(
+            `UPDATE payment_transactions 
+             SET status = 'paid', 
+                 paid_at = NOW(),
+                 billing_period_start = CURDATE(),
+                 billing_period_end = ?,
+                 is_renewal = 1
+             WHERE checkout_session_id = ?`,
+            [nextBillingDate, orderId]
+          );
+        }
         
         // Update company (seat add-ons deprecated; always reset cap from pricing level)
-        const planMaxMembers = getPlanMaxMembers(metadata.pricing_level);
+        const planMaxMembers = getPlanMaxMembers(pricingLevel);
         await connection.execute(
           `UPDATE companies 
            SET pricing_level = ?, 
@@ -7262,7 +7290,7 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
                grace_period_end_date = NULL,
                updated_at = NOW()
            WHERE id = ?`,
-          [metadata.pricing_level, planMaxMembers, nextBillingDate, transaction.company_id]
+          [pricingLevel, planMaxMembers, nextBillingDate, transaction.company_id]
         );
         
         console.log('=== PAYPAL WEBHOOK PROCESSED ===', { orderId, companyId: transaction.company_id });
