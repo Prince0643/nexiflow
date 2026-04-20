@@ -6388,6 +6388,70 @@ function getPlanMaxMembers(pricingLevel) {
   return 1;
 }
 
+function getPublicBaseUrl(req) {
+  const configured = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_URL;
+  if (configured) return configured.replace(/\/+$/, '');
+
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const proto = (forwardedProto ? String(forwardedProto) : req.protocol || 'http').split(',')[0].trim();
+
+  const forwardedHost = req.headers['x-forwarded-host'];
+  const host = (forwardedHost ? String(forwardedHost) : req.get('host')).split(',')[0].trim();
+
+  return `${proto}://${host}`;
+}
+
+async function applyPaidPlanUpgrade(connection, { orderId, transaction, captureId = null }) {
+  const metadata = JSON.parse(transaction.metadata || '{}');
+  const pricingLevel = metadata?.pricing_level;
+  if (!pricingLevel || !['office', 'enterprise'].includes(pricingLevel)) {
+    const err = new Error(`Invalid pricing_level in transaction metadata: ${pricingLevel}`);
+    err.code = 'INVALID_METADATA';
+    throw err;
+  }
+
+  const now = new Date();
+  const nextBillingDate = new Date(now);
+  nextBillingDate.setDate(nextBillingDate.getDate() + 30);
+
+  // Update transaction (idempotent)
+  if (transaction.status !== 'paid') {
+    await connection.execute(
+      `UPDATE payment_transactions 
+       SET status = 'paid', 
+           paid_at = NOW(),
+           billing_period_start = CURDATE(),
+           billing_period_end = ?,
+           is_renewal = 1
+       WHERE checkout_session_id = ?`,
+      [nextBillingDate, orderId]
+    );
+  }
+
+  // Update company plan
+  const planMaxMembers = getPlanMaxMembers(pricingLevel);
+  await connection.execute(
+    `UPDATE companies 
+     SET pricing_level = ?, 
+         max_members = ?, 
+         last_payment_date = CURDATE(),
+         next_billing_date = ?,
+         billing_status = 'active',
+         is_in_grace_period = 0,
+         grace_period_end_date = NULL,
+         updated_at = NOW()
+     WHERE id = ?`,
+    [pricingLevel, planMaxMembers, nextBillingDate, transaction.company_id]
+  );
+
+  return {
+    pricingLevel,
+    companyId: transaction.company_id,
+    nextBillingDate,
+    captureId
+  };
+}
+
 // Create checkout session for plan upgrade via external PayMongo backend
 app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
   try {
@@ -6947,6 +7011,10 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
     
     // Calculate total
     const totalAmount = unitAmount * quantity;
+
+    const publicBaseUrl = getPublicBaseUrl(req);
+    const backendReturnUrl = `${publicBaseUrl}/api/billing/paypal-return`;
+    const frontendCancelUrl = cancelUrl || `${publicBaseUrl}/billing/paypal-cancel`;
     
     // Create PayPal order
     const request = new paypal.orders.OrdersCreateRequest();
@@ -6979,8 +7047,9 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
         brand_name: 'NexiFlow',
         landing_page: 'BILLING',
         user_action: 'PAY_NOW',
-        return_url: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/paypal-success`,
-        cancel_url: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/paypal-cancel`
+        // Use a backend return handler so we can capture+upgrade server-side even if SPA routing/storage is flaky.
+        return_url: process.env.PAYPAL_RETURN_URL || backendReturnUrl,
+        cancel_url: frontendCancelUrl
       },
       payer: {
         email_address: customerEmail,
@@ -7043,6 +7112,76 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
   }
 });
 
+// PayPal return handler (server-side): capture + apply plan upgrade, then redirect to the frontend.
+// This makes upgrades robust even if the SPA route/component does not run after PayPal redirects back.
+app.get('/api/billing/paypal-return', async (req, res) => {
+  const orderId = req.query?.token ? String(req.query.token) : null;
+  const publicBaseUrl = getPublicBaseUrl(req);
+
+  if (!orderId) {
+    return res.redirect(`${publicBaseUrl}/upgrade?billing=paypal_error&reason=missing_token`);
+  }
+
+  const paypalClient = getPayPalClient();
+  if (!paypalClient) {
+    return res.redirect(`${publicBaseUrl}/upgrade?billing=paypal_error&reason=paypal_not_configured`);
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    const [txRows] = await connection.execute(
+      'SELECT * FROM payment_transactions WHERE checkout_session_id = ? LIMIT 1',
+      [orderId]
+    );
+
+    if (!txRows.length) {
+      return res.redirect(`${publicBaseUrl}/upgrade?billing=paypal_error&reason=transaction_not_found`);
+    }
+
+    const transaction = txRows[0];
+
+    // Capture the order (idempotent)
+    let captureId = null;
+    let captureStatus = null;
+    if (transaction.status !== 'paid') {
+      try {
+        const captureRequest = new paypal.orders.OrdersCaptureRequest(orderId);
+        captureRequest.requestBody({});
+        const capture = await paypalClient.execute(captureRequest);
+        captureStatus = capture?.result?.status || null;
+        captureId = capture?.result?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+      } catch (captureError) {
+        const msg = (captureError && (captureError.message || captureError.toString())) || '';
+        const isAlreadyCaptured =
+          msg.includes('ORDER_ALREADY_CAPTURED') ||
+          msg.includes('ORDER_ALREADY_COMPLETED') ||
+          msg.includes('ORDER_ALREADY_PROCESSED');
+        if (!isAlreadyCaptured) {
+          console.error('PayPal return capture error:', captureError);
+          return res.redirect(`${publicBaseUrl}/upgrade?billing=paypal_error&reason=capture_failed`);
+        }
+        captureStatus = 'COMPLETED';
+      }
+    } else {
+      captureStatus = 'COMPLETED';
+    }
+
+    if (captureStatus && captureStatus !== 'COMPLETED') {
+      return res.redirect(`${publicBaseUrl}/upgrade?billing=paypal_error&reason=not_completed`);
+    }
+
+    const result = await applyPaidPlanUpgrade(connection, { orderId, transaction, captureId });
+    return res.redirect(
+      `${publicBaseUrl}/settings?billing=paypal_success&plan=${encodeURIComponent(result.pricingLevel)}&orderId=${encodeURIComponent(orderId)}`
+    );
+  } catch (error) {
+    console.error('PayPal return handler error:', error);
+    return res.redirect(`${publicBaseUrl}/upgrade?billing=paypal_error&reason=server_error`);
+  } finally {
+    connection.release();
+  }
+});
+
 // Capture PayPal order after user approval
 app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res) => {
   try {
@@ -7089,6 +7228,10 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
         return res.status(400).json({ error: 'Invalid transaction metadata: pricing_level must be office or enterprise' });
       }
 
+      if (!transactionCompanyId) {
+        return res.status(500).json({ error: 'Transaction is missing company_id; cannot apply upgrade' });
+      }
+
       // Capture the order (may already be captured; treat as success and continue DB updates)
       let captureId = null;
       let captureStatus = null;
@@ -7118,60 +7261,17 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
       if (captureStatus && captureStatus !== 'COMPLETED') {
         return res.status(400).json({ error: 'Payment not completed', status: captureStatus });
       }
-      
-      // Calculate billing period
-      const now = new Date();
-      const nextBillingDate = new Date(now);
-      nextBillingDate.setDate(nextBillingDate.getDate() + 30);
-      
-      // Update transaction status (idempotent)
-      if (transaction.status !== 'paid') {
-        await connection.execute(
-          `UPDATE payment_transactions 
-           SET status = 'paid', 
-               paid_at = NOW(),
-               billing_period_start = CURDATE(),
-               billing_period_end = ?,
-               is_renewal = 1
-           WHERE checkout_session_id = ?`,
-          [nextBillingDate, orderId]
-        );
-      }
-      
-      // Always reset plan cap based on pricing_level (billable user_count is stored in metadata).
-      const planMaxMembers = getPlanMaxMembers(pricingLevel);
-      const targetCompanyId = transactionCompanyId || req.user.companyId;
-      const [companyResult] = await connection.execute(
-        `UPDATE companies 
-         SET pricing_level = ?, 
-             max_members = ?, 
-             last_payment_date = CURDATE(),
-             next_billing_date = ?,
-             billing_status = 'active',
-             is_in_grace_period = 0,
-             grace_period_end_date = NULL,
-             updated_at = NOW()
-         WHERE id = ?`,
-        [pricingLevel, planMaxMembers, nextBillingDate, targetCompanyId]
-      );
 
-      if (!companyResult?.affectedRows) {
-        return res.status(500).json({
-          error: 'Failed to update company plan after payment capture',
-          orderId,
-          companyId: targetCompanyId,
-          pricingLevel
-        });
-      }
+      const upgradeResult = await applyPaidPlanUpgrade(connection, { orderId, transaction, captureId });
       
       res.json({
         success: true,
         message: transaction.status === 'paid' ? 'Payment already processed' : 'Payment captured successfully',
         alreadyProcessed: transaction.status === 'paid',
         orderId,
-        captureId,
-        companyId: targetCompanyId,
-        pricingLevel
+        captureId: upgradeResult.captureId,
+        companyId: upgradeResult.companyId,
+        pricingLevel: upgradeResult.pricingLevel
       });
     } finally {
       connection.release();
@@ -7258,41 +7358,8 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
           console.log('Invalid pricing_level in transaction metadata:', pricingLevel);
           return res.status(200).json({ received: true, warning: 'Invalid metadata' });
         }
-        
-        const now = new Date();
-        const nextBillingDate = new Date(now);
-        nextBillingDate.setDate(nextBillingDate.getDate() + 30);
-        
-        // Update transaction (idempotent)
-        if (transaction.status !== 'paid') {
-          await connection.execute(
-            `UPDATE payment_transactions 
-             SET status = 'paid', 
-                 paid_at = NOW(),
-                 billing_period_start = CURDATE(),
-                 billing_period_end = ?,
-                 is_renewal = 1
-             WHERE checkout_session_id = ?`,
-            [nextBillingDate, orderId]
-          );
-        }
-        
-        // Update company (seat add-ons deprecated; always reset cap from pricing level)
-        const planMaxMembers = getPlanMaxMembers(pricingLevel);
-        await connection.execute(
-          `UPDATE companies 
-           SET pricing_level = ?, 
-               max_members = ?, 
-               last_payment_date = CURDATE(),
-               next_billing_date = ?,
-               billing_status = 'active',
-               is_in_grace_period = 0,
-               grace_period_end_date = NULL,
-               updated_at = NOW()
-           WHERE id = ?`,
-          [pricingLevel, planMaxMembers, nextBillingDate, transaction.company_id]
-        );
-        
+
+        await applyPaidPlanUpgrade(connection, { orderId, transaction });
         console.log('=== PAYPAL WEBHOOK PROCESSED ===', { orderId, companyId: transaction.company_id });
       } finally {
         connection.release();
