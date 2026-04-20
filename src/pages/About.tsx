@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
-import { useTheme } from '../contexts/ThemeContext'
+import PublicNavbar from '../components/PublicNavbar'
 import { 
   Clock, 
   Users, 
@@ -29,21 +29,14 @@ import {
   Filter,
   Search,
   Bell,
-  Sun,
-  Moon,
   ArrowRight,
-  Menu,
-  X
 } from 'lucide-react'
 
 const About = () => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
   const [visibleSteps, setVisibleSteps] = useState<Set<number>>(new Set())
   const stepRefs = useRef<(HTMLDivElement | null)[]>([])
   const navigate = useNavigate()
   const { currentUser, loading } = useMySQLAuth()
-  const { isDarkMode, toggleDarkMode } = useTheme()
 
   const handleLogin = () => {
     navigate('/auth')
@@ -266,69 +259,21 @@ const About = () => {
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
-      {/* Navigation */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center">
-                <img 
-                  src="https://storage.googleapis.com/msgsndr/nb61f4OQ7o9Wsxx0zOsY/media/68df3ae78db305b0e463f363.svg" 
-                  alt="NexiFlow Logo" 
-                  className="h-8 w-auto"
-                />
-                <span className="ml-2 text-xl font-bold text-gray-900 dark:text-white">NexiFlow</span>
-              </div>
-              <div className="hidden md:ml-6 md:flex md:space-x-8">
-                <a href="#features" className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 inline-flex items-center px-1 pt-1 text-sm font-medium">
-                  Features
-                </a>
-                <a href="#how-it-works" className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 inline-flex items-center px-1 pt-1 text-sm font-medium">
-                  How It Works
-                </a>
-                <a href="#pricing" className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 inline-flex items-center px-1 pt-1 text-sm font-medium">
-                  Pricing
-                </a>
-              </div>
-            </div>
-            <div className="flex items-center">
-              {currentUser ? (
-                <button
-                  onClick={() => navigate('/')}
-                  className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800"
-                >
-                  Dashboard
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={handleLogin}
-                    className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-gray-800"
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    onClick={() => navigate('/auth?signup=super_admin')}
-                    className="ml-4 inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600 dark:focus:ring-offset-gray-800"
-                  >
-                    Get Started
-                  </button>
-                </>
-              )}
-              <button
-                onClick={toggleDarkMode}
-                className="ml-4 p-2 rounded-md text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none"
-              >
-                {isDarkMode ? (
-                  <Sun className="h-6 w-6" />
-                ) : (
-                  <Moon className="h-6 w-6" />
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <PublicNavbar
+        links={[
+          { id: 'features', label: 'Features' },
+          { id: 'how-it-works', label: 'How It Works' }
+        ]}
+        onLinkClick={(sectionId) => {
+          const element = document.getElementById(sectionId)
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        }}
+        onLogin={handleLogin}
+        onAccess={() => navigate('/super-admin-signup')}
+        extraLink={{ label: 'Home', onClick: () => navigate('/') }}
+      />
 
       {/* Hero Section */}
       <div className="relative bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-800 dark:to-gray-900">
@@ -646,7 +591,7 @@ const About = () => {
               </a>
             </div>
             <p className="mt-8 text-base text-gray-600 dark:text-gray-400 md:mt-0 md:order-1">
-              &copy; 2025 NexiFlow. All rights reserved.
+              &copy; 2026 NexiFlow. All rights reserved.
             </p>
           </div>
         </div>

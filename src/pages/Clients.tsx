@@ -304,11 +304,16 @@ export default function Clients() {
 
     const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
     const totalHours = totalSeconds / 3600
-    const billableAmount = totalHours * (client.hourlyRate || 0)
+    const billableSeconds = clientTimeEntries
+      .filter(entry => entry.isBillable)
+      .reduce((sum, entry) => sum + entry.duration, 0)
+    const billableHours = billableSeconds / 3600
+    const billableAmount = billableHours * (client.hourlyRate || 0)
 
     return {
       totalHours,
       totalSeconds,
+      billableSeconds,
       billableAmount,
       timeEntries: clientTimeEntries.length,
       formattedTime: formatSecondsToHHMMSS(totalSeconds) // Add formatted time
@@ -464,7 +469,10 @@ export default function Clients() {
         const clientTimeData = (() => {
           const totalSeconds = filteredClientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
           const totalHours = totalSeconds / 3600
-          const billableAmount = totalHours * (exportClient.hourlyRate || 0)
+          const billableSeconds = filteredClientTimeEntries
+            .filter(entry => entry.isBillable)
+            .reduce((sum, entry) => sum + entry.duration, 0)
+          const billableAmount = (billableSeconds / 3600) * (exportClient.hourlyRate || 0)
           
           return {
             totalHours,
@@ -664,7 +672,10 @@ export default function Clients() {
 
       const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
       const totalHours = totalSeconds / 3600
-      const billableAmount = totalHours * (client.hourlyRate || 0)
+      const billableSeconds = clientTimeEntries
+        .filter(entry => entry.isBillable)
+        .reduce((sum, entry) => sum + entry.duration, 0)
+      const billableAmount = (billableSeconds / 3600) * (client.hourlyRate || 0)
 
       return {
         name: client.name,
@@ -707,9 +718,10 @@ export default function Clients() {
         entry.clientId === client.id
       )
 
-      const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
-      const totalHours = totalSeconds / 3600
-      const billableAmount = totalHours * (client.hourlyRate || 0)
+      const billableSeconds = clientTimeEntries
+        .filter(entry => entry.isBillable)
+        .reduce((sum, entry) => sum + entry.duration, 0)
+      const billableAmount = (billableSeconds / 3600) * (client.hourlyRate || 0)
       
       return sum + billableAmount
     }, 0)
@@ -1047,9 +1059,9 @@ export default function Clients() {
 
       {/* Time Chart */}
       {showTimeChart && (
-        <div className="bg-white rounded-lg shadow p-4 sm:p-6" ref={chartRef}>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6" ref={chartRef}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <h3 className="text-base sm:text-lg font-semibold text-gray-900">Time Rendered by Client</h3>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">Time Rendered by Client</h3>
             <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-500">
               <div className="flex items-center space-x-1">
                 <div className="w-2 h-2 sm:w-3 sm:h-3 bg-blue-500 rounded"></div>
@@ -1605,9 +1617,16 @@ export default function Clients() {
         onClose={() => setShowExportModal(false)}
         onConfirm={handleConfirmExport}
         client={exportClient}
-        timeData={exportClient ? getClientTimeData(exportClient) : {
+        timeData={exportClient ? (() => {
+          const timeData = getClientTimeData(exportClient)
+          return {
+            totalHours: timeData.totalHours,
+            billableAmount: timeData.billableAmount,
+            timeEntries: timeData.timeEntries,
+            formattedTime: timeData.formattedTime
+          }
+        })() : {
           totalHours: 0,
-          totalSeconds: 0,
           billableAmount: 0,
           timeEntries: 0,
           formattedTime: '00:00:00'

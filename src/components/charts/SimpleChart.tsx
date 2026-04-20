@@ -48,14 +48,15 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
   }
 
   const renderBarChart = () => {
-    const validData = data.datasets[0].data.filter(v => !isNaN(v) && isFinite(v))
-    const maxValue = validData.length > 0 ? Math.max(...validData) : 1
-    const chartHeight = 300
+    // Get max value across ALL datasets for proper scaling
+    const allValues = data.datasets.flatMap(ds => ds.data.filter(v => !isNaN(v) && isFinite(v)))
+    const maxValue = allValues.length > 0 ? Math.max(...allValues) : 1
+    const chartHeight = height
     
-    // Ensure minimum height for visibility - use a more reasonable minimum
-    const adjustedMaxValue = Math.max(maxValue, 1) // At least 1 hour for better scaling
+    // Ensure minimum height for visibility
+    const adjustedMaxValue = Math.max(maxValue, 1)
     
-    // Generate Y-axis labels that match the actual data range
+    // Generate Y-axis labels
     const yAxisLabels = []
     const numLabels = 5
     for (let i = 0; i <= numLabels; i++) {
@@ -63,78 +64,79 @@ export default function SimpleChart({ data, type, title, height = 300 }: SimpleC
       yAxisLabels.push(value)
     }
     
-    // Use the actual max value for scaling (no buffer needed)
     const displayMaxValue = adjustedMaxValue
+    const hasMultipleDatasets = data.datasets.length > 1
     
     return (
       <div className="relative w-full">
-        {/* Y-axis labels */}
-        <div className="absolute left-0 top-0 h-full flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 -ml-12 w-10">
-          {yAxisLabels.map((value, i) => (
-            <span key={i} className="text-right">
-              {(() => {
-                const totalSeconds = Math.round(value * 3600)
-                const h = Math.floor(totalSeconds / 3600)
-                const m = Math.floor((totalSeconds % 3600) / 60)
-                const s = totalSeconds % 60
-                return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
-              })()}
-            </span>
-          ))}
-        </div>
-        
         {/* Chart area */}
-        <div className="ml-12 mr-2">
+        <div className="mr-2">
           {/* Grid lines */}
-          <div className="absolute inset-0 flex flex-col justify-between">
+          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
             {yAxisLabels.map((_, i) => (
               <div key={i} className="border-t border-gray-200 dark:border-gray-600"></div>
             ))}
           </div>
           
-          {/* Bars container with better spacing */}
-          <div className="relative flex items-end justify-between px-1 gap-1" style={{ height: `${height - 50}px` }}>
+          {/* Bars container with grouped bars for multiple datasets */}
+          <div className="relative flex items-end justify-between px-1 gap-2" style={{ height: `${height - 50}px` }}>
             {data.labels.length > 0 ? (
               data.labels.map((label, index) => {
-                const value = data.datasets[0].data[index]
-                const isValidValue = !isNaN(value) && isFinite(value)
-                
-                // Calculate bar height as percentage of the display range
-                const barHeightPercentage = isValidValue && hasValidData ? (value / displayMaxValue) * 100 : 0
-                const barHeight = `${Math.max(barHeightPercentage, 0)}%`
-                const hours = isValidValue ? value : 0
-                
                 return (
                   <div key={index} className="flex flex-col items-center flex-1 min-w-0 h-full">
-                    {/* Value above bar */}
-                    <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 text-center whitespace-nowrap">
-                      {isValidValue && hasValidData && hours > 0 ? formatDuration(hours) : ''}
+                    {/* Values above bars */}
+                    <div className="flex items-end justify-center gap-1 mb-1 w-full">
+                      {data.datasets.map((dataset, dsIndex) => {
+                        const value = dataset.data[index]
+                        const isValidValue = !isNaN(value) && isFinite(value) && value > 0
+                        if (!isValidValue) return null
+                        
+                        return (
+                          <span 
+                            key={dsIndex}
+                            className="text-[10px] font-medium text-center whitespace-nowrap"
+                            style={{ color: getDatasetColor(dataset, index) }}
+                          >
+                            {dsIndex === 0 ? formatDuration(value) : `$${value.toFixed(0)}`}
+                          </span>
+                        )
+                      })}
                     </div>
                     
-                    {/* Bar container - positioned at bottom */}
-                    <div className="flex-1 flex items-end w-full">
-                      <div
-                        className="w-full rounded-t transition-all duration-500"
-                        style={{
-                          height: barHeight,
-                          backgroundColor: Array.isArray(data.datasets[0].backgroundColor)
-                            ? data.datasets[0].backgroundColor[index]
-                            : data.datasets[0].backgroundColor || '#3B82F6',
-                          minHeight: isValidValue && barHeightPercentage > 0 ? '8px' : '0px',
-                          width: '100%'
-                        }}
-                      />
+                    {/* Grouped bars container */}
+                    <div className="flex-1 flex items-end justify-center gap-1 w-full px-1">
+                      {data.datasets.map((dataset, dsIndex) => {
+                        const value = dataset.data[index]
+                        const isValidValue = !isNaN(value) && isFinite(value)
+                        const barHeightPercentage = isValidValue ? (value / displayMaxValue) * 100 : 0
+                        const barHeight = `${Math.max(barHeightPercentage, 0)}%`
+                        
+                        return (
+                          <div
+                            key={dsIndex}
+                            className="rounded-t transition-all duration-500 flex-1"
+                            style={{
+                              height: barHeight,
+                              backgroundColor: Array.isArray(dataset.backgroundColor)
+                                ? dataset.backgroundColor[index]
+                                : dataset.backgroundColor || '#3B82F6',
+                              minHeight: isValidValue && barHeightPercentage > 0 ? '4px' : '0px',
+                              maxWidth: hasMultipleDatasets ? '40%' : '100%'
+                            }}
+                            title={`${dataset.label}: ${dsIndex === 0 ? formatDuration(value) : '$' + value.toFixed(2)}`}
+                          />
+                        )
+                      })}
                     </div>
                     
-                    {/* Day label */}
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-2 text-center whitespace-nowrap">
+                    {/* Client label */}
+                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-2 text-center whitespace-nowrap truncate w-full px-1">
                       {label}
                     </div>
                   </div>
                 )
               })
             ) : (
-              // Show "No Data" message when there are no labels
               <div className="flex items-center justify-center w-full h-full">
                 <div className="text-center text-gray-500 dark:text-gray-400">
                   <div className="text-lg font-medium">No Data Available</div>

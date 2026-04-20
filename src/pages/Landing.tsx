@@ -6,15 +6,14 @@ import {
   Building2,
   CheckCircle,
   Clock,
-  Menu,
   Play,
   Shield,
   Star,
   Users,
-  X
 } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
+import PublicNavbar from '../components/PublicNavbar'
 import {
   enhancedFeatures,
   featureHighlights,
@@ -24,13 +23,6 @@ import {
   testimonials,
   videoDemos
 } from '../data/landingContent'
-
-interface LandingHeaderProps {
-  onLinkClick: (sectionId: string) => void
-  onLogin: () => void
-  onAccess: () => void
-  onAbout: () => void
-}
 
 const Landing = () => {
   const navigate = useNavigate()
@@ -59,11 +51,12 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-white dark:bg-[#020617] text-gray-900 dark:text-white">
-      <LandingHeader
+      <PublicNavbar
+        links={navLinks}
         onLinkClick={scrollToSection}
         onLogin={handleLogin}
         onAccess={handleAccess}
-        onAbout={handleAbout}
+        extraLink={{ label: 'About', onClick: handleAbout }}
       />
       <main className="relative">
         <HeroSection onPrimaryAction={handleAccess} onWatchDemo={() => scrollToSection('videos')} />
@@ -89,102 +82,6 @@ const LoadingScreen = () => (
     </div>
   </div>
 )
-
-const LandingHeader = ({ onLinkClick, onAccess, onLogin, onAbout }: LandingHeaderProps) => {
-  const [mobileOpen, setMobileOpen] = useState(false)
-
-  return (
-    <header className="sticky top-0 z-50 w-full bg-white/70 dark:bg-gray-900/80 backdrop-blur border-b border-gray-200/60 dark:border-gray-700/60">
-      <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-4">
-        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-          <img
-            src="https://storage.googleapis.com/msgsndr/nb61f4OQ7o9Wsxx0zOsY/media/68df3ae78db305b0e463f363.svg"
-            alt="NexiFlow logo"
-            className="h-8 w-auto sm:h-10"
-          />
-          <div className="min-w-0">
-            <p className="truncate text-base font-semibold tracking-tight sm:text-lg">NexiFlow</p>
-            <p className="hidden text-[11px] text-gray-400 sm:block">Powered by Nexistry Digital Solutions</p>
-          </div>
-        </div>
-        <nav className="hidden lg:flex items-center gap-8 text-xs sm:text-sm font-semibold uppercase tracking-[0.2em] text-gray-600 dark:text-gray-300">
-          {navLinks.map((link) => (
-            <button
-              key={link.id}
-              onClick={() => onLinkClick(link.id)}
-              className="transition-colors hover:text-blue-600"
-            >
-              {link.label}
-            </button>
-          ))}
-          <button onClick={onAbout} className="transition-colors hover:text-blue-600">
-            About
-          </button>
-        </nav>
-        <div className="hidden sm:flex items-center gap-3">
-          <button onClick={onLogin} className="text-sm font-semibold text-gray-600 dark:text-gray-300 transition-colors hover:text-gray-900">
-            Log In
-          </button>
-          <button
-            onClick={onAccess}
-            className="px-4 py-2 rounded-full bg-blue-600 text-white text-sm font-semibold shadow-sm hover:bg-blue-700 transition"
-          >
-            Access NexiFlow
-          </button>
-        </div>
-        <div className="lg:hidden flex items-center">
-          <button onClick={() => setMobileOpen(true)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-            <Menu className="h-5 w-5 sm:h-6 sm:w-6" />
-          </button>
-        </div>
-      </div>
-      {mobileOpen && (
-        <div className="lg:hidden border-t border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80">
-          <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm font-semibold tracking-[0.3em] uppercase text-gray-500">Menu</span>
-            <button onClick={() => setMobileOpen(false)} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="px-4 pb-4 space-y-3">
-            {navLinks.map((link) => (
-              <button
-                key={link.id}
-                onClick={() => {
-                  onLinkClick(link.id)
-                  setMobileOpen(false)
-                }}
-                className="w-full text-left text-gray-700 dark:text-gray-200 font-semibold tracking-wide"
-              >
-                {link.label}
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                onAbout()
-                setMobileOpen(false)
-              }}
-              className="w-full text-left text-gray-700 dark:text-gray-200 font-semibold tracking-wide"
-            >
-              About
-            </button>
-            <div className="flex flex-col gap-2 pt-2">
-              <button onClick={onLogin} className="text-left text-gray-600 dark:text-gray-300 font-semibold">
-                Log In
-              </button>
-              <button
-                onClick={onAccess}
-                className="px-4 py-2 rounded-full bg-blue-600 text-white font-semibold text-sm"
-              >
-                Access NexiFlow
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </header>
-  )
-}
 
 const HeroSection = ({ onPrimaryAction, onWatchDemo }: { onPrimaryAction: () => void; onWatchDemo: () => void }) => {
   const { ref, visible } = useRevealOnScroll({ threshold: 0.3 })

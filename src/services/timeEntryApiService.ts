@@ -252,7 +252,10 @@ export const timeEntryApiService = {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfWeek = new Date(startOfDay);
-    startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
+    // Monday-start week to match UI filters (weekStartsOn: 1)
+    const day = startOfDay.getDay(); // 0 (Sun) - 6 (Sat)
+    const diffToMonday = (day + 6) % 7;
+    startOfWeek.setDate(startOfDay.getDate() - diffToMonday);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const [todayEntries, weekEntries, monthEntries] = await Promise.all([

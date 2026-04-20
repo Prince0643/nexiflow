@@ -189,7 +189,10 @@ export default function ClientDetails() {
 
     const totalSeconds = clientTimeEntries.reduce((sum, entry) => sum + entry.duration, 0)
     const totalHours = totalSeconds / 3600
-    const billableAmount = totalHours * (client.hourlyRate || 0)
+    const billableSeconds = clientTimeEntries
+      .filter(entry => entry.isBillable)
+      .reduce((sum, entry) => sum + entry.duration, 0)
+    const billableAmount = (billableSeconds / 3600) * (client.hourlyRate || 0)
 
     return {
       totalHours,

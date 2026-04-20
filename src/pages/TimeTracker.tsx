@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { 
   Clock, 
   Calendar, 
@@ -8,9 +8,12 @@ import {
   Zap,
   Trash2
 } from 'lucide-react'
+import { startOfDay, startOfMonth, startOfWeek } from 'date-fns'
 import TimeTracker from '../components/TimeTracker'
-import { TimeSummary, TimeEntry } from '../types'
+import { Client, Project, TimeSummary, TimeEntry } from '../types'
 import { timeEntryApiService as timeEntryService } from '../services/timeEntryApiService'
+import { clientApiService } from '../services/clientApiService'
+import { projectApiService } from '../services/projectApiService'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { formatTimeFromSeconds, formatDate } from '../utils'
 
@@ -23,21 +26,39 @@ export default function TimeTrackerPage() {
   const [activeTab, setActiveTab] = useState<'today' | 'week' | 'month'>('today')
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage] = useState(10)
+  const [now, setNow] = useState(() => Date.now())
+  const [clients, setClients] = useState<Client[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
 
   useEffect(() => {
     loadTimeData()
   }, [currentUser])
+
+  useEffect(() => {
+    const hasRunningEntry = allEntries.some((entry) => entry.isRunning)
+    if (!hasRunningEntry) return undefined
+
+    const id = window.setInterval(() => {
+      setNow(Date.now())
+    }, 1000)
+
+    return () => window.clearInterval(id)
+  }, [allEntries])
 
   const loadTimeData = async () => {
     if (!currentUser) return
     
     setLoading(true)
     try {
-      const [summary, entries] = await Promise.all([
+      const [summary, entries, clientsData, projectsData] = await Promise.all([
         timeEntryService.getTimeSummary(currentUser.uid),
-        timeEntryService.getTimeEntries(currentUser.uid)
+        timeEntryService.getTimeEntries(currentUser.uid),
+        currentUser.companyId ? clientApiService.getClientsForCompany(currentUser.companyId) : clientApiService.getClients(),
+        currentUser.companyId ? projectApiService.getProjectsForCompany(currentUser.companyId) : projectApiService.getProjects()
       ])
       setTimeSummary(summary)
+      setClients(clientsData)
+      setProjects(projectsData)
       // Filter out entries without valid IDs
       const validEntries = entries.filter(entry => entry.id)
       const uniqueEntries: TimeEntry[] = []
@@ -58,6 +79,17 @@ export default function TimeTrackerPage() {
   const handleTimeUpdate = (summary: TimeSummary) => {
     setTimeSummary(summary)
     loadTimeData() // Refresh recent entries
+  }
+
+  const getDisplayDurationSeconds = (entry: TimeEntry) => {
+    const baseDuration = typeof entry.duration === 'number' ? entry.duration : 0
+    if (!entry.isRunning) return baseDuration
+
+    const start = entry.startTime ? new Date(entry.startTime).getTime() : NaN
+    if (Number.isNaN(start)) return baseDuration
+
+    const elapsed = Math.max(0, Math.floor((now - start) / 1000))
+    return Math.max(baseDuration, elapsed)
   }
 
   // Pagination
@@ -120,10 +152,47 @@ export default function TimeTrackerPage() {
     }
   }
 
-  const calculateEarnings = (seconds: number, hourlyRate: number = 25) => {
-    const hours = seconds / 3600
-    return hours * hourlyRate
+  const clientRateById = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const client of clients) {
+      map.set(client.id, client.hourlyRate || 0)
+    }
+    return map
+  }, [clients])
+
+  const projectClientById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const project of projects) {
+      if (project.clientId) map.set(project.id, project.clientId)
+    }
+    return map
+  }, [projects])
+
+  const getTabStartDate = (tab: 'today' | 'week' | 'month') => {
+    const date = new Date(now)
+    if (tab === 'today') return startOfDay(date)
+    if (tab === 'week') return startOfWeek(date, { weekStartsOn: 1 })
+    return startOfMonth(date)
   }
+
+  const billableAmount = useMemo(() => {
+    const start = getTabStartDate(activeTab).getTime()
+    const end = now
+
+    return allEntries
+      .filter((entry) => {
+        if (!entry.isBillable) return false
+        const startTime = new Date(entry.startTime as any).getTime()
+        return !Number.isNaN(startTime) && startTime >= start && startTime <= end
+      })
+      .reduce((sum, entry) => {
+        const directClientId = entry.clientId
+        const derivedClientId = entry.projectId ? projectClientById.get(entry.projectId) : undefined
+        const clientId = directClientId || derivedClientId
+        const rate = clientId ? (clientRateById.get(clientId) || 0) : 0
+        return sum + (entry.duration / 3600) * rate
+      }, 0)
+  }, [activeTab, allEntries, now, clientRateById, projectClientById])
 
   if (loading) {
     return (
@@ -255,7 +324,7 @@ export default function TimeTrackerPage() {
             </p>
             <p className="text-sm text-gray-600 dark:text-gray-400">Billable Time</p>
             <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-              ${calculateEarnings(stats.billable).toFixed(2)} earned
+              ${billableAmount.toFixed(2)} earned
             </p>
           </div>
 
@@ -329,7 +398,7 @@ export default function TimeTrackerPage() {
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 pt-2 sm:pt-0">
                   <span className="text-sm font-mono text-gray-900 dark:text-gray-100">
-                    {formatTimeFromSeconds(entry.duration)}
+                    {formatTimeFromSeconds(getDisplayDurationSeconds(entry))}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {formatDate(entry.startTime)}
