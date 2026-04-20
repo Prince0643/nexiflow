@@ -131,6 +131,21 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       if (response.ok && data?.success) {
         localStorage.removeItem('pendingPayPalOrderId')
         await refreshSession()
+        // Retry refresh a few times to ensure the upgraded plan is reflected in local storage/state.
+        const expectedPlan = data?.pricingLevel || null
+        if (expectedPlan) {
+          for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+              const rawCompany = localStorage.getItem('currentCompany')
+              const storedPlan = rawCompany ? (JSON.parse(rawCompany) as any)?.pricingLevel : null
+              if (storedPlan === expectedPlan) break
+            } catch {
+              // ignore
+            }
+            await new Promise((r) => window.setTimeout(r, 500))
+            await refreshSession()
+          }
+        }
       }
     } catch (error) {
       console.error('Error finalizing PayPal capture:', error)

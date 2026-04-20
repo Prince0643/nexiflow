@@ -3,6 +3,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { CheckCircle, Loader2 } from 'lucide-react'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 
+function getStoredPricingLevel(): string | null {
+  try {
+    const raw = localStorage.getItem('currentCompany')
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { pricingLevel?: string }
+    return parsed?.pricingLevel || null
+  } catch {
+    return null
+  }
+}
+
 export default function PayPalSuccess() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -46,6 +57,16 @@ export default function PayPalSuccess() {
 
         if (data.success) {
           await refreshSession()
+          // In some deployments, the company update may lag behind auth refresh.
+          // Retry a few times so the UI reliably reflects the new plan.
+          const expectedPlan = data?.pricingLevel || null
+          if (expectedPlan) {
+            for (let attempt = 0; attempt < 4; attempt++) {
+              if (getStoredPricingLevel() === expectedPlan) break
+              await new Promise((r) => window.setTimeout(r, 500))
+              await refreshSession()
+            }
+          }
           setCapturing(false)
           // Redirect to settings after 3 seconds
           redirectTimer = window.setTimeout(() => {
