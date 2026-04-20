@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { CheckCircle, Loader2 } from 'lucide-react'
+import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 
 export default function PayPalSuccess() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [capturing, setCapturing] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { refreshSession } = useMySQLAuth()
 
   useEffect(() => {
     const token = searchParams.get('token') // PayPal returns the order ID as 'token'
+    let redirectTimer: number | undefined
     
     if (!token) {
       setError('Invalid PayPal response. Missing order ID.')
@@ -20,12 +23,21 @@ export default function PayPalSuccess() {
     const capturePayment = async () => {
       try {
         const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+        const authToken = localStorage.getItem('authToken')
+
+        // PayPal can redirect back after the user session is gone (new tab/incognito/expired).
+        // Defer capture until after the user signs in again.
+        if (!authToken) {
+          localStorage.setItem('pendingPayPalOrderId', token)
+          setCapturing(false)
+          return
+        }
         
         const response = await fetch(`${API_BASE_URL}/billing/capture-paypal-order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${authToken}`
           },
           body: JSON.stringify({ orderId: token })
         })
@@ -33,9 +45,10 @@ export default function PayPalSuccess() {
         const data = await response.json()
 
         if (data.success) {
+          await refreshSession()
           setCapturing(false)
           // Redirect to settings after 3 seconds
-          setTimeout(() => {
+          redirectTimer = window.setTimeout(() => {
             navigate('/settings')
           }, 3000)
         } else {
@@ -50,7 +63,11 @@ export default function PayPalSuccess() {
     }
 
     capturePayment()
-  }, [searchParams, navigate])
+
+    return () => {
+      if (redirectTimer) window.clearTimeout(redirectTimer)
+    }
+  }, [searchParams, navigate, refreshSession])
 
   if (capturing) {
     return (
@@ -63,6 +80,27 @@ export default function PayPalSuccess() {
           <p className="text-gray-600">
             Please wait while we confirm your PayPal payment.
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  const orderId = searchParams.get('token')
+  const hasAuthToken = !!localStorage.getItem('authToken')
+  if (!hasAuthToken && orderId && !error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
+          <h2 className="text-2xl font-bold mb-4">Almost done</h2>
+          <p className="text-gray-600 mb-6">
+            Please sign in to activate your subscription.
+          </p>
+          <button
+            onClick={() => navigate(`/auth?returnTo=${encodeURIComponent(`/billing/paypal-success?token=${orderId}`)}`)}
+            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Sign in to Activate
+          </button>
         </div>
       </div>
     )

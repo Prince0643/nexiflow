@@ -32,6 +32,7 @@ interface MySQLAuthContextType {
     companyName?: string
   ) => Promise<{ success: boolean; error?: string; requiresEmailVerification?: boolean }>
   logout: () => Promise<void>
+  refreshSession: () => Promise<void>
   resetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
 }
 
@@ -54,6 +55,87 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
   const [authActionLoading, setAuthActionLoading] = useState(false)
+
+  const refreshSession = async () => {
+    const token = localStorage.getItem('authToken')
+    if (!token) return
+
+    if (isJwtExpired(token)) {
+      window.dispatchEvent(new CustomEvent('auth:expired'))
+      return
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success) {
+        if (response.status === 401 || response.status === 403) {
+          window.dispatchEvent(new CustomEvent('auth:expired'))
+        }
+        return
+      }
+
+      if (data.user) {
+        const authUser: AuthUser = {
+          uid: data.user.id,
+          email: data.user.email,
+          role: data.user.role,
+          name: data.user.name,
+          companyId: data.user.companyId || null,
+          teamId: data.user.teamId || null,
+          teamRole: data.user.teamRole || null,
+          avatar: data.user.avatar || null,
+          emailVerified: data.user.emailVerified ?? true
+        }
+        setCurrentUser(authUser)
+        localStorage.setItem('currentUser', JSON.stringify(authUser))
+      }
+
+      if (data.company) {
+        setCurrentCompany(data.company)
+        localStorage.setItem('currentCompany', JSON.stringify(data.company))
+      } else {
+        setCurrentCompany(null)
+        localStorage.removeItem('currentCompany')
+      }
+    } catch (error) {
+      console.error('Error refreshing session:', error)
+    }
+  }
+
+  const finalizePendingPayPalCapture = async () => {
+    const pendingOrderId = localStorage.getItem('pendingPayPalOrderId')
+    if (!pendingOrderId) return
+
+    const token = localStorage.getItem('authToken')
+    if (!token || isJwtExpired(token)) return
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/billing/capture-paypal-order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ orderId: pendingOrderId })
+      })
+
+      const data = await response.json().catch(() => null)
+      if (response.ok && data?.success) {
+        localStorage.removeItem('pendingPayPalOrderId')
+        await refreshSession()
+      }
+    } catch (error) {
+      console.error('Error finalizing PayPal capture:', error)
+    }
+  }
 
   // Load user from session storage on initial load
   useEffect(() => {
@@ -80,6 +162,10 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
             const company = JSON.parse(storedCompany)
             setCurrentCompany(company)
           }
+
+          // Best-effort: finalize any pending PayPal activation, then refresh company plan/tier.
+          await finalizePendingPayPalCapture()
+          refreshSession()
         }
       } catch (error) {
         console.error('Error loading user from storage:', error)
@@ -160,6 +246,10 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       
       // Log successful login
       await mysqlLoggingService.logAuthEvent('login', data.user.id, data.user.name, true)
+
+      // If PayPal redirected back while logged out, auto-activate after sign-in.
+      await finalizePendingPayPalCapture()
+      refreshSession()
       
       return { success: true }
     } catch (error) {
@@ -300,6 +390,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
     login,
     signup,
     logout,
+    refreshSession,
     resetPassword
   }
 

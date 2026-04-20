@@ -74,6 +74,9 @@ function AppContent() {
           <Route path="/verify-email" element={<EmailVerification />} /> {/* Add this route */}
           <Route path="/landing" element={<Landing />} />
           <Route path="/about" element={<About />} />
+          {/* PayPal can redirect back when the user is logged out; allow activation flow */}
+          <Route path="/billing/paypal-success" element={<PayPalSuccess />} />
+          <Route path="/billing/paypal-cancel" element={<PayPalCancel />} />
           <Route path="*" element={<Landing />} />
         </Routes>
     )
@@ -224,14 +227,10 @@ function AppContent() {
                   </ProtectedRoute>
                 } />
                 <Route path="/billing/paypal-success" element={
-                  <ProtectedRoute>
-                    <PayPalSuccess />
-                  </ProtectedRoute>
+                  <PayPalSuccess />
                 } />
                 <Route path="/billing/paypal-cancel" element={
-                  <ProtectedRoute>
-                    <PayPalCancel />
-                  </ProtectedRoute>
+                  <PayPalCancel />
                 } />
               </>
             )}

@@ -2586,6 +2586,87 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Returns the latest user + company for the current JWT (used to refresh plan/tier without logout)
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Invalid user' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [userRows] = await connection.execute('SELECT * FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [userId]);
+      if (!userRows.length) {
+        return res.status(401).json({ success: false, error: 'Invalid user' });
+      }
+
+      const user = userRows[0];
+      const emailVerified = user.email_verified === 1;
+
+      let companyData = null;
+      if (user.company_id) {
+        const [companyRows] = await connection.execute('SELECT * FROM companies WHERE id = ? LIMIT 1', [user.company_id]);
+        if (companyRows.length) {
+          const company = companyRows[0];
+          const [settingsRows] = await connection.execute(
+            'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
+            [company.id]
+          );
+          const settings = settingsRows.length
+            ? {
+                companyName: settingsRows[0].company_name || '',
+                logoUrl: settingsRows[0].logo_url || '',
+                primaryColor: settingsRows[0].primary_color || '#3B82F6',
+                secondaryColor: settingsRows[0].secondary_color || '#10B981',
+                showPoweredBy:
+                  settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
+                    ? true
+                    : settingsRows[0].show_powered_by === 1,
+                customFooterText: settingsRows[0].custom_footer_text || ''
+              }
+            : undefined;
+
+          companyData = {
+            id: company.id,
+            name: company.name,
+            isActive: company.is_active === 1,
+            pricingLevel: company.pricing_level,
+            maxMembers: company.max_members,
+            createdAt: company.created_at,
+            updatedAt: company.updated_at,
+            pdfSettings: settings
+          };
+        }
+      }
+
+      const userData = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        companyId: user.company_id || null,
+        teamId: user.team_id || null,
+        teamRole: user.team_role || null,
+        avatar: user.avatar || null,
+        emailVerified,
+        timezone: user.timezone,
+        hourlyRate: user.hourly_rate,
+        isActive: user.is_active === 1,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at
+      };
+
+      res.json({ success: true, user: userData, company: companyData });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Auth me error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load account info' });
+  }
+});
+
 // Forgot password endpoint
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
@@ -6981,18 +7062,8 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
     if (!paypalClient) {
       return res.status(503).json({ error: 'PayPal is not configured' });
     }
-    
-    // Capture the order
-    const request = new paypal.orders.OrdersCaptureRequest(orderId);
-    request.requestBody({});
-    
-    const capture = await paypalClient.execute(request);
-    
-    if (capture.result.status !== 'COMPLETED') {
-      return res.status(400).json({ error: 'Payment not completed', status: capture.result.status });
-    }
-    
-    // Get transaction details from database
+
+    // Get transaction details from database (and handle idempotency)
     const connection = await pool.getConnection();
     try {
       const [txRows] = await connection.execute(
@@ -7006,6 +7077,41 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
       
       const transaction = txRows[0];
       const metadata = JSON.parse(transaction.metadata || '{}');
+
+      if (transaction.status === 'paid') {
+        return res.json({
+          success: true,
+          alreadyProcessed: true,
+          message: 'Payment already processed',
+          orderId
+        });
+      }
+
+      // Capture the order (may already be captured; treat as success and continue DB updates)
+      let captureId = null;
+      let captureStatus = null;
+      try {
+        const request = new paypal.orders.OrdersCaptureRequest(orderId);
+        request.requestBody({});
+        const capture = await paypalClient.execute(request);
+        captureStatus = capture?.result?.status || null;
+        captureId = capture?.result?.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+      } catch (captureError) {
+        const msg = (captureError && (captureError.message || captureError.toString())) || '';
+        const isAlreadyCaptured =
+          msg.includes('ORDER_ALREADY_CAPTURED') ||
+          msg.includes('ORDER_ALREADY_COMPLETED') ||
+          msg.includes('ORDER_ALREADY_PROCESSED');
+        if (!isAlreadyCaptured) {
+          console.error('PayPal capture execute error:', captureError);
+          return res.status(500).json({ error: 'Failed to capture PayPal payment: ' + (captureError.message || 'Unknown error') });
+        }
+        captureStatus = 'COMPLETED';
+      }
+
+      if (captureStatus && captureStatus !== 'COMPLETED') {
+        return res.status(400).json({ error: 'Payment not completed', status: captureStatus });
+      }
       
       // Calculate billing period
       const now = new Date();
@@ -7044,7 +7150,7 @@ app.post('/api/billing/capture-paypal-order', authenticateToken, async (req, res
         success: true,
         message: 'Payment captured successfully',
         orderId: orderId,
-        captureId: capture.result.purchase_units[0].payments.captures[0].id
+        captureId
       });
     } finally {
       connection.release();
@@ -7080,10 +7186,31 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
     console.log('PayPal webhook payload:', JSON.stringify(payload, null, 2));
     
     const { event_type, resource } = payload;
+
+    const getOrderIdFromPayPalWebhook = () => {
+      if (!resource) return null;
+
+      // PayPal event payloads vary by event_type.
+      if (event_type === 'CHECKOUT.ORDER.APPROVED') {
+        return resource.id || resource.order_id || null;
+      }
+
+      if (event_type === 'PAYMENT.CAPTURE.COMPLETED') {
+        // In capture events, resource.id is typically the CAPTURE id, not the ORDER id.
+        return (
+          resource?.supplementary_data?.related_ids?.order_id ||
+          resource?.supplementary_data?.related_ids?.orderID ||
+          resource?.order_id ||
+          null
+        );
+      }
+
+      return resource.id || resource.order_id || null;
+    };
     
     // Handle payment capture completed
     if (event_type === 'CHECKOUT.ORDER.APPROVED' || event_type === 'PAYMENT.CAPTURE.COMPLETED') {
-      const orderId = resource.id || resource.order_id;
+      const orderId = getOrderIdFromPayPalWebhook();
       
       if (!orderId) {
         console.log('No order ID in webhook payload');
