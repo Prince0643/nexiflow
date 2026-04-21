@@ -146,7 +146,12 @@ export default function AdminDashboard() {
   }, [currentUser?.companyId, currentUser?.role])
 
   const loadRunningTimeEntries = async () => {
-    const runningEntries = await timeEntryService.getAllRunningTimeEntries(currentUser?.companyId || null)
+    const runningEntriesCompanyId =
+      currentUser?.role === 'root' || currentUser?.role === 'super_admin'
+        ? null
+        : (currentUser?.companyId || null)
+
+    const runningEntries = await timeEntryService.getAllRunningTimeEntries(runningEntriesCompanyId)
     setRunningTimeEntries(runningEntries)
     return runningEntries
   }
@@ -331,17 +336,22 @@ export default function AdminDashboard() {
       
       // Use company-scoped user fetching for proper multi-tenancy
       let usersData: UserType[]
-      if (currentUser?.role === 'root') {
-        // Root can see all users across all companies
+      if (currentUser?.role === 'root' || currentUser?.role === 'super_admin') {
+        // Root and super admins can see all users across all companies
         usersData = await userService.getAllUsers()
       } else {
         // Company admins can only see users from their company
         usersData = await userService.getUsersForCompany(currentUser?.companyId || null)
       }
+
+      const runningTimeEntriesCompanyId =
+        currentUser?.role === 'root' || currentUser?.role === 'super_admin'
+          ? null
+          : (currentUser?.companyId || null)
       
       const [timeEntriesData, runningTimeEntriesData, projectsData, clientsData, teamsData] = await Promise.all([
         timeEntryService.getAllTimeEntries(),
-        timeEntryService.getAllRunningTimeEntries(currentUser?.companyId || null),
+        timeEntryService.getAllRunningTimeEntries(runningTimeEntriesCompanyId),
         projectService.getProjectsForCompany(currentUser?.companyId || null),
         clientService.getClientsForCompany(currentUser?.companyId || null), // Fixed: use clientService instead of projectService
         teamService.getTeamsForCompany(currentUser?.companyId || null)

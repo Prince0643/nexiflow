@@ -1956,6 +1956,10 @@ const isAdminRole = (role) => {
   return ['admin', 'super_admin', 'hr', 'root'].includes(role);
 };
 
+const isGlobalAdminRole = (role) => {
+  return ['root', 'super_admin'].includes(role);
+};
+
 const pdfSettingsSchema = Joi.object({
   companyName: Joi.string().allow('', null).optional(),
   logoUrl: Joi.string().allow('', null).optional(),
@@ -2898,7 +2902,7 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
       let query = 'SELECT * FROM time_entries';
       const params = [];
 
-      if (req.user.role !== 'root' && companyId) {
+      if (!isGlobalAdminRole(req.user.role) && companyId) {
         query += ' WHERE company_id = ?';
         params.push(companyId);
       }
@@ -2943,7 +2947,7 @@ app.get('/api/admin/time-entries/running', authenticateToken, async (req, res) =
 
     const queryCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId : null;
     const shouldIgnoreQueryCompanyId = Boolean(queryCompanyId && queryCompanyId.startsWith('-'));
-    const effectiveCompanyId = req.user.role === 'root'
+    const effectiveCompanyId = isGlobalAdminRole(req.user.role)
       ? (shouldIgnoreQueryCompanyId ? null : queryCompanyId)
       : req.user.companyId;
 
@@ -3003,7 +3007,7 @@ app.delete('/api/admin/time-entries/:id', authenticateToken, async (req, res) =>
       let query = 'DELETE FROM time_entries WHERE id = ?';
       const params = [id];
 
-      if (req.user.role !== 'root' && companyId) {
+      if (!isGlobalAdminRole(req.user.role) && companyId) {
         query += ' AND company_id = ?';
         params.push(companyId);
       }
@@ -3037,7 +3041,7 @@ app.post('/api/admin/time-entries/:id/stop', authenticateToken, async (req, res)
     try {
       let selectQuery = 'SELECT * FROM time_entries WHERE id = ?';
       const selectParams = [id];
-      if (req.user.role !== 'root' && companyId) {
+      if (!isGlobalAdminRole(req.user.role) && companyId) {
         selectQuery += ' AND company_id = ?';
         selectParams.push(companyId);
       }
@@ -3149,7 +3153,7 @@ app.put('/api/admin/time-entries/:id', authenticateToken, async (req, res) => {
     try {
       let where = ' WHERE id = ?';
       const params = [...values, id];
-      if (req.user.role !== 'root' && companyId) {
+      if (!isGlobalAdminRole(req.user.role) && companyId) {
         where += ' AND company_id = ?';
         params.push(companyId);
       }
