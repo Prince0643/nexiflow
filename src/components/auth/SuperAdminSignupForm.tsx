@@ -235,17 +235,17 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
   if (success) {
     return (
       <div className="w-full max-w-md mx-auto">
-        <div className="bg-green-500/20 border border-green-400/30 rounded-3xl p-6 backdrop-blur-xl">
+        <div className="bg-green-50 border border-green-200 rounded-3xl p-6 backdrop-blur-xl dark:bg-green-500/20 dark:border-green-400/30">
           <div className="text-center">
-            <CheckCircle className="h-12 w-12 text-green-300 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-white mb-2">Account Created Successfully!</h2>
-            <p className="text-white/70 mb-4">
+            <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4 dark:text-green-300" />
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Account Created Successfully!</h2>
+            <p className="text-slate-600 dark:text-white/70 mb-4">
               Your account has been created successfully. You can now sign in to your account.
             </p>
             <button
               type="button"
               onClick={onSwitchToLogin}
-              className="bg-white hover:bg-white/90 text-blue-900 py-3 px-6 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300"
+              className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 dark:bg-white dark:hover:bg-white/90 dark:text-blue-900"
             >
               Go to Sign In
             </button>
@@ -259,14 +259,14 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
     <div className="w-full max-w-md mx-auto">
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-white/70">Step {step} of 3</span>
-          <span className="text-sm font-medium text-white/80">
+          <span className="text-sm font-medium text-slate-600 dark:text-white/70">Step {step} of 3</span>
+          <span className="text-sm font-medium text-slate-900 dark:text-white/80">
             {step === 1 ? 'Your Info' : step === 2 ? 'Set Password' : 'Select Plan'}
           </span>
         </div>
-        <div className="w-full bg-white/10 border border-white/15 rounded-full h-2 backdrop-blur-sm">
+        <div className="w-full bg-slate-200 border border-slate-200 rounded-full h-2 dark:bg-white/10 dark:border-white/15 backdrop-blur-sm">
           <div
-            className="bg-white/80 h-2 rounded-full transition-all duration-300"
+            className="bg-blue-600 h-2 rounded-full transition-all duration-300 dark:bg-white/80"
             style={{ width: `${(step / 3) * 100}%` }}
           />
         </div>
@@ -275,12 +275,12 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
       {step === 1 && (
         <div className="space-y-6">
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-white mb-2 drop-shadow-sm">Let's get started</h2>
-            <p className="text-white/70">First, tell us about yourself</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 drop-shadow-sm">Let's get started</h2>
+            <p className="text-slate-600 dark:text-white/70">First, tell us about yourself</p>
           </div>
 
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+            <label htmlFor="name" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
               Full name
             </label>
             <input
@@ -290,14 +290,14 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
               required
               value={formData.name}
               onChange={handleInputChange}
-              className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all text-lg"
+              className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
               placeholder="John Doe"
               disabled={loading}
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
               Email
             </label>
             <input
@@ -307,14 +307,14 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
               required
               value={formData.email}
               onChange={handleInputChange}
-              className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all text-lg"
+              className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
               placeholder="you@example.com"
               disabled={loading}
             />
           </div>
 
           <div>
-            <label htmlFor="companyName" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+            <label htmlFor="companyName" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
               Company name
             </label>
             <input
@@ -324,16 +324,16 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
               required
               value={formData.companyName}
               onChange={handleInputChange}
-              className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all text-lg"
+              className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
               placeholder="Acme Inc."
               disabled={loading}
             />
           </div>
 
           {error && (
-            <div className="flex items-center space-x-3 p-4 bg-red-500/20 border border-red-400/30 rounded-2xl backdrop-blur-sm">
-              <AlertCircle className="h-5 w-5 text-red-300 flex-shrink-0" />
-              <div className="text-sm text-red-100 font-medium">
+            <div className="flex items-center space-x-3 p-4 bg-red-50 border border-red-200 rounded-2xl backdrop-blur-sm dark:bg-red-500/20 dark:border-red-400/30">
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 dark:text-red-300" />
+              <div className="text-sm text-red-700 font-medium dark:text-red-100">
                 <p>{error}</p>
               </div>
             </div>
@@ -342,7 +342,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
           <button
             type="button"
             onClick={handleNext}
-            className="w-full bg-white hover:bg-white/90 text-blue-900 py-4 px-4 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 flex items-center justify-center group"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 px-4 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 flex items-center justify-center group dark:bg-white dark:hover:bg-white/90 dark:text-blue-900"
           >
             Continue
             <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
@@ -353,13 +353,13 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
       {step === 2 && (
         <div className="space-y-6">
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-white mb-2 drop-shadow-sm">Create your password</h2>
-            <p className="text-white/70">Secure your account with a strong password</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 drop-shadow-sm">Create your password</h2>
+            <p className="text-slate-600 dark:text-white/70">Secure your account with a strong password</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+              <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
                 Password
               </label>
               <div className="relative">
@@ -370,7 +370,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                   required
                   value={formData.password}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all pr-12 text-lg"
+                  className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all pr-12 text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
                   placeholder="Create a strong password"
                   disabled={loading}
                 />
@@ -381,19 +381,19 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                   disabled={loading}
                 >
                   {showPassword ? (
-                    <EyeOff className="h-5 w-5 text-white/50 hover:text-white/80 transition-colors" />
+                    <EyeOff className="h-5 w-5 text-slate-500 hover:text-slate-800 transition-colors dark:text-white/50 dark:hover:text-white/80" />
                   ) : (
-                    <Eye className="h-5 w-5 text-white/50 hover:text-white/80 transition-colors" />
+                    <Eye className="h-5 w-5 text-slate-500 hover:text-slate-800 transition-colors dark:text-white/50 dark:hover:text-white/80" />
                   )}
                 </button>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className={`text-xs ${passwordStrength.length ? 'text-green-300' : 'text-white/40'}`}>8+ characters</div>
-                <div className={`text-xs ${passwordStrength.uppercase ? 'text-green-300' : 'text-white/40'}`}>Uppercase</div>
-                <div className={`text-xs ${passwordStrength.lowercase ? 'text-green-300' : 'text-white/40'}`}>Lowercase</div>
-                <div className={`text-xs ${passwordStrength.number ? 'text-green-300' : 'text-white/40'}`}>Number</div>
-                <div className={`text-xs col-span-2 ${passwordStrength.special ? 'text-green-300' : 'text-white/40'}`}>
+                <div className={`text-xs ${passwordStrength.length ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>8+ characters</div>
+                <div className={`text-xs ${passwordStrength.uppercase ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Uppercase</div>
+                <div className={`text-xs ${passwordStrength.lowercase ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Lowercase</div>
+                <div className={`text-xs ${passwordStrength.number ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Number</div>
+                <div className={`text-xs col-span-2 ${passwordStrength.special ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>
                   Special character (!@#$%^&*)
                 </div>
               </div>
@@ -402,7 +402,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
             <div>
               <label
                 htmlFor="confirmPassword"
-                className="block text-sm font-medium text-white/80 mb-2 ml-1"
+                className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1"
               >
                 Confirm Password
               </label>
@@ -414,7 +414,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                   required
                   value={formData.confirmPassword}
                   onChange={handleInputChange}
-                  className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all pr-12 text-lg"
+                  className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all pr-12 text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
                   placeholder="Confirm your password"
                   disabled={loading}
                 />
@@ -425,18 +425,18 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                   disabled={loading}
                 >
                   {showConfirmPassword ? (
-                    <EyeOff className="h-5 w-5 text-white/50 hover:text-white/80 transition-colors" />
+                    <EyeOff className="h-5 w-5 text-slate-500 hover:text-slate-800 transition-colors dark:text-white/50 dark:hover:text-white/80" />
                   ) : (
-                    <Eye className="h-5 w-5 text-white/50 hover:text-white/80 transition-colors" />
+                    <Eye className="h-5 w-5 text-slate-500 hover:text-slate-800 transition-colors dark:text-white/50 dark:hover:text-white/80" />
                   )}
                 </button>
               </div>
             </div>
 
             {error && (
-              <div className="flex items-center space-x-3 p-4 bg-red-500/20 border border-red-400/30 rounded-2xl backdrop-blur-sm">
-                <AlertCircle className="h-5 w-5 text-red-300 flex-shrink-0" />
-                <div className="text-sm text-red-100 font-medium">
+              <div className="flex items-center space-x-3 p-4 bg-red-50 border border-red-200 rounded-2xl backdrop-blur-sm dark:bg-red-500/20 dark:border-red-400/30">
+                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 dark:text-red-300" />
+                <div className="text-sm text-red-700 font-medium dark:text-red-100">
                   <p>{error}</p>
                 </div>
               </div>
@@ -446,7 +446,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 bg-white/10 hover:bg-white/15 border border-white/20 text-white py-4 px-4 rounded-2xl font-semibold backdrop-blur-sm active:scale-[0.98] transition-all duration-300 flex items-center justify-center"
+                className="flex-1 bg-white hover:bg-slate-50 border border-gray-200 text-slate-900 py-4 px-4 rounded-2xl font-semibold active:scale-[0.98] transition-all duration-300 flex items-center justify-center dark:bg-white/10 dark:hover:bg-white/15 dark:border-white/20 dark:text-white backdrop-blur-sm"
               >
                 <ArrowLeft className="mr-2 w-5 h-5" />
                 Back
@@ -455,7 +455,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                 type="button"
                 onClick={handleNext}
                 disabled={loading}
-                className="flex-1 bg-white hover:bg-white/90 text-blue-900 py-4 px-4 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center group"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 px-4 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center group dark:bg-white dark:hover:bg-white/90 dark:text-blue-900"
               >
                 Continue
                 <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" />
@@ -468,8 +468,8 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
       {step === 3 && (
         <div className="space-y-6">
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-white mb-2 drop-shadow-sm">Choose your plan</h2>
-            <p className="text-white/70">Select the plan that works best for you</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 drop-shadow-sm">Choose your plan</h2>
+            <p className="text-slate-600 dark:text-white/70">Select the plan that works best for you</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -484,12 +484,12 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                     onClick={() => handlePlanSelect(plan.id)}
                     className={`relative rounded-xl p-6 cursor-pointer transition-all duration-300 border-2 ${
                       isSelected
-                        ? 'border-white/40 bg-white/15 backdrop-blur-xl'
-                        : 'border-white/15 hover:border-white/30 bg-white/10 backdrop-blur-xl'
+                        ? 'border-blue-500/30 bg-white shadow-sm dark:border-white/40 dark:bg-white/15 dark:backdrop-blur-xl dark:shadow-none'
+                        : 'border-gray-200 hover:border-gray-300 bg-white shadow-sm dark:border-white/15 dark:hover:border-white/30 dark:bg-white/10 dark:backdrop-blur-xl dark:shadow-none'
                     }`}
                   >
                     {plan.popular && (
-                      <div className="absolute -top-3 right-4 bg-white text-blue-900 text-xs font-semibold px-3 py-1 rounded-full shadow">
+                      <div className="absolute -top-3 right-4 bg-blue-600 text-white text-xs font-semibold px-3 py-1 rounded-full shadow">
                         Most Popular
                       </div>
                     )}
@@ -498,8 +498,8 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                       <div
                         className={`p-3 rounded-lg ${
                           isSelected
-                            ? 'bg-white text-blue-900'
-                            : 'bg-white/15 text-white/80'
+                            ? 'bg-blue-600 text-white dark:bg-white dark:text-blue-900'
+                            : 'bg-slate-100 text-slate-700 dark:bg-white/15 dark:text-white/80'
                         }`}
                       >
                         <Icon className="w-6 h-6" />
@@ -507,25 +507,25 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-lg font-bold text-white">{plan.name}</h3>
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-white">{plan.name}</h3>
                           <div className="text-right">
-                            <span className="text-2xl font-bold text-white">{plan.price}</span>
-                            <span className="text-sm text-white/50 ml-1">/{plan.period}</span>
+                            <span className="text-2xl font-bold text-slate-900 dark:text-white">{plan.price}</span>
+                            <span className="text-sm text-slate-500 dark:text-white/50 ml-1">/{plan.period}</span>
                           </div>
                         </div>
 
-                        <p className="text-sm text-white/70 mb-3">{plan.description}</p>
+                        <p className="text-sm text-slate-600 dark:text-white/70 mb-3">{plan.description}</p>
                         <div className="flex flex-wrap gap-2">
                           {plan.features.slice(0, 4).map((feature, idx) => (
                             <span
                               key={idx}
-                              className="text-xs bg-white/10 border border-white/15 text-white/70 px-2 py-1 rounded"
+                              className="text-xs bg-slate-50 border border-slate-200 text-slate-600 px-2 py-1 rounded dark:bg-white/10 dark:border-white/15 dark:text-white/70"
                             >
                               {feature}
                             </span>
                           ))}
                           {plan.features.length > 4 && (
-                            <span className="text-xs text-white/50 px-2 py-1">
+                            <span className="text-xs text-slate-500 dark:text-white/50 px-2 py-1">
                               +{plan.features.length - 4} more
                             </span>
                           )}
@@ -534,10 +534,10 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
                       <div
                         className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                          isSelected ? 'border-white bg-white' : 'border-white/30'
+                          isSelected ? 'border-blue-600 bg-blue-600 dark:border-white dark:bg-white' : 'border-slate-300 dark:border-white/30'
                         }`}
                       >
-                        {isSelected && <CheckCircle className="w-4 h-4 text-blue-900" />}
+                        {isSelected && <CheckCircle className="w-4 h-4 text-white dark:text-blue-900" />}
                       </div>
                     </div>
                   </div>
@@ -546,9 +546,9 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
             </div>
 
             {error && (
-              <div className="flex items-center space-x-3 p-4 bg-red-500/20 border border-red-400/30 rounded-2xl backdrop-blur-sm">
-                <AlertCircle className="h-5 w-5 text-red-300 flex-shrink-0" />
-                <div className="text-sm text-red-100 font-medium">
+              <div className="flex items-center space-x-3 p-4 bg-red-50 border border-red-200 rounded-2xl backdrop-blur-sm dark:bg-red-500/20 dark:border-red-400/30">
+                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 dark:text-red-300" />
+                <div className="text-sm text-red-700 font-medium dark:text-red-100">
                   <p>{error}</p>
                 </div>
               </div>
@@ -558,7 +558,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex-1 bg-white/10 hover:bg-white/15 border border-white/20 text-white py-4 px-4 rounded-2xl font-semibold backdrop-blur-sm active:scale-[0.98] transition-all duration-300 flex items-center justify-center"
+                className="flex-1 bg-white hover:bg-slate-50 border border-gray-200 text-slate-900 py-4 px-4 rounded-2xl font-semibold active:scale-[0.98] transition-all duration-300 flex items-center justify-center dark:bg-white/10 dark:hover:bg-white/15 dark:border-white/20 dark:text-white backdrop-blur-sm"
               >
                 <ArrowLeft className="mr-2 w-5 h-5" />
                 Back
@@ -566,7 +566,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-white hover:bg-white/90 text-blue-900 py-4 px-4 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 px-4 rounded-2xl font-semibold shadow-lg active:scale-[0.98] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white dark:hover:bg-white/90 dark:text-blue-900"
               >
                 {loading ? 'Creating Account...' : 'Create Account'}
               </button>

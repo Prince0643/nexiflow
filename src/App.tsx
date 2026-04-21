@@ -1,3 +1,10 @@
+/**
+ * NOTE: This app shell is not mounted by default.
+ *
+ * The actual entrypoint is `src/main.tsx`, which renders `src/MySQLApp.tsx`.
+ * Keep this file only if you need the legacy/alternate router setup; otherwise,
+ * update `main.tsx` to mount `App` before relying on routes defined here.
+ */
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { useMySQLAuth } from './contexts/MySQLAuthContext'
@@ -29,6 +36,7 @@ import SuperAdminSignup from './pages/SuperAdminSignup'
 import EmailVerification from './pages/EmailVerification' // Add this import
 import Landing from './pages/Landing'
 import About from './pages/About'
+import ComingSoon from './pages/ComingSoon'
 // Import the new Upgrade CTA page
 import UpgradeCTA from './pages/UpgradeCTA'
 // Import the new AI Chat Widget instead of the messaging widget
@@ -74,10 +82,11 @@ function AppContent() {
           <Route path="/verify-email" element={<EmailVerification />} /> {/* Add this route */}
           <Route path="/landing" element={<Landing />} />
           <Route path="/about" element={<About />} />
+          <Route path="/coming-soon" element={<ComingSoon />} />
           {/* PayPal can redirect back when the user is logged out; allow activation flow */}
           <Route path="/billing/paypal-success" element={<PayPalSuccess />} />
           <Route path="/billing/paypal-cancel" element={<PayPalCancel />} />
-          <Route path="*" element={<Landing />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     )
   }
@@ -231,6 +240,9 @@ function AppContent() {
                 } />
                 <Route path="/billing/paypal-cancel" element={
                   <PayPalCancel />
+                } />
+                <Route path="/coming-soon" element={
+                  <ComingSoon />
                 } />
               </>
             )}

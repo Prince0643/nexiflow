@@ -10,11 +10,11 @@ export default function SuperAdminSignup() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center p-8 relative overflow-hidden bg-white text-gray-900 dark:bg-[#020617] dark:text-white">
       {/* Hero Background Effects */}
-      <div className="absolute inset-0 bg-gradient-to-b from-blue-900 via-[#060b1d] to-black opacity-70" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]/30" />
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:120px_120px]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-blue-50 via-white to-white dark:from-blue-900 dark:via-[#060b1d] dark:to-black opacity-100 dark:opacity-70" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(37,99,235,0.18),_transparent_55%)]/60 dark:bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]/30" />
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,0.06)_1px,_transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.06)_1px,_transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:120px_120px]" />
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute -top-16 right-10 w-56 h-56 bg-blue-500/30 rounded-full blur-3xl" />
         <div className="absolute bottom-[-80px] left-10 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl" />
@@ -30,14 +30,14 @@ export default function SuperAdminSignup() {
               className="h-12 w-auto"
             />
             <div className="text-left">
-              <h1 className="text-2xl font-bold text-white">NexiFlow</h1>
-              <p className="text-xs text-gray-400">Powered by Nexistry Digital Solutions</p>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">NexiFlow</h1>
+              <p className="text-xs text-gray-600 dark:text-gray-400">Powered by Nexistry Digital Solutions</p>
             </div>
           </div>
         </div>
 
         {/* Form Container */}
-        <div className="bg-white/10 rounded-3xl shadow-2xl border border-white/20 p-8 backdrop-blur-xl">
+        <div className="bg-white/80 rounded-3xl shadow-2xl border border-gray-200 p-8 backdrop-blur-xl dark:bg-white/10 dark:border-white/20">
           <SuperAdminSignupForm onSwitchToLogin={handleSwitchToLogin} />
         </div>
 
@@ -53,7 +53,7 @@ export default function SuperAdminSignup() {
         </div>
 
         {/* Footer */}
-        <div className="mt-8 text-center text-xs text-gray-400 dark:text-gray-500">
+        <div className="mt-8 text-center text-xs text-gray-500 dark:text-gray-500">
           <p>&copy; 2025 NexiFlow. All rights reserved.</p>
         </div>
       </div>

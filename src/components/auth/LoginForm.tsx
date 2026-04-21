@@ -98,14 +98,14 @@ export default function LoginForm({}: LoginFormProps) {
   return (
     <div className="w-full max-w-md mx-auto">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2 drop-shadow-sm">Welcome Back</h1>
-        <p className="text-white/70">Sign in to your NexiFlow account</p>
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2 drop-shadow-sm">Welcome Back</h1>
+        <p className="text-slate-600 dark:text-white/70">Sign in to your NexiFlow account</p>
       </div>
 
       <form className="space-y-5" onSubmit={handleSubmit} noValidate>
         {/* Email Field */}
         <div className="group">
-          <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+          <label htmlFor="email" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
             Email Address
           </label>
           <input
@@ -115,7 +115,7 @@ export default function LoginForm({}: LoginFormProps) {
             required
             value={credentials.email}
             onChange={handleInputChange}
-            className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all"
+            className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
             placeholder="Enter your email"
             disabled={loading}
           />
@@ -123,7 +123,7 @@ export default function LoginForm({}: LoginFormProps) {
 
         {/* Password Field */}
         <div className="group">
-          <label htmlFor="password" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+          <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
             Password
           </label>
           <div className="relative">
@@ -134,7 +134,7 @@ export default function LoginForm({}: LoginFormProps) {
               required
               value={credentials.password}
               onChange={handleInputChange}
-              className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all pr-12"
+              className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all pr-12 dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
               placeholder="Enter your password"
               disabled={loading}
             />
@@ -145,9 +145,9 @@ export default function LoginForm({}: LoginFormProps) {
               disabled={loading}
             >
               {showPassword ? (
-                <EyeOff className="h-5 w-5 text-white/50 hover:text-white/80 transition-colors" />
+                <EyeOff className="h-5 w-5 text-slate-500 hover:text-slate-800 transition-colors dark:text-white/50 dark:hover:text-white/80" />
               ) : (
-                <Eye className="h-5 w-5 text-white/50 hover:text-white/80 transition-colors" />
+                <Eye className="h-5 w-5 text-slate-500 hover:text-slate-800 transition-colors dark:text-white/50 dark:hover:text-white/80" />
               )}
             </button>
           </div>
@@ -155,9 +155,9 @@ export default function LoginForm({}: LoginFormProps) {
 
         {/* Error Message */}
         {(error || errorRef.current) ? (
-          <div className="flex items-center space-x-3 p-4 bg-red-500/20 border border-red-400/30 rounded-2xl backdrop-blur-sm">
-            <AlertCircle className="h-5 w-5 text-red-300 flex-shrink-0" />
-            <div className="text-sm text-red-100 font-medium">
+          <div className="flex items-center space-x-3 p-4 bg-red-50 border border-red-200 rounded-2xl backdrop-blur-sm dark:bg-red-500/20 dark:border-red-400/30">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 dark:text-red-300" />
+            <div className="text-sm text-red-700 font-medium dark:text-red-100">
               {error || errorRef.current}
             </div>
           </div>
@@ -169,7 +169,7 @@ export default function LoginForm({}: LoginFormProps) {
         <button
           type="submit"
           disabled={loading || authActionLoading}
-          className="w-full py-4 rounded-2xl bg-white text-blue-900 font-semibold text-lg shadow-lg hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full py-4 rounded-2xl bg-blue-600 text-white font-semibold text-lg shadow-lg hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white dark:text-blue-900 dark:hover:bg-white/90"
         >
           {loading || authActionLoading ? 'Signing In...' : 'Sign In'}
         </button>
@@ -178,7 +178,7 @@ export default function LoginForm({}: LoginFormProps) {
         <div className="text-center">
           <button
             type="button"
-            className="text-sm text-white/70 hover:text-white font-medium transition-colors"
+            className="text-sm text-slate-600 hover:text-slate-900 font-medium transition-colors dark:text-white/70 dark:hover:text-white"
             disabled={loading}
             onClick={() => setShowForgotPassword(true)}
           >
@@ -189,25 +189,25 @@ export default function LoginForm({}: LoginFormProps) {
 
       {/* Contact Admin for Account */}
       <div className="mt-8 text-center">
-        <p className="text-white/60">
+        <p className="text-slate-600 dark:text-white/60">
           Don't have an account?{' '}
-          <span className="text-white/90 font-medium">
+          <span className="text-slate-900 font-medium dark:text-white/90">
             Contact your administrator
           </span>
         </p>
-        <p className="text-sm text-white/40 mt-2">
+        <p className="text-sm text-slate-500 mt-2 dark:text-white/40">
           Employee account creation is managed by HR and Super Admin users
         </p>
       </div>
 
       {/* Forgot Password Form */}
       {showForgotPassword && (
-        <div className="mt-8 p-6 bg-white/10 border border-white/20 rounded-3xl backdrop-blur-xl" ref={forgotPasswordRef}>
+        <div className="mt-8 p-6 bg-white/80 border border-gray-200 rounded-3xl backdrop-blur-xl dark:bg-white/10 dark:border-white/20" ref={forgotPasswordRef}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-white">Forgot Password</h2>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Forgot Password</h2>
             <button
               type="button"
-              className="text-white/60 hover:text-white transition-colors"
+              className="text-slate-500 hover:text-slate-900 transition-colors dark:text-white/60 dark:hover:text-white"
               onClick={() => {
                 setShowForgotPassword(false);
                 setError('');
@@ -219,15 +219,15 @@ export default function LoginForm({}: LoginFormProps) {
           </div>
 
           {resetSuccess ? (
-            <div className="bg-green-500/20 border border-green-400/30 rounded-2xl p-4 mb-4 backdrop-blur-sm">
-              <p className="text-green-100">
+            <div className="bg-green-50 border border-green-200 rounded-2xl p-4 mb-4 backdrop-blur-sm dark:bg-green-500/20 dark:border-green-400/30">
+              <p className="text-green-700 dark:text-green-100">
                 Password reset instructions sent to {resetEmail}. Please check your email.
               </p>
             </div>
           ) : (
             <form onSubmit={handleForgotPassword} className="space-y-4">
               <div>
-                <label htmlFor="resetEmail" className="block text-sm font-medium text-white/80 mb-2 ml-1">
+                <label htmlFor="resetEmail" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
                   Email Address
                 </label>
                 <input
@@ -236,7 +236,7 @@ export default function LoginForm({}: LoginFormProps) {
                   required
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
-                  className="w-full px-4 py-3.5 bg-white/10 border border-white/20 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/40 backdrop-blur-sm transition-all"
+                  className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
                   placeholder="Enter your email"
                   disabled={loading}
                 />
@@ -245,7 +245,7 @@ export default function LoginForm({}: LoginFormProps) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 rounded-2xl bg-white text-blue-900 font-semibold shadow-lg hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-semibold shadow-lg hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white dark:text-blue-900 dark:hover:bg-white/90"
               >
                 {loading ? 'Sending...' : 'Send Reset Instructions'}
               </button>

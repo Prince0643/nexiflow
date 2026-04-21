@@ -14,6 +14,7 @@ import {
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { useRevealOnScroll } from '../hooks/useRevealOnScroll'
 import PublicNavbar from '../components/PublicNavbar'
+import PublicFooter from '../components/PublicFooter'
 import {
   enhancedFeatures,
   featureHighlights,
@@ -67,7 +68,7 @@ const Landing = () => {
         <PricingSection onPlanSelect={handleAccess} />
         <CTASection onPrimaryAction={handleAccess} />
       </main>
-      <LandingFooter />
+      <PublicFooter />
     </div>
   )
 }
@@ -91,9 +92,9 @@ const HeroSection = ({ onPrimaryAction, onWatchDemo }: { onPrimaryAction: () => 
       ref={ref}
       className="relative overflow-hidden px-4 py-16 sm:py-20 lg:min-h-[90vh] lg:flex lg:items-center lg:justify-center"
     >
-      <div className="absolute inset-0 bg-gradient-to-b from-blue-900 via-[#060b1d] to-black opacity-70" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]/30" />
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:72px_72px] sm:bg-[length:120px_120px]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-blue-50 via-white to-white dark:from-blue-900 dark:via-[#060b1d] dark:to-black opacity-100 dark:opacity-70" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(37,99,235,0.18),_transparent_55%)]/60 dark:bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]/30" />
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,0.06)_1px,_transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.06)_1px,_transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.07)_1px,_transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,_transparent_1px)] bg-[length:72px_72px] sm:bg-[length:120px_120px]" />
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute -top-16 right-2 h-44 w-44 rounded-full bg-blue-500/30 blur-3xl sm:right-10 sm:h-56 sm:w-56" />
         <div className="absolute bottom-[-80px] left-0 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl sm:left-10 sm:h-72 sm:w-72" />
@@ -103,24 +104,24 @@ const HeroSection = ({ onPrimaryAction, onWatchDemo }: { onPrimaryAction: () => 
           visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'
         }`}
       >
-        <p className="text-[11px] uppercase tracking-[0.45em] text-blue-300 sm:text-sm sm:tracking-[0.6em]">NEXIFLOW</p>
-        <h1 className="mt-5 max-w-[12ch] text-3xl font-bold leading-tight text-white sm:mt-6 sm:max-w-none sm:text-5xl lg:text-6xl">
+        <p className="text-[11px] uppercase tracking-[0.45em] text-blue-700 dark:text-blue-300 sm:text-sm sm:tracking-[0.6em]">NEXIFLOW</p>
+        <h1 className="mt-5 max-w-[12ch] text-3xl font-bold leading-tight text-slate-900 dark:text-white sm:mt-6 sm:max-w-none sm:text-5xl lg:text-6xl">
           Work smarter, not harder
         </h1>
-        <p className="mt-4 max-w-md text-sm leading-7 text-blue-100 sm:text-base md:max-w-2xl md:text-lg">
+        <p className="mt-4 max-w-md text-sm leading-7 text-slate-700 dark:text-blue-100 sm:text-base md:max-w-2xl md:text-lg">
           An all-in-one workspace for time tracking, project management, billing, and AI-powered assistant guidance.
         </p>
         <div className="mt-8 flex w-full max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:items-center sm:justify-center sm:gap-4">
           <button
             onClick={onPrimaryAction}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3.5 text-base font-semibold text-blue-900 shadow-lg transition hover:bg-blue-50 sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg transition hover:bg-blue-700 dark:bg-white dark:text-blue-900 dark:hover:bg-blue-50 sm:w-auto"
           >
             Start Free
             <ArrowRight className="w-4 h-4" />
           </button>
           <button
             onClick={onWatchDemo}
-            className="w-full rounded-full border border-white/60 px-6 py-3.5 text-sm font-semibold text-white/90 transition hover:border-white sm:w-auto"
+            className="w-full rounded-full border border-slate-900/20 px-6 py-3.5 text-sm font-semibold text-slate-800 transition hover:border-slate-900/40 dark:border-white/60 dark:text-white/90 dark:hover:border-white sm:w-auto"
           >
             Watch Demo
           </button>
@@ -133,10 +134,10 @@ const HeroSection = ({ onPrimaryAction, onWatchDemo }: { onPrimaryAction: () => 
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="rounded-2xl border border-white/15 bg-white/8 px-4 py-3 text-center text-[0.58rem] font-semibold uppercase tracking-[0.24em] text-white/85 shadow backdrop-blur sm:rounded-full sm:px-5 sm:py-2 sm:text-[0.65rem] sm:tracking-[0.35em]"
+              className="rounded-2xl border border-slate-900/10 bg-white/70 px-4 py-3 text-center text-[0.58rem] font-semibold uppercase tracking-[0.24em] text-slate-600 shadow-sm backdrop-blur-md sm:rounded-full sm:px-5 sm:py-2 sm:text-[0.65rem] sm:tracking-[0.35em] dark:border-white/20 dark:bg-white/10 dark:text-white/85 dark:shadow-lg dark:backdrop-blur-xl"
             >
-              <span className="block text-base font-bold text-white sm:text-lg">{stat.number}</span>
-              <span className="block pt-1 text-[0.54rem] text-blue-100 sm:text-[0.65rem]">{stat.label}</span>
+              <span className="block text-base font-bold text-slate-900 sm:text-lg dark:text-white">{stat.number}</span>
+              <span className="block pt-1 text-[0.54rem] text-blue-700/80 sm:text-[0.65rem] dark:text-blue-100">{stat.label}</span>
             </div>
           ))}
         </div>
@@ -299,13 +300,13 @@ const TestimonialsSection = () => {
     <section
       id="testimonials"
       ref={ref}
-      className="bg-gradient-to-b from-gray-900 via-black to-gray-900 px-4 py-14 text-white sm:px-6 sm:py-20 lg:px-8"
+      className="bg-gray-50 px-4 py-14 text-gray-900 dark:bg-gradient-to-b dark:from-gray-900 dark:via-black dark:to-gray-900 dark:text-white sm:px-6 sm:py-20 lg:px-8"
     >
       <div className="max-w-7xl mx-auto space-y-10">
         <div className="text-center space-y-3">
-          <p className="text-sm uppercase tracking-[0.6em] text-blue-300">Testimonials</p>
+          <p className="text-sm uppercase tracking-[0.6em] text-blue-600 dark:text-blue-300">Testimonials</p>
           <h2 className="text-2xl font-bold sm:text-3xl md:text-4xl">Trusted by teams worldwide</h2>
-          <p className="max-w-3xl mx-auto text-sm text-blue-200 sm:text-base">
+          <p className="max-w-3xl mx-auto text-sm text-gray-600 dark:text-blue-200 sm:text-base">
             Feedback from real users who rely on NexiFlow every day.
           </p>
         </div>
@@ -313,7 +314,7 @@ const TestimonialsSection = () => {
           {testimonials.map((testimonial) => (
             <div
               key={testimonial.name}
-              className={`flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/10 p-5 transition duration-500 sm:p-6 ${
+              className={`flex flex-col gap-4 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm transition duration-500 dark:border-white/10 dark:bg-white/10 dark:shadow-none sm:p-6 ${
                 visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'
               }`}
             >
@@ -322,17 +323,17 @@ const TestimonialsSection = () => {
                   <Star key={index} className="text-yellow-400 w-4 h-4" />
                 ))}
               </div>
-              <p className="text-sm italic leading-relaxed text-white/80">"{testimonial.content}"</p>
+              <p className="text-sm italic leading-relaxed text-gray-700 dark:text-white/80">"{testimonial.content}"</p>
               <div>
                 <p className="font-semibold">{testimonial.name}</p>
-                <p className="text-xs text-white/60">
+                <p className="text-xs text-gray-500 dark:text-white/60">
                   {testimonial.role} · {testimonial.company}
                 </p>
               </div>
               <video
                 src={testimonial.videoSrc}
                 controls
-                className="w-full rounded-2xl border border-white/20 bg-black"
+                className="w-full rounded-2xl border border-gray-200 bg-black dark:border-white/20"
               />
             </div>
           ))}
@@ -422,56 +423,6 @@ const CTASection = ({ onPrimaryAction }: { onPrimaryAction: () => void }) => (
       </button>
     </div>
   </section>
-)
-
-const LandingFooter = () => (
-  <footer className="bg-gray-900 py-14 text-white sm:py-16">
-    <div className="max-w-7xl mx-auto grid grid-cols-1 gap-8 px-4 sm:px-6 md:grid-cols-2 lg:grid-cols-4 lg:px-8">
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <img
-            src="https://storage.googleapis.com/msgsndr/nb61f4OQ7o9Wsxx0zOsY/media/68df3ae78db305b0e463f363.svg"
-            alt="NexiFlow logo"
-            className="h-6 w-auto"
-          />
-          <span className="text-lg font-semibold">NexiFlow</span>
-        </div>
-        <p className="text-sm text-gray-400">
-          Trusted by teams who want better visibility into every billable minute.
-        </p>
-      </div>
-      <div>
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-gray-400 sm:text-sm sm:tracking-[0.4em]">Product</h3>
-        <ul className="space-y-2 text-sm text-gray-300">
-          <li>Features</li>
-          <li>Pricing</li>
-          <li>Integrations</li>
-          <li>API</li>
-        </ul>
-      </div>
-      <div>
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-gray-400 sm:text-sm sm:tracking-[0.4em]">Company</h3>
-        <ul className="space-y-2 text-sm text-gray-300">
-          <li>About</li>
-          <li>Blog</li>
-          <li>Careers</li>
-          <li>Contact</li>
-        </ul>
-      </div>
-      <div>
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-gray-400 sm:text-sm sm:tracking-[0.4em]">Support</h3>
-        <ul className="space-y-2 text-sm text-gray-300">
-          <li>Help Center</li>
-          <li>Documentation</li>
-          <li>Community</li>
-          <li>Status</li>
-        </ul>
-      </div>
-    </div>
-    <div className="border-t border-white/10 mt-10 pt-6 text-center text-xs text-gray-500">
-      &copy; {new Date().getFullYear()} NexiFlow. All rights reserved.
-    </div>
-  </footer>
 )
 
 const FeatureIcon = ({ iconKey }: { iconKey: string }) => {

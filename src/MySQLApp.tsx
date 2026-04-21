@@ -1,3 +1,8 @@
+/**
+ * Active app shell + router.
+ *
+ * `src/main.tsx` renders `MySQLApp` (not `App`), so routes must be registered here.
+ */
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { MySQLAuthProvider, useMySQLAuth } from './contexts/MySQLAuthContext'
@@ -29,6 +34,9 @@ import SuperAdminSignup from './pages/SuperAdminSignup'
 import EmailVerification from './pages/EmailVerification'
 import Landing from './pages/Landing'
 import About from './pages/About'
+import ComingSoon from './pages/ComingSoon'
+import HelpCenter from './pages/HelpCenter'
+import Documentation from './pages/Documentation'
 // Import the new Upgrade CTA page
 import UpgradeCTA from './pages/UpgradeCTA'
 // Import the new AI Chat Widget instead of the messaging widget
@@ -78,7 +86,10 @@ function MySQLAppContent() {
           <Route path="/verify-email" element={<EmailVerification />} />
           <Route path="/landing" element={<Landing />} />
           <Route path="/about" element={<About />} />
-          <Route path="*" element={<Landing />} />
+          <Route path="/coming-soon" element={<ComingSoon />} />
+          <Route path="/help-center" element={<HelpCenter />} />
+          <Route path="/documentation" element={<Documentation />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     )
   }
@@ -217,6 +228,8 @@ function MySQLAppContent() {
                 } />
               </>
             )}
+            <Route path="/help-center" element={<HelpCenter />} />
+            <Route path="/documentation" element={<Documentation />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

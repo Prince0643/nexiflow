@@ -127,7 +127,8 @@ src/
 │   └── index.ts        # Helper functions
 ├── data/               # Mock data for development
 │   └── mockData.ts     # Sample data
-├── App.tsx             # Main application component
+├── MySQLApp.tsx        # Active app shell + router (rendered by main.tsx)
+├── App.tsx             # Legacy/alternate app shell (not mounted by default)
 └── main.tsx            # Application entry point
 ```
 
