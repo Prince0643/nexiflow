@@ -844,6 +844,23 @@ const uploadJpegToDrive = async (accessToken, { buffer, filename, folderId, desc
   };
 };
 
+const getTinyJpegBuffer = () => {
+  // Minimal 1x1 JPEG image
+  return Buffer.from(
+    'ffd8ffe000104a46494600010101006000600000ffdb004300' +
+      '080606070605080707070909080a0c140d0c0b0b0c1912130f' +
+      '141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c3031' +
+      '3434341f27393d38323c2e333432ffdb0043010909090c0b0c' +
+      '180d0d1832211c213232323232323232323232323232323232' +
+      '323232323232323232323232323232323232323232323232' +
+      '323232323232323232ffc00011080001000103012200021101' +
+      '031101ffc40014000100000000000000000000000000000000' +
+      '00ffc4001410010000000000000000000000000000000000' +
+      '00ffda000c03010002110311003f00d2cf20ffd9',
+    'hex'
+  );
+};
+
 // Start OAuth (company super admin)
 app.get('/api/admin/google-drive/connect', authenticateToken, async (req, res) => {
   try {
@@ -1019,6 +1036,74 @@ app.put('/api/admin/google-drive/folder-name', authenticateToken, async (req, re
   } catch (error) {
     console.error('Drive folder-name error:', error);
     res.status(500).json({ success: false, error: error?.message || 'Failed to update Google Drive folder name' });
+  }
+});
+
+// Test upload to Drive (creates a tiny JPEG in the configured company folder)
+app.post('/api/admin/google-drive/test-upload', authenticateToken, async (req, res) => {
+  try {
+    if (!['super_admin', 'root'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const companyId = String(req.user?.companyId || '').trim();
+    if (!companyId) return res.status(400).json({ success: false, error: 'Missing companyId for user' });
+
+    const connection = await pool.getConnection();
+    let refreshTokenEnc = null;
+    let cachedFolderId = null;
+    let folderNameOverride = null;
+    try {
+      const [rows] = await connection.execute(
+        'SELECT refresh_token_enc, folder_id, folder_name FROM company_google_drive_integrations WHERE company_id = ? LIMIT 1',
+        [companyId]
+      );
+      const row = rows?.[0];
+      refreshTokenEnc = row?.refresh_token_enc || null;
+      cachedFolderId = row?.folder_id || null;
+      folderNameOverride = row?.folder_name || null;
+    } finally {
+      connection.release();
+    }
+
+    if (!refreshTokenEnc) {
+      return res.status(503).json({ success: false, error: 'Google Drive not connected for this company' });
+    }
+
+    const refreshToken = decryptRefreshToken(refreshTokenEnc);
+    const accessToken = await getAccessTokenFromRefreshToken(refreshToken);
+    if (!accessToken) return res.status(502).json({ success: false, error: 'Failed to obtain Google Drive access token' });
+
+    const folderName = folderNameOverride || process.env.GOOGLE_DRIVE_FOLDER_NAME || 'NexiFlow Screenshots';
+    const folderId = cachedFolderId || (await getOrCreateDriveFolderId(accessToken, folderName));
+    if (!cachedFolderId && folderId) {
+      const c2 = await pool.getConnection();
+      try {
+        await c2.execute(
+          'UPDATE company_google_drive_integrations SET folder_id = ?, updated_at = NOW() WHERE company_id = ?',
+          [folderId, companyId]
+        );
+      } finally {
+        c2.release();
+      }
+    }
+
+    const now = new Date();
+    const safe = now.toISOString().replace(/[:.]/g, '-');
+    const filename = `nexiflow_test_${safe}.jpg`;
+    const description = `NexiFlow test upload • ${now.toISOString()}`;
+
+    const buffer = getTinyJpegBuffer();
+    const uploaded = await uploadJpegToDrive(accessToken, { buffer, filename, folderId, description });
+
+    res.json({
+      success: true,
+      ...uploaded,
+      folderId,
+      folderName
+    });
+  } catch (error) {
+    console.error('Drive test-upload error:', error?.response?.data || error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to test upload to Google Drive' });
   }
 });
 
