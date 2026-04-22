@@ -96,7 +96,10 @@ export default function Settings() {
     connected: boolean
     connectedAt?: string
     connectedByUserId?: string | null
+    folderName?: string | null
   }>({ loading: false, connected: false })
+
+  const [googleDriveFolderName, setGoogleDriveFolderName] = useState('')
 
   useEffect(() => {
     loadSettings()
@@ -182,8 +185,11 @@ export default function Settings() {
         loading: false,
         connected: !!data.connected,
         connectedAt: data.connectedAt,
-        connectedByUserId: data.connectedByUserId ?? null
+        connectedByUserId: data.connectedByUserId ?? null,
+        folderName: data.folderName ?? null
       })
+
+      setGoogleDriveFolderName((data.folderName ?? '') as string)
     } catch (error: any) {
       console.error('Google Drive status error:', error)
       setGoogleDriveStatus({ loading: false, connected: false })
@@ -215,6 +221,37 @@ export default function Settings() {
     } catch (error: any) {
       console.error('Connect Google Drive error:', error)
       showMessage('error', error?.message || 'Failed to start Google Drive connection')
+    }
+  }
+
+  const handleSaveGoogleDriveFolderName = async () => {
+    try {
+      if (!canManageIntegrations) {
+        showMessage('error', 'Only super admins can update the Google Drive folder name')
+        return
+      }
+
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/admin/google-drive/folder-name`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        },
+        body: JSON.stringify({ folderName: googleDriveFolderName })
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success) {
+        showMessage('error', data?.error || 'Failed to update folder name')
+        return
+      }
+
+      showMessage('success', 'Google Drive folder name updated')
+      await loadGoogleDriveStatus()
+    } catch (error: any) {
+      console.error('Save folder name error:', error)
+      showMessage('error', error?.message || 'Failed to update folder name')
     }
   }
 
@@ -950,6 +987,32 @@ export default function Settings() {
                 >
                   Connect Google Drive
                 </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Drive folder name (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={googleDriveFolderName}
+                    onChange={(e) => setGoogleDriveFolderName(e.target.value)}
+                    placeholder="NexiFlow Screenshots"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Leave blank to use the default folder. Changing this affects future uploads only.
+                  </p>
+                </div>
+                <div className="md:col-span-1 flex md:items-end">
+                  <button
+                    onClick={() => void handleSaveGoogleDriveFolderName()}
+                    className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium"
+                  >
+                    Save folder name
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">

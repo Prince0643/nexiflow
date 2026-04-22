@@ -931,7 +931,7 @@ app.get('/api/admin/google-drive/status', authenticateToken, async (req, res) =>
     try {
       const [rows] = await connection.execute(
         `
-          SELECT connected_by_user_id, updated_at
+          SELECT connected_by_user_id, updated_at, folder_id, folder_name
           FROM company_google_drive_integrations
           WHERE company_id = ?
           LIMIT 1
@@ -948,7 +948,9 @@ app.get('/api/admin/google-drive/status', authenticateToken, async (req, res) =>
         success: true,
         connected: true,
         connectedAt: row.updated_at,
-        connectedByUserId: row.connected_by_user_id || null
+        connectedByUserId: row.connected_by_user_id || null,
+        folderId: row.folder_id || null,
+        folderName: row.folder_name || null
       });
     } finally {
       connection.release();
@@ -959,13 +961,188 @@ app.get('/api/admin/google-drive/status', authenticateToken, async (req, res) =>
   }
 });
 
+// Update per-company Google Drive folder name (override)
+app.put('/api/admin/google-drive/folder-name', authenticateToken, async (req, res) => {
+  try {
+    if (!['super_admin', 'root'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const companyId = String(req.user?.companyId || '').trim();
+    if (!companyId) return res.status(400).json({ success: false, error: 'Missing companyId for user' });
+
+    const raw = typeof req.body?.folderName === 'string' ? req.body.folderName : '';
+    const folderName = raw.trim();
+
+    // Allow reset to default by sending empty string
+    if (folderName) {
+      if (folderName.length > 80) {
+        return res.status(400).json({ success: false, error: 'Folder name must be 80 characters or fewer' });
+      }
+      if (/[\\/]/.test(folderName)) {
+        return res.status(400).json({ success: false, error: 'Folder name cannot contain / or \\' });
+      }
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        `
+          UPDATE company_google_drive_integrations
+          SET folder_name = ?, folder_id = NULL, updated_at = NOW()
+          WHERE company_id = ?
+        `,
+        [folderName || null, companyId]
+      );
+
+      const [rows] = await connection.execute(
+        `
+          SELECT connected_by_user_id, updated_at, folder_id, folder_name
+          FROM company_google_drive_integrations
+          WHERE company_id = ?
+          LIMIT 1
+        `,
+        [companyId]
+      );
+      const row = rows?.[0];
+
+      res.json({
+        success: true,
+        connected: !!row,
+        connectedAt: row?.updated_at || null,
+        connectedByUserId: row?.connected_by_user_id || null,
+        folderId: row?.folder_id || null,
+        folderName: row?.folder_name || null
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Drive folder-name error:', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to update Google Drive folder name' });
+  }
+});
+
 // OAuth callback: exchange code -> refresh token -> store per-company
 app.get('/api/admin/google-drive/callback', async (req, res) => {
   try {
+    const frontendUrl = (process.env.FRONTEND_URL || 'https://nexi-flow.com').replace(/\/$/, '');
+    const sendOAuthPage = ({ title, message, status = 'success' }) => {
+      const isSuccess = status === 'success';
+      const accent = isSuccess ? '#16a34a' : '#dc2626';
+      const badgeBg = isSuccess ? 'rgba(22, 163, 74, 0.12)' : 'rgba(220, 38, 38, 0.12)';
+      const badgeText = isSuccess ? 'Connected' : 'Error';
+
+      res
+        .status(isSuccess ? 200 : 400)
+        .setHeader('Content-Type', 'text/html; charset=utf-8')
+        .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 600px at 20% 0%, rgba(59,130,246,.12), transparent 60%),
+                    radial-gradient(900px 500px at 100% 0%, rgba(168,85,247,.10), transparent 55%),
+                    #0b1220;
+        color: #e5e7eb;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 680px;
+        background: rgba(17, 24, 39, 0.86);
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .logo {
+        width: 34px; height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #3b82f6, #a855f7);
+        box-shadow: 0 8px 20px rgba(59,130,246,.25);
+      }
+      .badge {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: ${badgeBg};
+        color: ${accent};
+        border: 1px solid rgba(255,255,255,0.10);
+      }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      p { margin: 0 0 16px; color: rgba(229,231,235,0.85); line-height: 1.55; }
+      .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.14);
+      }
+      a.primary { background: ${accent}; color: white; border-color: rgba(0,0,0,0.12); }
+      a.secondary { background: rgba(255,255,255,0.06); color: #e5e7eb; }
+      .hint { margin-top: 14px; font-size: 12px; color: rgba(229,231,235,0.65); }
+      @media (prefers-color-scheme: light) {
+        body { background: #f8fafc; color: #0f172a; }
+        .card { background: white; border-color: rgba(2,6,23,0.10); }
+        p, .hint { color: rgba(15,23,42,0.75); }
+        a.secondary { color: #0f172a; background: rgba(2,6,23,0.04); border-color: rgba(2,6,23,0.10); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main" aria-label="Google Drive connection status">
+      <div class="top">
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div>NexiFlow</div>
+        </div>
+        <div class="badge">${badgeText}</div>
+      </div>
+      <h1>${title}</h1>
+      <p>${message}</p>
+      <div class="actions">
+        <a class="button primary" href="${frontendUrl}/settings">Back to Settings</a>
+        <a class="button secondary" href="${frontendUrl}">Open NexiFlow</a>
+      </div>
+      <div class="hint">You can close this tab after returning to NexiFlow.</div>
+    </main>
+  </body>
+</html>`);
+    };
+
     const code = String(req.query.code || '').trim();
     const stateRaw = String(req.query.state || '').trim();
-    if (!code) return res.status(400).send('Missing code');
-    if (!stateRaw) return res.status(400).send('Missing state');
+    if (!code) return sendOAuthPage({ title: 'Google Drive connection failed', message: 'Missing OAuth code. Please try connecting again.', status: 'error' });
+    if (!stateRaw) return sendOAuthPage({ title: 'Google Drive connection failed', message: 'Missing OAuth state. Please try connecting again.', status: 'error' });
 
     const state = verifyOAuthState(stateRaw);
     const companyId = String(state.companyId || '').trim();
@@ -986,9 +1163,11 @@ app.get('/api/admin/google-drive/callback', async (req, res) => {
 
     const refreshToken = tokenRes?.data?.refresh_token;
     if (!refreshToken) {
-      return res
-        .status(400)
-        .send('No refresh_token returned. Revoke app access in Google Account and retry (prompt=consent + access_type=offline).');
+      return sendOAuthPage({
+        title: 'Google Drive needs re-consent',
+        message: 'No refresh token was returned. Revoke NexiFlow access in your Google Account, then connect again.',
+        status: 'error'
+      });
     }
 
     const refreshTokenEnc = encryptRefreshToken(refreshToken);
@@ -1012,10 +1191,17 @@ app.get('/api/admin/google-drive/callback', async (req, res) => {
       connection.release();
     }
 
-    res.send('Google Drive connected successfully. You can close this tab.');
+    return sendOAuthPage({
+      title: 'Google Drive connected',
+      message: 'Your company Google Drive is now connected. Screenshots can be uploaded to Drive.',
+      status: 'success'
+    });
   } catch (error) {
     console.error('Drive callback error:', error?.response?.data || error);
-    res.status(500).send(error?.message || 'Failed to complete Google Drive OAuth');
+    res
+      .status(500)
+      .setHeader('Content-Type', 'text/plain; charset=utf-8')
+      .send(error?.message || 'Failed to complete Google Drive OAuth');
   }
 });
 
@@ -1040,14 +1226,16 @@ app.post('/api/screenshots', authenticateToken, async (req, res) => {
     const connection = await pool.getConnection();
     let refreshTokenEnc = null;
     let cachedFolderId = null;
+    let folderNameOverride = null;
     try {
       const [rows] = await connection.execute(
-        'SELECT refresh_token_enc, folder_id FROM company_google_drive_integrations WHERE company_id = ? LIMIT 1',
+        'SELECT refresh_token_enc, folder_id, folder_name FROM company_google_drive_integrations WHERE company_id = ? LIMIT 1',
         [effectiveCompanyId]
       );
       const row = rows?.[0];
       refreshTokenEnc = row?.refresh_token_enc || null;
       cachedFolderId = row?.folder_id || null;
+      folderNameOverride = row?.folder_name || null;
     } finally {
       connection.release();
     }
@@ -1060,7 +1248,7 @@ app.post('/api/screenshots', authenticateToken, async (req, res) => {
     const accessToken = await getAccessTokenFromRefreshToken(refreshToken);
     if (!accessToken) return res.status(502).json({ success: false, error: 'Failed to obtain Google Drive access token' });
 
-    const folderName = process.env.GOOGLE_DRIVE_FOLDER_NAME || 'NexiFlow Screenshots';
+    const folderName = folderNameOverride || process.env.GOOGLE_DRIVE_FOLDER_NAME || 'NexiFlow Screenshots';
     const folderId = cachedFolderId || (await getOrCreateDriveFolderId(accessToken, folderName));
     if (!cachedFolderId && folderId) {
       const c2 = await pool.getConnection();
