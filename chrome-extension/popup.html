@@ -23,11 +23,6 @@
           <label>Password</label>
           <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
         </div>
-        <div class="field">
-          <label>Server URL</label>
-          <input id="apiBase" type="text" placeholder="http://localhost:3001/api" />
-          <div class="hint">Default is your NexiFlow API. Use localhost for dev.</div>
-        </div>
         <button id="loginBtn" class="btn btn-primary">Login</button>
         <div id="loginError" class="error" hidden></div>
       </section>
@@ -42,8 +37,22 @@
         </div>
 
         <div class="field">
-          <label>Project name (optional)</label>
-          <input id="projectName" type="text" placeholder="e.g. Client A website" />
+          <label>Client</label>
+          <select id="clientSelect">
+            <option value="">Select client…</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Project</label>
+          <select id="projectSelect" disabled>
+            <option value="">Select project…</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Description</label>
+          <input id="description" type="text" placeholder="What are you working on?" />
         </div>
 
         <div class="field row">
@@ -55,7 +64,6 @@
         </div>
 
         <button id="startStopBtn" class="btn btn-primary">Start</button>
-        <button id="captureNowBtn" class="btn btn-secondary" title="Dev helper: capture one screenshot now">Capture now</button>
         <div id="timerLine" class="hint"></div>
         <div id="actionMsg" class="hint"></div>
       </section>
@@ -63,4 +71,3 @@
     <script src="popup.js"></script>
   </body>
 </html>
-

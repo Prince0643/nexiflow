@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
+import PaymentProviderPickerModal, { PaymentProvider, UpgradePlan } from '../components/billing/PaymentProviderPickerModal'
 import { 
   Crown, 
   Users, 
@@ -13,13 +14,14 @@ import {
   CheckCircle,
   ArrowRight,
   Loader2,
-  CreditCard
 } from 'lucide-react'
 
 export default function UpgradeCTA() {
-  const { currentCompany } = useMySQLAuth()
+  const { currentCompany, currentUser } = useMySQLAuth()
   const [loading, setLoading] = useState(false)
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'paymongo' | 'paypal'>('paymongo')
+  const [isProviderModalOpen, setIsProviderModalOpen] = useState(false)
+  const [pendingPlan, setPendingPlan] = useState<UpgradePlan | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<PaymentProvider | null>(null)
 
   const OFFICE_PRICE_USD = 9
   const ENTERPRISE_PRICE_USD = 12
@@ -167,7 +169,23 @@ export default function UpgradeCTA() {
     }
   ]
 
-  const handleUpgrade = async (plan: 'office' | 'enterprise') => {
+  const canUpgrade = currentUser?.role === 'super_admin' || currentUser?.role === 'root'
+
+  const startUpgrade = (plan: UpgradePlan) => {
+    if (!canUpgrade) return
+    setPendingPlan(plan)
+    setSelectedProvider(null)
+    setIsProviderModalOpen(true)
+  }
+
+  const closeProviderModal = () => {
+    if (loading) return
+    setIsProviderModalOpen(false)
+    setPendingPlan(null)
+    setSelectedProvider(null)
+  }
+
+  const handleUpgrade = async (plan: UpgradePlan, provider: PaymentProvider) => {
     if (!currentCompany) {
       alert('You must belong to a company to upgrade')
       return
@@ -177,7 +195,7 @@ export default function UpgradeCTA() {
     try {
       const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
       
-      if (selectedPaymentMethod === 'paypal') {
+      if (provider === 'paypal') {
         // PayPal flow
         const response = await fetch(`${API_BASE_URL}/billing/create-paypal-order`, {
           method: 'POST',
@@ -234,6 +252,19 @@ export default function UpgradeCTA() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <PaymentProviderPickerModal
+        isOpen={isProviderModalOpen}
+        plan={pendingPlan}
+        selectedProvider={selectedProvider}
+        loading={loading}
+        onClose={closeProviderModal}
+        onSelectProvider={setSelectedProvider}
+        onConfirm={() => {
+          if (!pendingPlan || !selectedProvider) return
+          handleUpgrade(pendingPlan, selectedProvider)
+        }}
+      />
+
       {/* Header */}
       <div className="mb-8 text-center">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-4">
@@ -306,58 +337,6 @@ export default function UpgradeCTA() {
           Choose Your Plan
         </h2>
 
-        {/* Payment Method Selector */}
-        <div className="max-w-md mx-auto mb-8">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 text-center">
-            Select Payment Method
-          </label>
-          <div className="grid grid-cols-2 gap-4">
-            <button
-              onClick={() => setSelectedPaymentMethod('paymongo')}
-              className={`flex items-center justify-center px-4 py-3 rounded-lg border-2 transition-all ${
-                selectedPaymentMethod === 'paymongo'
-                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <CreditCard className={`h-5 w-5 mr-2 ${
-                selectedPaymentMethod === 'paymongo' ? 'text-primary-600' : 'text-gray-500'
-              }`} />
-              <span className={`font-medium ${
-                selectedPaymentMethod === 'paymongo'
-                  ? 'text-primary-700 dark:text-primary-300'
-                  : 'text-gray-700 dark:text-gray-300'
-              }`}>
-                Credit/Debit Card
-              </span>
-            </button>
-            <button
-              onClick={() => setSelectedPaymentMethod('paypal')}
-              className={`flex items-center justify-center px-4 py-3 rounded-lg border-2 transition-all ${
-                selectedPaymentMethod === 'paypal'
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.59 3.025-2.566 6.082-8.558 6.082H9.63l-1.496 9.478h2.79c.457 0 .85-.334.922-.788l.04-.19.73-4.627.047-.255a.933.933 0 0 1 .922-.788h.58c3.76 0 6.704-1.528 7.565-5.946.33-1.69.171-3.094-.507-4.179z" />
-              </svg>
-              <span className={`font-medium ${
-                selectedPaymentMethod === 'paypal'
-                  ? 'text-blue-700 dark:text-blue-300'
-                  : 'text-gray-700 dark:text-gray-300'
-              }`}>
-                PayPal
-              </span>
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-            {selectedPaymentMethod === 'paypal'
-              ? 'You will be redirected to PayPal to complete your payment'
-              : 'Secure payment via credit/debit card'}
-          </p>
-        </div>
-
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {plans.map((plan, index) => (
             <div
@@ -426,24 +405,31 @@ export default function UpgradeCTA() {
                   Free Plan
                 </button>
               ) : (
-                <button
-                  onClick={() => handleUpgrade(plan.name.toLowerCase() as 'office' | 'enterprise')}
-                  disabled={loading}
-                  className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center ${
-                    plan.popular
-                      ? 'bg-primary-600 hover:bg-primary-700 text-white'
-                      : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100'
-                  } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>Upgrade to {plan.name}</>
+                <>
+                  <button
+                    onClick={() => startUpgrade(plan.name.toLowerCase() as UpgradePlan)}
+                    disabled={loading || !canUpgrade}
+                    className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center ${
+                      plan.popular
+                        ? 'bg-primary-600 hover:bg-primary-700 text-white'
+                        : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100'
+                    } ${loading || !canUpgrade ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>Upgrade to {plan.name}</>
+                    )}
+                  </button>
+                  {!canUpgrade && (
+                    <p className="text-center text-xs text-gray-500 mt-3">
+                      Only super admins can upgrade the plan.
+                    </p>
                   )}
-                </button>
+                </>
               )}
             </div>
           ))}

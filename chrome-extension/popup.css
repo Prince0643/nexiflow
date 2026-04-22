@@ -48,6 +48,15 @@ input[type="text"], input[type="email"], input[type="password"] {
   color: var(--text);
   outline: none;
 }
+select {
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  outline: none;
+}
 .btn {
   width: 100%;
   padding: 10px 12px;
@@ -70,4 +79,3 @@ input[type="text"], input[type="email"], input[type="password"] {
 .error { margin-top: 10px; color: var(--err); font-size: 12px; }
 .who { font-weight: 800; }
 .sub { font-size: 12px; color: var(--muted); }
-

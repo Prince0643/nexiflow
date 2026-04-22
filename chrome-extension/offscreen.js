@@ -40,15 +40,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             return;
           }
 
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-              mandatory: {
-                chromeMediaSource: 'desktop',
-                chromeMediaSourceId: streamId,
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: false,
+              video: {
+                mandatory: {
+                  chromeMediaSource: 'desktop',
+                  chromeMediaSourceId: streamId,
+                },
               },
-            },
-          });
+            });
+          } catch (e) {
+            const name = e?.name ? String(e.name) : 'Error';
+            const message = e?.message ? String(e.message) : String(e);
+            console.error('[offscreen] getUserMedia failed:', name, message, e);
+            sendResponse({ ok: false, error: `${name}: ${message}` });
+            return;
+          }
 
           video.srcObject = stream;
           await video.play();
@@ -82,10 +90,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Unknown offscreen message' });
       }
     } catch (e) {
-      sendResponse({ ok: false, error: e?.message || 'Offscreen error' });
+      const name = e?.name ? String(e.name) : 'Error';
+      const message = e?.message ? String(e.message) : String(e);
+      console.error('[offscreen] error', name, message, e);
+      sendResponse({ ok: false, error: `${name}: ${message}` });
     }
   })();
 
   return true;
 });
-
