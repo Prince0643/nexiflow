@@ -8159,6 +8159,138 @@ app.post('/api/billing/remind', authenticateToken, async (req, res) => {
 // BILLING SCHEDULER - Background tasks
 // ============================================
 
+// ============================================
+// TIME ENTRY REMINDERS - Background tasks
+// ============================================
+
+// Send reminder emails for running timers (every 12 hours while still running).
+// This should be called by a cron job (recommended hourly) and is protected via ROOT_API_KEY.
+app.post('/api/time-entries/send-running-timer-reminders', async (req, res) => {
+  try {
+    const apiKey = req.headers.authorization?.replace('Bearer ', '');
+    const rootApiKey = process.env.ROOT_API_KEY;
+
+    if (!rootApiKey || apiKey !== rootApiKey) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [runningRows] = await connection.execute(
+        `SELECT id, user_id, company_id, project_name, client_name, description, start_time, timer_reminder_sent_at
+         FROM time_entries
+         WHERE is_running = 1
+         AND company_id IS NOT NULL
+         AND TIMESTAMPDIFF(HOUR, start_time, NOW()) >= 12
+         AND (
+           timer_reminder_sent_at IS NULL
+           OR TIMESTAMPDIFF(HOUR, timer_reminder_sent_at, NOW()) >= 12
+         )`
+      );
+
+      const processed = [];
+      const skipped = [];
+      const failed = [];
+
+      for (const entry of runningRows) {
+        try {
+          const companyId = entry.company_id;
+          const userId = entry.user_id;
+
+          const [companyRows] = await connection.execute(
+            `SELECT id, name FROM companies WHERE id = ? LIMIT 1`,
+            [companyId]
+          );
+          if (!companyRows?.length) {
+            skipped.push({ timeEntryId: entry.id, reason: 'Company not found' });
+            continue;
+          }
+
+          const [userRows] = await connection.execute(
+            `SELECT id, name, email, role FROM users WHERE id = ? LIMIT 1`,
+            [userId]
+          );
+          if (!userRows?.length) {
+            skipped.push({ timeEntryId: entry.id, reason: 'Timer owner not found' });
+            continue;
+          }
+
+          const company = companyRows[0];
+          const timerOwner = userRows[0];
+
+          const [superAdminRows] = await connection.execute(
+            `SELECT email
+             FROM users
+             WHERE company_id = ?
+             AND role = 'super_admin'
+             AND is_active = 1
+             AND email IS NOT NULL
+             AND email != ''`,
+            [companyId]
+          );
+
+          const recipients = new Set();
+          if (timerOwner?.email) recipients.add(timerOwner.email);
+          for (const admin of superAdminRows) {
+            if (admin?.email) recipients.add(admin.email);
+          }
+
+          const recipientList = Array.from(recipients);
+          if (recipientList.length === 0) {
+            skipped.push({ timeEntryId: entry.id, reason: 'No recipients' });
+            continue;
+          }
+
+          const emailResult = await billingEmailService.sendRunningTimerReminder({
+            company,
+            timerOwner,
+            timeEntry: entry,
+            recipients: recipientList
+          });
+
+          if (!emailResult?.success) {
+            failed.push({ timeEntryId: entry.id, error: emailResult?.error || 'Email send failed' });
+            continue;
+          }
+
+          await connection.execute(
+            `UPDATE time_entries SET timer_reminder_sent_at = NOW() WHERE id = ?`,
+            [entry.id]
+          );
+
+          processed.push({
+            timeEntryId: entry.id,
+            companyId,
+            userId,
+            recipients: recipientList
+          });
+        } catch (err) {
+          failed.push({ timeEntryId: entry?.id, error: err?.message || 'Unknown error' });
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Running timer reminders processed',
+        data: {
+          eligibleCount: runningRows.length,
+          processedCount: processed.length,
+          skippedCount: skipped.length,
+          failedCount: failed.length,
+          processed,
+          skipped,
+          failed
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error sending running timer reminders:', error);
+    res.status(500).json({ success: false, error: 'Failed to send running timer reminders' });
+  }
+});
+
 // Check for companies that need to enter grace period
 // This should be called by a cron job daily
 app.post('/api/billing/check-overdue', async (req, res) => {

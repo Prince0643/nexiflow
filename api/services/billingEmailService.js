@@ -210,6 +210,75 @@ Need help? Contact support.
 }
 
 /**
+ * Send running timer reminder email (timer still running after long duration)
+ * Recipients: timer owner + company super admins (excluding root).
+ */
+async function sendRunningTimerReminder({ company, timerOwner, timeEntry, recipients }) {
+  const subject = `Timer Still Running - ${company.name}`
+
+  const startTime = timeEntry?.start_time ? new Date(timeEntry.start_time) : null
+  const startedAtText = startTime ? startTime.toLocaleString() : 'Unknown'
+
+  const projectText = timeEntry?.project_name ? `Project: ${timeEntry.project_name}` : null
+  const clientText = timeEntry?.client_name ? `Client: ${timeEntry.client_name}` : null
+  const descriptionText = timeEntry?.description ? `Description: ${timeEntry.description}` : null
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Timer Still Running</h2>
+      <p>Hello,</p>
+      <p>A time tracker is still running for <strong>${timerOwner.name}</strong> at <strong>${company.name}</strong>.</p>
+
+      <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0 0 8px 0;"><strong>Started:</strong> ${startedAtText}</p>
+        ${projectText ? `<p style="margin: 0 0 8px 0;"><strong>${projectText}</strong></p>` : ''}
+        ${clientText ? `<p style="margin: 0 0 8px 0;"><strong>${clientText}</strong></p>` : ''}
+        ${descriptionText ? `<p style="margin: 0;"><strong>${descriptionText}</strong></p>` : ''}
+      </div>
+
+      <p>Please review and stop the timer if needed:</p>
+      <a href="${process.env.FRONTEND_URL}/" 
+         style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+        Open NexiFlow
+      </a>
+
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        This reminder is sent every 12 hours while the timer remains running.
+      </p>
+    </div>
+  `
+
+  const text = `
+Timer Still Running
+
+A time tracker is still running for ${timerOwner.name} at ${company.name}.
+
+Started: ${startedAtText}
+${projectText || ''}
+${clientText || ''}
+${descriptionText || ''}
+
+Open NexiFlow: ${process.env.FRONTEND_URL}/
+  `.trim()
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: recipients,
+      subject,
+      text,
+      html
+    })
+
+    console.log(`Running timer reminder sent to ${recipients.join(', ')} for ${company.name}`)
+    return { success: true }
+  } catch (error) {
+    console.error('Failed to send running timer reminder email:', error)
+    return { success: false, error: error.message }
+  }
+}
+
+/**
  * Send email verification email
  */
 async function sendEmailVerificationEmail(user, verifyLink) {
@@ -261,6 +330,7 @@ If you did not create a NexiFlow account, you can safely ignore this email.
     return { success: false, error: error.message };
   }
 }
+
 
 /**
  * Send downgrade notification email
@@ -338,6 +408,7 @@ Questions? Contact support.
 
 module.exports = {
   sendPaymentReminder,
+  sendRunningTimerReminder,
   sendGracePeriodNotification,
   sendDowngradeNotification,
   sendPasswordResetEmail,

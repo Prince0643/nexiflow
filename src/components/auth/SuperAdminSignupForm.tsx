@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle, Crown, Eye, EyeOff, Users } from 'lucide-react'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
+import PaymentProviderPickerModal, { PaymentProvider, UpgradePlan } from '../billing/PaymentProviderPickerModal'
 
 interface SuperAdminSignupFormProps {
   onSwitchToLogin: () => void
@@ -79,6 +80,9 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [isProviderModalOpen, setIsProviderModalOpen] = useState(false)
+  const [pendingPlan, setPendingPlan] = useState<UpgradePlan | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<PaymentProvider | null>(null)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -161,6 +165,76 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
     setFormData(prev => ({ ...prev, plan: planId }))
   }
 
+  const closeProviderModal = () => {
+    if (loading) return
+    setIsProviderModalOpen(false)
+    setPendingPlan(null)
+    setSelectedProvider(null)
+    navigate('/')
+  }
+
+  const startPayment = async (plan: UpgradePlan, provider: PaymentProvider) => {
+    const token = localStorage.getItem('authToken')
+    if (!token) {
+      setError('Session expired. Please sign in again and try upgrading.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+
+      if (provider === 'paypal') {
+        const response = await fetch(`${API_BASE_URL}/billing/create-paypal-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            plan,
+            successUrl: `${window.location.origin}/billing/paypal-success`,
+            cancelUrl: `${window.location.origin}/billing/paypal-cancel`
+          })
+        })
+
+        const data = await response.json().catch(() => null)
+        if (response.ok && data?.success && data?.approvalUrl) {
+          window.location.href = data.approvalUrl
+          return
+        }
+
+        setError(data?.error || 'Failed to initiate PayPal checkout. Please try again.')
+        return
+      }
+
+      const response = await fetch(`${API_BASE_URL}/billing/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          plan,
+          successUrl: `${window.location.origin}/billing/success`,
+          cancelUrl: `${window.location.origin}/billing/cancel`
+        })
+      })
+
+      const data = await response.json().catch(() => null)
+      if (response.ok && data?.success && data?.checkoutUrl) {
+        window.location.href = data.checkoutUrl
+        return
+      }
+
+      setError(data?.error || 'Failed to initiate payment. Please try again.')
+    } catch (err: any) {
+      setError(err?.message || 'Failed to initiate payment. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -191,33 +265,10 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
           return
         }
         if (formData.plan === 'office' || formData.plan === 'enterprise') {
-          const token = localStorage.getItem('authToken')
-          if (!token) {
-            setError('Session expired. Please sign in again and try upgrading.')
-            return
-          }
-
-          const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
-          const response = await fetch(`${API_BASE_URL}/billing/create-checkout-session`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              plan: formData.plan,
-              successUrl: `${window.location.origin}/billing/success`,
-              cancelUrl: `${window.location.origin}/billing/cancel`
-            })
-          })
-
-          const data = await response.json().catch(() => null)
-          if (response.ok && data?.success && data?.checkoutUrl) {
-            window.location.href = data.checkoutUrl
-            return
-          }
-
-          setError(data?.error || 'Failed to initiate payment. Please try again.')
+          const paidPlan = formData.plan as UpgradePlan
+          setPendingPlan(paidPlan)
+          setSelectedProvider(null)
+          setIsProviderModalOpen(true)
           return
         }
 
@@ -257,6 +308,19 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
   return (
     <div className="w-full max-w-md mx-auto">
+      <PaymentProviderPickerModal
+        isOpen={isProviderModalOpen}
+        plan={pendingPlan}
+        selectedProvider={selectedProvider}
+        loading={loading}
+        onClose={closeProviderModal}
+        onSelectProvider={(provider) => setSelectedProvider(provider)}
+        onConfirm={() => {
+          if (!pendingPlan || !selectedProvider) return
+          startPayment(pendingPlan, selectedProvider)
+        }}
+      />
+
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-slate-600 dark:text-white/70">Step {step} of 3</span>
