@@ -699,6 +699,324 @@ async function authenticateToken(req, res, next) {
   }
 };
 
+// ============================================
+// GOOGLE DRIVE (PER-COMPANY SUPER ADMIN)
+// ============================================
+const requireEnv = (key) => {
+  const value = process.env[key];
+  if (!value || !String(value).trim()) throw new Error(`Missing env var: ${key}`);
+  return String(value).trim();
+};
+
+const getTokenEncKey = () => {
+  const b64 = requireEnv('GOOGLE_DRIVE_TOKEN_ENC_KEY');
+  const key = Buffer.from(b64, 'base64');
+  if (key.length !== 32) throw new Error('GOOGLE_DRIVE_TOKEN_ENC_KEY must be 32 bytes (base64-encoded)');
+  return key;
+};
+
+const encryptRefreshToken = (refreshToken) => {
+  const key = getTokenEncKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(refreshToken, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const payload = {
+    v: 1,
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    ct: ciphertext.toString('base64')
+  };
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
+};
+
+const decryptRefreshToken = (encryptedPayload) => {
+  const key = getTokenEncKey();
+  const json = Buffer.from(encryptedPayload, 'base64').toString('utf8');
+  const payload = JSON.parse(json);
+  if (!payload?.iv || !payload?.tag || !payload?.ct) throw new Error('Invalid encrypted token payload');
+  const iv = Buffer.from(payload.iv, 'base64');
+  const tag = Buffer.from(payload.tag, 'base64');
+  const ciphertext = Buffer.from(payload.ct, 'base64');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+};
+
+const base64UrlEncode = (bufOrStr) => {
+  const buf = Buffer.isBuffer(bufOrStr) ? bufOrStr : Buffer.from(String(bufOrStr), 'utf8');
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+};
+
+const base64UrlDecode = (str) => {
+  const padded = String(str).replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(String(str).length / 4) * 4, '=');
+  return Buffer.from(padded, 'base64');
+};
+
+const signOAuthState = (payloadObj) => {
+  const secret = requireEnv('GOOGLE_DRIVE_OAUTH_STATE_SECRET');
+  const payload = base64UrlEncode(JSON.stringify(payloadObj));
+  const sig = base64UrlEncode(crypto.createHmac('sha256', secret).update(payload).digest());
+  return `${payload}.${sig}`;
+};
+
+const verifyOAuthState = (state) => {
+  const secret = requireEnv('GOOGLE_DRIVE_OAUTH_STATE_SECRET');
+  const [payload, sig] = String(state || '').split('.');
+  if (!payload || !sig) throw new Error('Invalid state');
+  const expected = base64UrlEncode(crypto.createHmac('sha256', secret).update(payload).digest());
+  if (expected !== sig) throw new Error('Invalid state signature');
+  return JSON.parse(base64UrlDecode(payload).toString('utf8'));
+};
+
+const getAccessTokenFromRefreshToken = async (refreshToken) => {
+  const tokenRes = await axios.post(
+    'https://oauth2.googleapis.com/token',
+    new URLSearchParams({
+      client_id: requireEnv('GOOGLE_DRIVE_CLIENT_ID'),
+      client_secret: requireEnv('GOOGLE_DRIVE_CLIENT_SECRET'),
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token'
+    }).toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+  return tokenRes?.data?.access_token || null;
+};
+
+const getOrCreateDriveFolderId = async (accessToken, folderName) => {
+  const q = `name='${String(folderName).replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const search = await axios.get('https://www.googleapis.com/drive/v3/files', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    params: { q, fields: 'files(id,name)' }
+  });
+  const existing = search?.data?.files?.[0];
+  if (existing?.id) return existing.id;
+
+  const create = await axios.post(
+    'https://www.googleapis.com/drive/v3/files',
+    { name: folderName, mimeType: 'application/vnd.google-apps.folder' },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+  );
+  return create?.data?.id;
+};
+
+const uploadJpegToDrive = async (accessToken, { buffer, filename, folderId, description }) => {
+  const fileMetadata = {
+    name: filename,
+    parents: folderId ? [folderId] : undefined,
+    description: description || undefined
+  };
+
+  const boundary = '-------nexiflow-boundary';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelim = `\r\n--${boundary}--`;
+
+  const multipartHeader =
+    delimiter +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(fileMetadata) +
+    delimiter +
+    'Content-Type: image/jpeg\r\n\r\n';
+
+  const body = Buffer.concat([
+    Buffer.from(multipartHeader, 'utf8'),
+    buffer,
+    Buffer.from(closeDelim, 'utf8')
+  ]);
+
+  const res = await axios.post(
+    'https://www.googleapis.com/upload/drive/v3/files',
+    body,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary="${boundary}"`
+      },
+      params: { uploadType: 'multipart', fields: 'id,name,webViewLink' },
+      maxBodyLength: Infinity
+    }
+  );
+
+  return {
+    fileId: res?.data?.id,
+    filename: res?.data?.name,
+    webViewLink: res?.data?.webViewLink
+  };
+};
+
+// Start OAuth (company super admin)
+app.get('/api/admin/google-drive/connect', authenticateToken, async (req, res) => {
+  try {
+    if (!['super_admin', 'admin', 'root'].includes(req.user?.role)) {
+      return res.status(403).send('Forbidden');
+    }
+    const companyId = String(req.user?.companyId || '').trim();
+    if (!companyId) return res.status(400).send('Missing companyId for user');
+
+    const redirectUri = requireEnv('GOOGLE_DRIVE_REDIRECT_URI');
+    const clientId = requireEnv('GOOGLE_DRIVE_CLIENT_ID');
+    const scope = 'https://www.googleapis.com/auth/drive.file';
+
+    const state = signOAuthState({
+      companyId,
+      userId: req.user.uid,
+      nonce: crypto.randomBytes(12).toString('hex'),
+      t: Date.now()
+    });
+
+    const authUrl =
+      'https://accounts.google.com/o/oauth2/v2/auth' +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent(scope)}` +
+      `&access_type=offline` +
+      `&prompt=consent` +
+      `&state=${encodeURIComponent(state)}`;
+
+    res.redirect(authUrl);
+  } catch (error) {
+    console.error('Drive connect error:', error);
+    res.status(500).send(error?.message || 'Failed to start Google Drive OAuth');
+  }
+});
+
+// OAuth callback: exchange code -> refresh token -> store per-company
+app.get('/api/admin/google-drive/callback', async (req, res) => {
+  try {
+    const code = String(req.query.code || '').trim();
+    const stateRaw = String(req.query.state || '').trim();
+    if (!code) return res.status(400).send('Missing code');
+    if (!stateRaw) return res.status(400).send('Missing state');
+
+    const state = verifyOAuthState(stateRaw);
+    const companyId = String(state.companyId || '').trim();
+    const connectedByUserId = String(state.userId || '').trim() || null;
+    if (!companyId) return res.status(400).send('Invalid state: missing companyId');
+
+    const tokenRes = await axios.post(
+      'https://oauth2.googleapis.com/token',
+      new URLSearchParams({
+        client_id: requireEnv('GOOGLE_DRIVE_CLIENT_ID'),
+        client_secret: requireEnv('GOOGLE_DRIVE_CLIENT_SECRET'),
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: requireEnv('GOOGLE_DRIVE_REDIRECT_URI')
+      }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+
+    const refreshToken = tokenRes?.data?.refresh_token;
+    if (!refreshToken) {
+      return res
+        .status(400)
+        .send('No refresh_token returned. Revoke app access in Google Account and retry (prompt=consent + access_type=offline).');
+    }
+
+    const refreshTokenEnc = encryptRefreshToken(refreshToken);
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        `
+        INSERT INTO company_google_drive_integrations
+          (company_id, refresh_token_enc, folder_id, connected_by_user_id, created_at, updated_at)
+        VALUES (?, ?, NULL, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+          refresh_token_enc = VALUES(refresh_token_enc),
+          folder_id = NULL,
+          connected_by_user_id = VALUES(connected_by_user_id),
+          updated_at = NOW()
+        `,
+        [companyId, refreshTokenEnc, connectedByUserId]
+      );
+    } finally {
+      connection.release();
+    }
+
+    res.send('Google Drive connected successfully. You can close this tab.');
+  } catch (error) {
+    console.error('Drive callback error:', error?.response?.data || error);
+    res.status(500).send(error?.message || 'Failed to complete Google Drive OAuth');
+  }
+});
+
+// Upload screenshot (extension -> backend -> company Drive)
+app.post('/api/screenshots', authenticateToken, async (req, res) => {
+  try {
+    const { imageBase64, companyId, projectName, duration, timestamp } = req.body || {};
+    const userId = req.user?.uid;
+
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'imageBase64 is required' });
+    }
+
+    const effectiveCompanyId = String(companyId || req.user?.companyId || '').trim();
+    if (!effectiveCompanyId) {
+      return res.status(400).json({ success: false, error: 'companyId is required' });
+    }
+    if (req.user?.companyId && effectiveCompanyId !== req.user.companyId) {
+      return res.status(403).json({ success: false, error: 'Forbidden: company mismatch' });
+    }
+
+    const connection = await pool.getConnection();
+    let refreshTokenEnc = null;
+    let cachedFolderId = null;
+    try {
+      const [rows] = await connection.execute(
+        'SELECT refresh_token_enc, folder_id FROM company_google_drive_integrations WHERE company_id = ? LIMIT 1',
+        [effectiveCompanyId]
+      );
+      const row = rows?.[0];
+      refreshTokenEnc = row?.refresh_token_enc || null;
+      cachedFolderId = row?.folder_id || null;
+    } finally {
+      connection.release();
+    }
+
+    if (!refreshTokenEnc) {
+      return res.status(503).json({ success: false, error: 'Google Drive not connected for this company' });
+    }
+
+    const refreshToken = decryptRefreshToken(refreshTokenEnc);
+    const accessToken = await getAccessTokenFromRefreshToken(refreshToken);
+    if (!accessToken) return res.status(502).json({ success: false, error: 'Failed to obtain Google Drive access token' });
+
+    const folderName = process.env.GOOGLE_DRIVE_FOLDER_NAME || 'NexiFlow Screenshots';
+    const folderId = cachedFolderId || (await getOrCreateDriveFolderId(accessToken, folderName));
+    if (!cachedFolderId && folderId) {
+      const c2 = await pool.getConnection();
+      try {
+        await c2.execute(
+          'UPDATE company_google_drive_integrations SET folder_id = ?, updated_at = NOW() WHERE company_id = ?',
+          [folderId, effectiveCompanyId]
+        );
+      } finally {
+        c2.release();
+      }
+    }
+
+    const safeTimestamp = (timestamp && typeof timestamp === 'string' ? timestamp : new Date().toISOString()).replace(/[:.]/g, '-');
+    const filename = `nexiflow_${userId}_${safeTimestamp}.jpg`;
+    const description = `Project: ${projectName || 'No project'} | Duration: ${duration || 'N/A'} | Captured: ${timestamp || new Date().toISOString()}`;
+
+    const buffer = Buffer.from(imageBase64.replace(/^data:image\/jpeg;base64,/, ''), 'base64');
+    if (!buffer.length) return res.status(400).json({ success: false, error: 'Invalid base64 image' });
+
+    const uploaded = await uploadJpegToDrive(accessToken, { buffer, filename, folderId, description });
+
+    res.json({
+      success: true,
+      ...uploaded,
+      folderId,
+      timestamp: timestamp || new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Screenshot upload error:', error?.response?.data || error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to upload screenshot' });
+  }
+});
+
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const AI_HISTORY_LIMIT = 10;
