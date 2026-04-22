@@ -284,28 +284,30 @@ There are **two valid** patterns; choose one and implement Phase 4 accordingly:
 - Best if you want *users to own their own proof* and avoid routing images through your backend.
 
 **Option B — Super-admin Drive upload (central storage)**
-- Users run the extension, but screenshots land in **one super admin’s** Google Drive.
+- Users run the extension, but screenshots land in the **company’s super admin** Google Drive.
 - This cannot be reliably done by uploading directly from each user’s extension, because `chrome.identity.getAuthToken()` returns a token for the **current Chrome profile user**, not a separate “super admin”.
-- Recommended implementation: **upload screenshot bytes to your backend**, then the backend uploads to Drive using the super admin’s **refresh token** (offline access).
+- Recommended implementation: **upload screenshot bytes to your backend**, then the backend uploads to Drive using the company super admin’s **refresh token** (offline access).
 
-This guide assumes **Option B** (Super-admin Drive).
+This guide assumes **Option B** (Per-company Super-admin Drive).
 
-#### 4.3 Super Admin Google Drive Connection (Backend OAuth)
-Goal: obtain and store a **refresh token** on the server so it can upload to Drive long-term without re-consent.
+#### 4.3 Super Admin Google Drive Connection (Backend OAuth, per company)
+Goal: obtain and store a **refresh token per company** on the server so it can upload to Drive long-term without re-consent.
 
 Backend env vars (example):
 ```
 GOOGLE_DRIVE_CLIENT_ID=...
 GOOGLE_DRIVE_CLIENT_SECRET=...
-GOOGLE_DRIVE_REFRESH_TOKEN=...
+GOOGLE_DRIVE_REDIRECT_URI=https://nexi-flow.com/api/admin/google-drive/callback
+GOOGLE_DRIVE_OAUTH_STATE_SECRET=... # random string
+GOOGLE_DRIVE_TOKEN_ENC_KEY=...      # 32-byte key, base64-encoded
 GOOGLE_DRIVE_FOLDER_NAME=NexiFlow Screenshots
 ```
 
 High-level flow:
-1. Super admin clicks “Connect Google Drive” in the NexiFlow **web app** (admin-only page).
+1. Company super admin clicks “Connect Google Drive” in the NexiFlow **web app** (admin-only page), passing `companyId`.
 2. Backend redirects to Google OAuth with `access_type=offline` and `prompt=consent`.
-3. Google redirects back to backend callback with an auth `code`.
-4. Backend exchanges `code` for `{ access_token, refresh_token }` and stores the refresh token securely.
+3. Google redirects back to backend callback with an auth `code` and `state` (includes companyId).
+4. Backend exchanges `code` for `{ access_token, refresh_token }` and stores the **refresh token encrypted** in MySQL keyed by `companyId`.
 
 > Note: do not put `client_secret` or refresh tokens inside the Chrome extension.
 
@@ -449,6 +451,7 @@ async function captureAndUpload() {
     // Backend is responsible for uploading to Google Drive using the super admin credentials.
     const uploadResult = await uploadScreenshotViaBackend(screenshotBlob, {
       userId: timerState.userId,
+      companyId: timerState.companyId, // required so backend selects the correct company's Drive
       projectName: timerState.projectName,
       duration: formatDuration(timerState.elapsedSeconds),
       timestamp: new Date().toISOString()

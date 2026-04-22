@@ -135,6 +135,25 @@ CREATE TABLE `company_pdf_settings` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `company_google_drive_integrations`
+--
+
+DROP TABLE IF EXISTS `company_google_drive_integrations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `company_google_drive_integrations` (
+  `company_id` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
+  `refresh_token_enc` text COLLATE utf8mb4_general_ci NOT NULL,
+  `folder_id` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `connected_by_user_id` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`company_id`),
+  KEY `idx_company_gdrive_connected_by` (`connected_by_user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `invoice_items`
 --
 

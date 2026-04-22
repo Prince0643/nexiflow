@@ -7,10 +7,9 @@ const getEnv = (key) => {
   return value && value.trim() ? value.trim() : null;
 };
 
-export async function getAdminDriveAccessToken() {
+export async function getAccessTokenFromRefreshToken(refreshToken) {
   const clientId = getEnv('GOOGLE_DRIVE_CLIENT_ID');
   const clientSecret = getEnv('GOOGLE_DRIVE_CLIENT_SECRET');
-  const refreshToken = getEnv('GOOGLE_DRIVE_REFRESH_TOKEN');
 
   if (!clientId || !clientSecret || !refreshToken) return null;
 
@@ -118,4 +117,3 @@ export async function uploadJpegToDrive(accessToken, { buffer, filename, folderI
     webViewLink: json.webViewLink,
   };
 }
-

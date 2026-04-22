@@ -56,6 +56,20 @@ async function initDatabase() {
       )
     `);
 
+    // Per-company Google Drive integration (encrypted refresh token + cached folder)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS company_google_drive_integrations (
+        company_id VARCHAR(255) PRIMARY KEY,
+        refresh_token_enc TEXT NOT NULL,
+        folder_id VARCHAR(255),
+        connected_by_user_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+        FOREIGN KEY (connected_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
     // Create clients table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS clients (
