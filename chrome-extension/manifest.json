@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "NexiFlow Time Tracker",
+  "version": "0.1.0",
+  "description": "Track time and optionally capture screenshots for proof-of-work.",
+  "permissions": ["storage", "alarms", "desktopCapture", "offscreen"],
+  "host_permissions": [
+    "http://localhost:3001/*",
+    "https://nexi-flow.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "service_worker.js",
+    "type": "module"
+  }
+}
+

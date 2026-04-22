@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>NexiFlow</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="header">
+        <div class="brand">NexiFlow</div>
+        <div id="statusPill" class="pill pill-neutral">Idle</div>
+      </header>
+
+      <section id="loggedOut" class="card">
+        <h2 class="h2">Sign in</h2>
+        <div class="field">
+          <label>Email</label>
+          <input id="email" type="email" autocomplete="username" placeholder="you@company.com" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </div>
+        <div class="field">
+          <label>Server URL</label>
+          <input id="apiBase" type="text" placeholder="http://localhost:3001/api" />
+          <div class="hint">Default is your NexiFlow API. Use localhost for dev.</div>
+        </div>
+        <button id="loginBtn" class="btn btn-primary">Login</button>
+        <div id="loginError" class="error" hidden></div>
+      </section>
+
+      <section id="loggedIn" class="card" hidden>
+        <div class="row">
+          <div>
+            <div id="who" class="who"></div>
+            <div id="company" class="sub"></div>
+          </div>
+          <button id="logoutBtn" class="btn btn-ghost">Logout</button>
+        </div>
+
+        <div class="field">
+          <label>Project name (optional)</label>
+          <input id="projectName" type="text" placeholder="e.g. Client A website" />
+        </div>
+
+        <div class="field row">
+          <div class="toggle">
+            <input id="screenshotsEnabled" type="checkbox" />
+            <label for="screenshotsEnabled">Enable screenshots (every 5 min)</label>
+          </div>
+          <button id="grantBtn" class="btn btn-secondary">Grant screen permission</button>
+        </div>
+
+        <button id="startStopBtn" class="btn btn-primary">Start</button>
+        <button id="captureNowBtn" class="btn btn-secondary" title="Dev helper: capture one screenshot now">Capture now</button>
+        <div id="timerLine" class="hint"></div>
+        <div id="actionMsg" class="hint"></div>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
+
