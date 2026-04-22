@@ -35,11 +35,12 @@ export default function Settings() {
   const { currentUser, currentCompany } = useMySQLAuth()
   const { isDarkMode, toggleDarkMode } = useTheme()
   
-  const [activeTab, setActiveTab] = useState<'profile' | 'general' | 'security' | 'notifications' | 'pdf'>('profile')
+  const [activeTab, setActiveTab] = useState<'profile' | 'general' | 'security' | 'notifications' | 'pdf' | 'integrations'>('profile')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const canEditRates = currentUser?.role ? canEditHourlyRates(currentUser.role) : false
+  const canManageIntegrations = currentUser?.role === 'super_admin' || currentUser?.role === 'root'
   
   // Profile settings
   const [profileData, setProfileData] = useState({
@@ -90,10 +91,23 @@ export default function Settings() {
     passwordMinLength: 8
   })
 
+  const [googleDriveStatus, setGoogleDriveStatus] = useState<{
+    loading: boolean
+    connected: boolean
+    connectedAt?: string
+    connectedByUserId?: string | null
+  }>({ loading: false, connected: false })
+
   useEffect(() => {
     loadSettings()
     loadUserProfile()
   }, [currentUser])
+
+  useEffect(() => {
+    if (!canManageIntegrations) return
+    if (activeTab !== 'integrations') return
+    void loadGoogleDriveStatus()
+  }, [activeTab, canManageIntegrations])
 
   const loadSettings = async () => {
     try {
@@ -145,6 +159,63 @@ export default function Settings() {
   const showMessage = (type: 'success' | 'error' | 'info', text: string) => {
     setMessage({ type, text })
     setTimeout(() => setMessage(null), 5000)
+  }
+
+  const loadGoogleDriveStatus = async () => {
+    try {
+      setGoogleDriveStatus((prev) => ({ ...prev, loading: true }))
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/admin/google-drive/status`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success) {
+        setGoogleDriveStatus({ loading: false, connected: false })
+        showMessage('error', data?.error || 'Failed to load Google Drive status')
+        return
+      }
+
+      setGoogleDriveStatus({
+        loading: false,
+        connected: !!data.connected,
+        connectedAt: data.connectedAt,
+        connectedByUserId: data.connectedByUserId ?? null
+      })
+    } catch (error: any) {
+      console.error('Google Drive status error:', error)
+      setGoogleDriveStatus({ loading: false, connected: false })
+      showMessage('error', error?.message || 'Failed to load Google Drive status')
+    }
+  }
+
+  const handleConnectGoogleDrive = async () => {
+    try {
+      if (!canManageIntegrations) {
+        showMessage('error', 'Only super admins can connect Google Drive')
+        return
+      }
+
+      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+      const response = await fetch(`${API_BASE_URL}/admin/google-drive/connect-url`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success || !data?.url) {
+        showMessage('error', data?.error || 'Failed to start Google Drive connection')
+        return
+      }
+
+      window.location.href = data.url
+    } catch (error: any) {
+      console.error('Connect Google Drive error:', error)
+      showMessage('error', error?.message || 'Failed to start Google Drive connection')
+    }
   }
 
   const handleClearLogs = async () => {
@@ -443,6 +514,7 @@ export default function Settings() {
             { id: 'profile', name: 'Profile', icon: User },
             { id: 'general', name: 'General', icon: SettingsIcon },
             { id: 'notifications', name: 'Notifications', icon: Bell },
+            canManageIntegrations && { id: 'integrations', name: 'Integrations', icon: Globe },
             ((currentUser?.role === 'super_admin' || currentUser?.role === 'root') || 
              currentCompany?.pricingLevel === 'office' || currentCompany?.pricingLevel === 'enterprise') && 
               { id: 'pdf', name: 'PDF Settings', icon: FileText }
@@ -822,6 +894,66 @@ export default function Settings() {
                   <Save className="h-4 w-4" />
                   <span>Save Settings</span>
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Integrations Tab */}
+        {activeTab === 'integrations' && canManageIntegrations && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Integrations</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Manage external integrations for your company.
+                </p>
+              </div>
+              <button
+                onClick={() => void loadGoogleDriveStatus()}
+                disabled={googleDriveStatus.loading}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                Refresh status
+              </button>
+            </div>
+
+            <div className="mt-6 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h4 className="font-medium text-gray-900 dark:text-gray-100">Google Drive (Screenshots)</h4>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    Upload extension screenshots to the connected company Drive.
+                  </p>
+                  <div className="mt-3 text-sm">
+                    {googleDriveStatus.loading ? (
+                      <span className="text-gray-600 dark:text-gray-400">Checking connection…</span>
+                    ) : googleDriveStatus.connected ? (
+                      <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
+                        <CheckCircle className="h-4 w-4" />
+                        <span>
+                          Connected{googleDriveStatus.connectedAt ? ` • ${format(new Date(googleDriveStatus.connectedAt), 'MMM dd, yyyy HH:mm')}` : ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
+                        <AlertTriangle className="h-4 w-4" />
+                        <span>Not connected</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleConnectGoogleDrive}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium"
+                >
+                  Connect Google Drive
+                </button>
+              </div>
+
+              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                If you don’t receive a refresh token during connect, revoke the app’s access in your Google Account and connect again.
               </div>
             </div>
           </div>

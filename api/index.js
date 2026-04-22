@@ -881,6 +881,84 @@ app.get('/api/admin/google-drive/connect', authenticateToken, async (req, res) =
   }
 });
 
+// Return OAuth URL as JSON (so UI can navigate without losing auth header on initial request)
+app.get('/api/admin/google-drive/connect-url', authenticateToken, async (req, res) => {
+  try {
+    if (!['super_admin', 'admin', 'root'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const companyId = String(req.user?.companyId || '').trim();
+    if (!companyId) return res.status(400).json({ success: false, error: 'Missing companyId for user' });
+
+    const redirectUri = requireEnv('GOOGLE_DRIVE_REDIRECT_URI');
+    const clientId = requireEnv('GOOGLE_DRIVE_CLIENT_ID');
+    const scope = 'https://www.googleapis.com/auth/drive.file';
+
+    const state = signOAuthState({
+      companyId,
+      userId: req.user.uid,
+      nonce: crypto.randomBytes(12).toString('hex'),
+      t: Date.now()
+    });
+
+    const url =
+      'https://accounts.google.com/o/oauth2/v2/auth' +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent(scope)}` +
+      `&access_type=offline` +
+      `&prompt=consent` +
+      `&state=${encodeURIComponent(state)}`;
+
+    res.json({ success: true, url });
+  } catch (error) {
+    console.error('Drive connect-url error:', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to build Google Drive OAuth URL' });
+  }
+});
+
+// Check per-company connection status
+app.get('/api/admin/google-drive/status', authenticateToken, async (req, res) => {
+  try {
+    if (!['super_admin', 'admin', 'root'].includes(req.user?.role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const companyId = String(req.user?.companyId || '').trim();
+    if (!companyId) return res.status(400).json({ success: false, error: 'Missing companyId for user' });
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `
+          SELECT connected_by_user_id, updated_at
+          FROM company_google_drive_integrations
+          WHERE company_id = ?
+          LIMIT 1
+        `,
+        [companyId]
+      );
+
+      const row = rows?.[0];
+      if (!row) {
+        return res.json({ success: true, connected: false });
+      }
+
+      res.json({
+        success: true,
+        connected: true,
+        connectedAt: row.updated_at,
+        connectedByUserId: row.connected_by_user_id || null
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Drive status error:', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to get Google Drive status' });
+  }
+});
+
 // OAuth callback: exchange code -> refresh token -> store per-company
 app.get('/api/admin/google-drive/callback', async (req, res) => {
   try {
