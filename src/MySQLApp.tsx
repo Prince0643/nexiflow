@@ -43,6 +43,8 @@ import UpgradeCTA from './pages/UpgradeCTA'
 import AIChatWidget from './components/ai/AIChatWidget'
 import TestNotifications from './pages/TestNotifications'
 import DemoPage from './pages/DemoPage'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+import TermsOfService from './pages/TermsOfService'
 // Import the new Root Dashboard
 import RootDashboard from './pages/RootDashboard'
 // Import the new Invoicing page
@@ -89,6 +91,8 @@ function MySQLAppContent() {
           <Route path="/coming-soon" element={<ComingSoon />} />
           <Route path="/help-center" element={<HelpCenter />} />
           <Route path="/documentation" element={<Documentation />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     )
@@ -230,6 +234,8 @@ function MySQLAppContent() {
             )}
             <Route path="/help-center" element={<HelpCenter />} />
             <Route path="/documentation" element={<Documentation />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

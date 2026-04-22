@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import { authLimiter, generalApiLimiter } from './config/rateLimit.js';
+import { getAdminDriveAccessToken, getOrCreateFolderId, uploadJpegToDrive } from './googleDriveUploader.js';
 dotenv.config();
 
 const app = express();
@@ -12,7 +13,7 @@ const PORT = process.env.BACKEND_PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 // Rate limiting
 app.use('/api/auth', authLimiter);
@@ -67,6 +68,53 @@ const authenticateToken = (req, res, next) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Backend server is running' });
+});
+
+// Upload screenshot (extension -> backend -> super-admin Google Drive)
+app.post('/api/screenshots', authenticateToken, async (req, res) => {
+  try {
+    const { imageBase64, userId, projectName, duration, timestamp } = req.body || {};
+
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'imageBase64 is required' });
+    }
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const accessToken = await getAdminDriveAccessToken();
+    if (!accessToken) {
+      return res.status(503).json({
+        success: false,
+        error: 'Google Drive not connected (missing GOOGLE_DRIVE_CLIENT_ID/SECRET/REFRESH_TOKEN)',
+      });
+    }
+
+    const folderName = process.env.GOOGLE_DRIVE_FOLDER_NAME || 'NexiFlow Screenshots';
+    const folderId = await getOrCreateFolderId(accessToken, folderName);
+
+    const safeTimestamp = (timestamp && typeof timestamp === 'string' ? timestamp : new Date().toISOString())
+      .replace(/[:.]/g, '-');
+    const filename = `nexiflow_${userId}_${safeTimestamp}.jpg`;
+    const description = `Project: ${projectName || 'No project'} | Duration: ${duration || 'N/A'} | Captured: ${timestamp || new Date().toISOString()}`;
+
+    const buffer = Buffer.from(imageBase64.replace(/^data:image\/jpeg;base64,/, ''), 'base64');
+    if (!buffer.length) {
+      return res.status(400).json({ success: false, error: 'Invalid base64 image' });
+    }
+
+    const uploaded = await uploadJpegToDrive(accessToken, { buffer, filename, folderId, description });
+
+    res.json({
+      success: true,
+      ...uploaded,
+      folderId,
+      timestamp: timestamp || new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Screenshot upload error:', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to upload screenshot' });
+  }
 });
 
 // Login endpoint

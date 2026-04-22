@@ -48,6 +48,8 @@ import RootDashboard from './pages/RootDashboard'
 // Import the new Invoicing page
 import Invoicing from './pages/Invoicing'
 import NewInvoice from './pages/NewInvoice'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+import TermsOfService from './pages/TermsOfService'
 // Import billing pages
 import BillingSuccess from './pages/billing/BillingSuccess'
 import BillingCancel from './pages/billing/BillingCancel'
@@ -83,6 +85,8 @@ function AppContent() {
           <Route path="/landing" element={<Landing />} />
           <Route path="/about" element={<About />} />
           <Route path="/coming-soon" element={<ComingSoon />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
           {/* PayPal can redirect back when the user is logged out; allow activation flow */}
           <Route path="/billing/paypal-success" element={<PayPalSuccess />} />
           <Route path="/billing/paypal-cancel" element={<PayPalCancel />} />
@@ -244,6 +248,8 @@ function AppContent() {
                 <Route path="/coming-soon" element={
                   <ComingSoon />
                 } />
+                <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="/terms" element={<TermsOfService />} />
               </>
             )}
             <Route path="*" element={<Navigate to="/" replace />} />

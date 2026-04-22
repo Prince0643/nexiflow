@@ -46,6 +46,16 @@ const PublicFooter = () => {
               </Link>
             </li>
             <li>
+              <Link to="/privacy" className="hover:text-gray-900 dark:hover:text-white transition-colors">
+                Privacy Policy
+              </Link>
+            </li>
+            <li>
+              <Link to="/terms" className="hover:text-gray-900 dark:hover:text-white transition-colors">
+                Terms of Service
+              </Link>
+            </li>
+            <li>
               <Link to="/coming-soon" className="hover:text-gray-900 dark:hover:text-white transition-colors">
                 Careers
               </Link>
@@ -93,4 +103,3 @@ const PublicFooter = () => {
 }
 
 export default PublicFooter
-

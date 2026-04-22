@@ -268,44 +268,48 @@ function stopTracking() {
    - Create project
    - Enable Google Drive API
    - Create OAuth 2.0 credentials
-   - Add `chrome-extension://<extension-id>` to authorized origins
-   - Download client ID for manifest.json
+   - Decide **ownership model** for screenshots (see 4.2)
+   - If using extension-direct upload (per-user Drive): add `chrome-extension://<extension-id>` to authorized origins and set the OAuth client in `manifest.json`
+   - If using **super admin Drive** (recommended for central storage): set up **backend OAuth** + store a refresh token server-side (do not put client secret in the extension)
 
 2. **OAuth Scopes**:
    - `https://www.googleapis.com/auth/drive.file` (create files only)
 
-#### 4.2 Super Admin Google Drive Connection
-```javascript
-// utils/gdrive.js
+#### 4.2 Pick the Ownership Model (Important)
+There are **two valid** patterns; choose one and implement Phase 4 accordingly:
 
-// Initiate OAuth flow for super admin
-export async function connectGoogleDrive() {
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?
-    client_id=${CLIENT_ID}&
-    response_type=token&
-    redirect_uri=${encodeURIComponent(chrome.identity.getRedirectURL())}&
-    scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&
-    prompt=consent`;
-  
-  const result = await chrome.identity.launchWebAuthFlow({
-    url: authUrl,
-    interactive: true
-  });
-  
-  // Extract access token
-  const token = new URL(result).hash
-    .substring(1)
-    .split('&')
-    .find(p => p.startsWith('access_token='))
-    ?.split('=')[1];
-  
-  // Store token
-  await chrome.storage.local.set({ gdriveToken: token });
-  return token;
-}
+**Option A — Per-user Drive upload (extension uploads directly)**
+- Each user authenticates Google Drive inside the extension (Chrome profile user).
+- Screenshots land in **that user’s** Google Drive (or a shared folder they can write to).
+- Best if you want *users to own their own proof* and avoid routing images through your backend.
+
+**Option B — Super-admin Drive upload (central storage)**
+- Users run the extension, but screenshots land in **one super admin’s** Google Drive.
+- This cannot be reliably done by uploading directly from each user’s extension, because `chrome.identity.getAuthToken()` returns a token for the **current Chrome profile user**, not a separate “super admin”.
+- Recommended implementation: **upload screenshot bytes to your backend**, then the backend uploads to Drive using the super admin’s **refresh token** (offline access).
+
+This guide assumes **Option B** (Super-admin Drive).
+
+#### 4.3 Super Admin Google Drive Connection (Backend OAuth)
+Goal: obtain and store a **refresh token** on the server so it can upload to Drive long-term without re-consent.
+
+Backend env vars (example):
+```
+GOOGLE_DRIVE_CLIENT_ID=...
+GOOGLE_DRIVE_CLIENT_SECRET=...
+GOOGLE_DRIVE_REFRESH_TOKEN=...
+GOOGLE_DRIVE_FOLDER_NAME=NexiFlow Screenshots
 ```
 
-#### 4.3 Folder Management
+High-level flow:
+1. Super admin clicks “Connect Google Drive” in the NexiFlow **web app** (admin-only page).
+2. Backend redirects to Google OAuth with `access_type=offline` and `prompt=consent`.
+3. Google redirects back to backend callback with an auth `code`.
+4. Backend exchanges `code` for `{ access_token, refresh_token }` and stores the refresh token securely.
+
+> Note: do not put `client_secret` or refresh tokens inside the Chrome extension.
+
+#### 4.4 Folder Management (Backend)
 ```javascript
 // Create or get existing folder for screenshots
 async function getOrCreateFolder(token, folderName = 'NexiFlow Screenshots') {
@@ -342,14 +346,15 @@ async function getOrCreateFolder(token, folderName = 'NexiFlow Screenshots') {
 }
 ```
 
-#### 4.4 Upload Screenshot
+#### 4.5 Upload Screenshot (Backend → Drive)
 ```javascript
-export async function uploadScreenshot(blob, metadata) {
-  const { gdriveToken } = await chrome.storage.local.get('gdriveToken');
-  if (!gdriveToken) throw new Error('Google Drive not connected');
+// server-side: uploadScreenshotToAdminDrive(buffer, metadata)
+export async function uploadScreenshotToAdminDrive(buffer, metadata) {
+  const token = await getAdminDriveAccessToken(); // derived from refresh token
+  if (!token) throw new Error('Admin Google Drive not connected');
   
   // Get or create folder
-  const folderId = await getOrCreateFolder(gdriveToken);
+  const folderId = await getOrCreateFolder(token);
   
   // Prepare metadata
   const timestamp = new Date().toISOString();
@@ -385,7 +390,7 @@ export async function uploadScreenshot(blob, metadata) {
     {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${gdriveToken}`,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': `multipart/related; boundary="${boundary}"`
       },
       body
@@ -406,14 +411,43 @@ export async function uploadScreenshot(blob, metadata) {
 ### Phase 5: Complete Capture Flow
 
 ```javascript
+// extension-side: upload screenshot bytes to backend
+async function blobToBase64(blob) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+  return String(dataUrl).split(',')[1]; // strip "data:image/jpeg;base64,"
+}
+
+async function uploadScreenshotViaBackend(blob, metadata) {
+  const token = await getAuthToken(); // your NexiFlow auth token (same as time entry calls)
+  const base64 = await blobToBase64(blob);
+
+  const res = await fetch(`${API_BASE}/api/screenshots`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ imageBase64: base64, ...metadata })
+  });
+
+  if (!res.ok) throw new Error(`Screenshot upload failed (${res.status})`);
+  return res.json();
+}
+
 // Full screenshot + upload flow
 async function captureAndUpload() {
   try {
     // Capture screenshot
     const screenshotBlob = await captureScreenshot();
     
-    // Upload to Google Drive
-    const uploadResult = await uploadScreenshot(screenshotBlob, {
+    // Upload screenshot bytes to NexiFlow backend (recommended for super-admin Drive storage)
+    // Backend is responsible for uploading to Google Drive using the super admin credentials.
+    const uploadResult = await uploadScreenshotViaBackend(screenshotBlob, {
       userId: timerState.userId,
       projectName: timerState.projectName,
       duration: formatDuration(timerState.elapsedSeconds),
