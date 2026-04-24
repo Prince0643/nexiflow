@@ -100,11 +100,6 @@ export default function Settings() {
   }>({ loading: false, connected: false })
 
   const [googleDriveFolderName, setGoogleDriveFolderName] = useState('')
-  const [googleDriveTestUpload, setGoogleDriveTestUpload] = useState<{
-    loading: boolean
-    webViewLink?: string
-    filename?: string
-  }>({ loading: false })
 
   useEffect(() => {
     loadSettings()
@@ -268,42 +263,6 @@ export default function Settings() {
     } catch (error: any) {
       console.error('Save folder name error:', error)
       showMessage('error', error?.message || 'Failed to update folder name')
-    }
-  }
-
-  const handleTestGoogleDriveUpload = async () => {
-    try {
-      if (!canManageIntegrations) {
-        showMessage('error', 'Only super admins can run a test upload')
-        return
-      }
-
-      setGoogleDriveTestUpload({ loading: true })
-      const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
-      const response = await fetch(`${API_BASE_URL}/admin/google-drive/test-upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        }
-      })
-      const data = await response.json().catch(() => null)
-      if (!response.ok || !data?.success) {
-        setGoogleDriveTestUpload({ loading: false })
-        showMessage('error', data?.error || 'Test upload failed')
-        return
-      }
-
-      setGoogleDriveTestUpload({
-        loading: false,
-        webViewLink: data.webViewLink,
-        filename: data.filename
-      })
-      showMessage('success', 'Test upload succeeded')
-      await loadGoogleDriveStatus()
-    } catch (error: any) {
-      console.error('Test upload error:', error)
-      setGoogleDriveTestUpload({ loading: false })
-      showMessage('error', error?.message || 'Test upload failed')
     }
   }
 
@@ -1069,26 +1028,6 @@ export default function Settings() {
                   </div>
                 </div>
               )}
-
-              <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
-                <button
-                  onClick={() => void handleTestGoogleDriveUpload()}
-                  disabled={!googleDriveStatus.connected || googleDriveTestUpload.loading}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                >
-                  {googleDriveTestUpload.loading ? 'Uploading…' : 'Test upload'}
-                </button>
-                {googleDriveTestUpload.webViewLink && (
-                  <a
-                    href={googleDriveTestUpload.webViewLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
-                  >
-                    View test file{googleDriveTestUpload.filename ? ` (${googleDriveTestUpload.filename})` : ''}
-                  </a>
-                )}
-              </div>
 
               <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                 If you don’t receive a refresh token during connect, revoke the app’s access in your Google Account and connect again.

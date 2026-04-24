@@ -228,6 +228,7 @@ export default function UpgradeCTA() {
           },
           body: JSON.stringify({
             plan,
+            paymentMethod: 'all',
             successUrl: `${window.location.origin}/billing/success`,
             cancelUrl: `${window.location.origin}/billing/cancel`
           })

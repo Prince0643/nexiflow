@@ -178,24 +178,19 @@ const About = () => {
       description: "Organize work with Kanban boards, assign tasks, and track progress with due dates."
     },
     {
-      icon: <MessageSquare className="h-6 w-6 text-orange-600" />,
-      title: "Team Chat",
-      description: "Communicate with your team through real-time messaging and file sharing."
-    },
-    {
       icon: <BarChart3 className="h-6 w-6 text-red-600" />,
       title: "Analytics & Reports",
       description: "Get insights into productivity, time distribution, and team performance with detailed reports."
     },
     {
-      icon: <Bell className="h-6 w-6 text-indigo-600" />,
-      title: "Smart Notifications",
-      description: "Stay updated with real-time notifications for mentions, task assignments, and deadlines."
+      icon: <Zap className="h-6 w-6 text-indigo-600" />,
+      title: "AI (Nexie)",
+      description: "Ask Nexie to help summarize work, draft updates, and surface insights from your time and projects."
     },
     {
-      icon: <Download className="h-6 w-6 text-gray-600" />,
-      title: "Export & Backup",
-      description: "Export your data to PDF or CSV formats for external use and backup purposes."
+      icon: <Square className="h-6 w-6 text-gray-600" />,
+      title: "Snapshots / Screenshots",
+      description: "Capture extension snapshots/screenshots and store them for review and reporting (supports Google Drive integration)."
     }
   ]
 
@@ -401,7 +396,7 @@ const About = () => {
                   ref={el => stepRefs.current[index + 10] = el}
                 >
                   <div className="lg:w-1/2">
-                    <div className="text-4xl font-bold text-gray-200 dark:text-gray-700 mb-2">{step.step}</div>
+                    <div className="text-4xl font-bold text-gray-500 dark:text-gray-300 mb-2">{step.step}</div>
                     <div className="flex items-center mb-4">
                       <div className="flex-shrink-0">
                         {step.icon}

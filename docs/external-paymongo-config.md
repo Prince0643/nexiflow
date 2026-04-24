@@ -1,150 +1,149 @@
-# Clockistry Integration Configuration Guide
-**For:** Nexistry PayMongo Backend (https://api.nexistrydigitalsolutions.com/)  
-**Integrating with:** Clockistry SaaS Platform  
-**Date:** March 2026  
-**Integration Type:** Direct API Integration
+# PayMongo Backend Integration Guide for Nexiflow
+
+This document explains how Nexiflow should integrate with the Nexistry PayMongo Backend for processing subscription payments.
 
 ---
 
 ## Overview
 
-Clockistry will call your PayMongo backend API to create payment intents for subscription upgrades. Your backend needs to:
-
-1. Accept CORS requests from Clockistry's domain
-2. Support dynamic per-user pricing (not fixed product prices)
-3. Send webhooks back to Clockistry when payments complete
-
----
-
-## Required Configuration Changes
-
-### 1. CORS Origins (CRITICAL)
-
-Add Clockistry's domain to your `ALLOWED_ORIGINS` environment variable:
-
-```env
-# Current configuration
-ALLOWED_ORIGINS=https://nexiflow-new.nexistry.com
-
-# If Clockistry is on localhost during development:
-ALLOWED_ORIGINS=https://nexiflow-new.nexistry.com,http://localhost:3000,http://localhost:5173
-```
-
-**Clockistry domains to whitelist:**
-- Production: `https://nexiflow-new.nexistry.com`
-- Development: `http://localhost:3000` or `http://localhost:5173`
+The PayMongo Backend has been configured to support Clockistry/Nexiflow subscription payments with the following features:
+- Dedicated endpoint for creating subscription payment intents
+- Dynamic pricing based on plan (Office/Enterprise) and user count
+- Optional payment method selection (or show all) for PayMongo Checkout
+- Expanded PayMongo payment method types (matches `/api/payments` behavior)
+- Automatic webhook forwarding to Nexiflow backend
+- GHL integration is bypassed for Clockistry payments
 
 ---
 
-### 2. New API Endpoint: Create Payment Intent for Clockistry
+## Backend Endpoint
 
-Your backend needs a new endpoint specifically for Clockistry's subscription model.
+**Base URL:** `https://api.nexistrydigitalsolutions.com` (or your deployed backend URL)
 
-**Endpoint:** `POST /api/clockistry/create-payment-intent`
+### Create Payment Intent
 
-#### Request Body (from Clockistry)
+**POST** `/api/clockistry/create-payment-intent`
+
+Creates a PayMongo checkout session for subscription upgrades.
+
+#### Request Body
 
 ```json
 {
   "companyId": "uuid-string",
-  "userId": "uuid-string", 
+  "userId": "uuid-string",
   "plan": "office",
   "userCount": 5,
-  "successUrl": "https://nexiflow-new.nexistry.com/billing/success",
-  "cancelUrl": "https://nexiflow-new.nexistry.com/billing/cancel",
+  "paymentMethod": "all",
+  "successUrl": "https://nexiflow-new.nexistrydigitalsolutions.com/billing/success",
+  "cancelUrl": "https://nexiflow-new.nexistrydigitalsolutions.com/billing/cancel",
   "customerEmail": "user@company.com",
   "customerName": "John Doe"
 }
 ```
 
-#### Pricing Logic (to implement in your backend)
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `companyId` | string | Yes | Company UUID for the subscription |
+| `userId` | string | No | User ID who initiated the upgrade |
+| `plan` | string | Yes | `"office"` or `"enterprise"` |
+| `userCount` | number | No | Number of users (default: 1) |
+| `paymentMethod` | string | No | Which PayMongo method to show (defaults to showing all supported methods). See “Payment Methods” below. |
+| `successUrl` | string | No | Custom success redirect URL |
+| `cancelUrl` | string | No | Custom cancel redirect URL |
+| `customerEmail` | string | No | Customer email for receipt |
+| `customerName` | string | No | Customer name |
 
-| Plan | USD/User | PHP Rate (₱58/$) | Per-User Price (centavos) |
-|------|----------|------------------|--------------------------|
-| office | $9 | ₱522 | 52200 |
-| enterprise | $12 | ₱696 | 69600 |
-
-**Calculation:**
-```javascript
-const USD_TO_PHP_RATE = 58;
-const pricePerUserUSD = plan === 'office' ? 9 : 12;
-const pricePerUserCentavos = pricePerUserUSD * USD_TO_PHP_RATE * 100;
-const totalAmount = pricePerUserCentavos * userCount;
-```
-
-#### PayMongo Checkout Session to Create
-
-```javascript
-{
-  data: {
-    attributes: {
-      line_items: [{
-        name: `Nexiflow ${plan} Plan`,  // "Nexiflow office Plan"
-        amount: totalAmount,              // Total in centavos
-        currency: 'PHP',
-        description: `Subscription for ${userCount} user(s)`,
-        quantity: 1
-      }],
-      payment_method_types: ['card', 'gcash', 'qrph', 'maya', 'grabpay'], // Enable all
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      description: `Upgrade to ${plan} plan`,
-      send_email_receipt: true,
-      show_description: true,
-      show_line_items: true,
-      metadata: {
-        // CRITICAL: These fields are required for Clockistry webhook processing
-        company_id: companyId,
-        user_id: userId,
-        pricing_level: plan,           // "office" or "enterprise"
-        user_count: userCount,
-        price_per_user: pricePerUserCentavos,
-        internal_transaction_id: "uuid-generated-by-your-backend",
-        source: "clockistry"           // To identify Clockistry payments
-      }
-    }
-  }
-}
-```
-
-#### Response to Clockistry
+#### Response
 
 ```json
 {
   "success": true,
   "checkoutUrl": "https://checkout.paymongo.com/...",
   "checkoutSessionId": "cs_xxxxx",
-  "transactionId": "internal_transaction_id",
+  "transactionId": "CLK-XXXXXX",
   "amount": 261000,
   "currency": "PHP"
 }
 ```
 
+| Field | Description |
+|-------|-------------|
+| `checkoutUrl` | Redirect customer here to complete payment |
+| `checkoutSessionId` | PayMongo checkout session ID |
+| `transactionId` | Internal transaction reference (CLK-XXXXXX) |
+| `amount` | Total amount in centavos |
+| `currency` | Currency code (PHP) |
+
 ---
 
-### 3. Webhook Handling Modifications
+## Payment Methods
 
-Your existing `/api/payments/webhook` endpoint receives PayMongo webhooks. You need to add logic to forward Clockistry-specific events to Clockistry's backend.
+Clockistry/Nexiflow uses **PayMongo Checkout Sessions**. The backend can either:
+- **Show all supported methods** in the PayMongo checkout page, or
+- **Restrict checkout to one method** (when the UI wants the user to pick a method first).
 
-#### When to Forward Webhooks
+### How to choose a method from Nexiflow
 
-Check the metadata in the PayMongo webhook payload:
-```javascript
-const metadata = payload.data?.attributes?.data?.attributes?.metadata;
+Send `paymentMethod` in the request body:
 
-if (metadata?.source === 'clockistry') {
-  // Forward to Clockistry
-  await forwardToClockistry(payload);
-}
-```
+- `"all"` or `"qrph"` or omitted → show **all** supported methods
+- One of the specific options below → show **only that** method
 
-#### Clockistry Webhook Endpoint
+### Supported `paymentMethod` values (Nexiflow → PayMongo)
 
-**URL:** `https://nexiflow-new.nexistry.com/api/billing/webhook`  
+| Nexiflow `paymentMethod` | PayMongo `payment_method_types` |
+|---|---|
+| `gcash` | `gcash` |
+| `grabpay` | `grab_pay` |
+| `maya` | `paymaya` |
+| `shopeepay` | `shopee_pay` |
+| `bpi` | `dob` |
+| `unionbank` | `dob_ubp` |
+| `dob` | `dob` |
+| `dob_ubp` | `dob_ubp` |
+| `qrph` | `qrph` |
+| `card` | `card` |
+| `all` | all supported methods |
+
+### Supported method set (PayMongo Checkout)
+
+When showing all methods, the backend offers this list:
+
+`qrph`, `gcash`, `grab_pay`, `paymaya`, `shopee_pay`, `dob`, `dob_ubp`, `card`
+
+### Optional: filter by PayMongo merchant capabilities
+
+If the backend env var `PAYMONGO_FILTER_METHOD_TYPES=true`, the backend will call PayMongo merchant capabilities and **filter out unsupported methods** so the checkout page doesn’t show options your PayMongo account can’t use.
+
+If capability filtering removes all methods (unexpected), it falls back to `qrph`.
+
+---
+
+## Pricing
+
+| Plan | USD/User | PHP/User | Per-User (centavos) |
+|------|----------|----------|---------------------|
+| Office | $9 | ₱522 | 52200 |
+| Enterprise | $12 | ₱696 | 69600 |
+
+**Calculation:** `totalAmount = pricePerUserCentavos × userCount`
+
+Example: 5 users on Office plan = 52200 × 5 = 261000 centavos (₱2,610.00)
+
+---
+
+## Webhook Integration
+
+The backend will automatically forward PayMongo webhooks to your Nexiflow webhook endpoint.
+
+### Your Webhook Endpoint
+
+**URL:** `https://nexiflow-new.nexistrydigitalsolutions.com/api/billing/webhook`  
 **Method:** POST  
 **Content-Type:** application/json
 
-#### Payload to Send to Clockistry
+### Webhook Payload
 
 ```json
 {
@@ -158,182 +157,141 @@ if (metadata?.source === 'clockistry') {
     "company_id": "uuid",
     "user_id": "uuid",
     "pricing_level": "office",
-    "user_count": 5,
-    "price_per_user": 52200,
-    "internal_transaction_id": "uuid",
-    "source": "clockistry"
+    "user_count": "5",
+    "price_per_user": "52200",
+    "internal_transaction_id": "CLK-XXXXXX",
+    "source": "clockistry",
+    "customer_email": "user@company.com",
+    "customer_name": "John Doe",
+    "payment_method": "all"
   },
   "paidAt": "2026-03-12T14:30:00Z"
 }
 ```
 
-#### Events to Forward
+### Event Types
 
-| PayMongo Event | Clockistry Action |
-|----------------|-------------------|
-| `checkout_session.payment.paid` | Upgrade company plan |
-| `payment.failed` | Mark transaction failed |
-| `payment.cancelled` | Mark transaction cancelled |
+The PayMongo backend forwards PayMongo’s event type string as `eventType`. Treat it as an **opaque string** and match it using “contains” rules (recommended) so you don’t break if PayMongo introduces new variants.
+
+| `eventType` contains | Meaning | Action Required |
+|---|---|---|
+| `paid` | Payment successful | Upgrade company plan, provision seats |
+| `failed` | Payment failed | Mark transaction failed, notify user |
+| `cancel` / `expired` | Checkout abandoned/cancelled | Mark transaction cancelled/expired |
+
+### Important Metadata Fields
+
+| Field | Purpose |
+|-------|---------|
+| `company_id` | Identify which company to upgrade |
+| `pricing_level` | Office or Enterprise plan |
+| `user_count` | Number of seats to provision |
+| `internal_transaction_id` | Your internal reference (CLK-XXXXXX) |
+| `source` | Always "clockistry" for your payments |
+| `payment_method` | What method Nexiflow requested (if provided) |
 
 ---
 
-### 4. Environment Variables to Add
+## Implementation Steps
 
-```env
-# Clockistry Integration
-CLOCKISTRY_WEBHOOK_URL=https://nexiflow-new.nexistry.com/api/billing/webhook
-# Optional: Secret for signing webhooks to Clockistry
-CLOCKISTRY_WEBHOOK_SECRET=your_secret_here
-
-# If you want to verify Clockistry requests (optional)
-CLOCKISTRY_API_KEY=clockistry_provided_key
-```
-
----
-
-### 5. Code Implementation Example
-
-Add to your Express app:
+### 1. Call Create Payment Intent
 
 ```javascript
-// Clockistry-specific payment intent creation
-app.post('/api/clockistry/create-payment-intent', async (req, res) => {
-  try {
-    const { companyId, userId, plan, userCount, successUrl, cancelUrl, customerEmail, customerName } = req.body;
-    
-    // Validate
-    if (!companyId || !plan || !['office', 'enterprise'].includes(plan)) {
-      return res.status(400).json({ error: 'Invalid request' });
-    }
-    
-    // Calculate price
-    const USD_TO_PHP_RATE = 58;
-    const pricePerUserUSD = plan === 'office' ? 9 : 12;
-    const pricePerUserCentavos = pricePerUserUSD * USD_TO_PHP_RATE * 100;
-    const count = parseInt(userCount) || 1;
-    const totalAmount = pricePerUserCentavos * count;
-    
-    // Create PayMongo checkout session
-    const response = await axios.post(
-      'https://api.paymongo.com/v1/checkout_sessions',
-      {
-        data: {
-          attributes: {
-            line_items: [{
-              name: `Nexiflow ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-              amount: totalAmount,
-              currency: 'PHP',
-              description: `Subscription for ${count} user(s)`,
-              quantity: 1
-            }],
-            payment_method_types: ['card', 'gcash', 'qrph', 'maya', 'grabpay'],
-            success_url: successUrl,
-            cancel_url: cancelUrl,
-            description: `Upgrade to ${plan} plan`,
-            send_email_receipt: true,
-            show_description: true,
-            show_line_items: true,
-            metadata: {
-              company_id: companyId,
-              user_id: userId,
-              pricing_level: plan,
-              user_count: count,
-              price_per_user: pricePerUserCentavos,
-              internal_transaction_id: generateUUID(),
-              source: 'clockistry'
-            }
-          }
-        }
-      },
-      {
-        headers: {
-          'Authorization': `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY + ':').toString('base64')}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    
-    const checkoutData = response.data.data;
-    
-    res.json({
-      success: true,
-      checkoutUrl: checkoutData.attributes.checkout_url,
-      checkoutSessionId: checkoutData.id,
-      transactionId: checkoutData.attributes.metadata.internal_transaction_id,
-      amount: totalAmount,
-      currency: 'PHP'
-    });
-    
-  } catch (error) {
-    console.error('Clockistry payment creation error:', error);
-    res.status(500).json({ error: 'Failed to create payment' });
-  }
+const response = await fetch('https://api.nexistrydigitalsolutions.com/api/clockistry/create-payment-intent', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    companyId: 'your-company-uuid',
+    userId: 'user-uuid',
+    plan: 'office', // or 'enterprise'
+    userCount: 5,
+    paymentMethod: 'all', // or 'gcash' | 'grabpay' | 'maya' | 'shopeepay' | 'bpi' | 'unionbank' | 'dob' | 'dob_ubp' | 'qrph' | 'card'
+    customerEmail: 'admin@company.com',
+    customerName: 'John Doe'
+  })
 });
 
-// Modified webhook handler to forward to Clockistry
-async function handlePaymongoWebhook(req, res) {
-  // Your existing webhook handling...
-  
-  const payload = req.body;
-  const metadata = payload.data?.attributes?.data?.attributes?.metadata;
-  
-  // Forward to Clockistry if it's a Clockistry payment
-  if (metadata?.source === 'clockistry' && process.env.CLOCKISTRY_WEBHOOK_URL) {
-    try {
-      await axios.post(process.env.CLOCKISTRY_WEBHOOK_URL, {
-        eventType: payload.data?.attributes?.type,
-        checkoutSessionId: payload.data?.attributes?.data?.id,
-        paymentIntentId: payload.data?.attributes?.data?.attributes?.payment_intent?.id,
-        amount: payload.data?.attributes?.data?.attributes?.amount,
-        currency: payload.data?.attributes?.data?.attributes?.currency,
-        status: payload.data?.attributes?.type.includes('paid') ? 'paid' : 'failed',
-        metadata: metadata,
-        paidAt: new Date().toISOString()
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Webhook-Secret': process.env.CLOCKISTRY_WEBHOOK_SECRET // Optional
-        }
-      });
-      console.log('Webhook forwarded to Clockistry');
-    } catch (forwardError) {
-      console.error('Failed to forward webhook to Clockistry:', forwardError.message);
-      // Don't fail the response - PayMongo should get 200
-    }
-  }
-  
-  res.status(200).json({ received: true });
+const data = await response.json();
+
+if (data.success) {
+  // Redirect to PayMongo checkout
+  window.location.href = data.checkoutUrl;
 }
 ```
 
+### 2. Handle Webhook in Your Backend
+
+```javascript
+// POST /api/billing/webhook
+app.post('/api/billing/webhook', async (req, res) => {
+  const { eventType, metadata, checkoutSessionId } = req.body;
+  
+  // Verify it's from the PayMongo backend (optional: check X-Webhook-Secret header)
+  
+  if (String(eventType || '').includes('paid')) {
+    // Upgrade the company plan
+    await upgradeCompanyPlan({
+      companyId: metadata.company_id,
+      plan: metadata.pricing_level,
+      userCount: parseInt(metadata.user_count),
+      transactionId: metadata.internal_transaction_id,
+      checkoutSessionId
+    });
+  } else if (String(eventType || '').includes('failed')) {
+    await markUpgradeFailed({
+      companyId: metadata.company_id,
+      transactionId: metadata.internal_transaction_id,
+      checkoutSessionId
+    });
+  } else if (String(eventType || '').includes('cancel') || String(eventType || '').includes('expired')) {
+    await markUpgradeCancelled({
+      companyId: metadata.company_id,
+      transactionId: metadata.internal_transaction_id,
+      checkoutSessionId
+    });
+  }
+  
+  // Always return 200
+  res.status(200).json({ received: true });
+});
+```
+
+### 3. Handle Redirect Pages
+
+**Success Page** (`/billing/success`):
+- Show confirmation message
+- Display updated plan details
+- Refresh user session to reflect new permissions
+
+**Cancel Page** (`/billing/cancel`):
+- Show cancellation message
+- Offer option to retry
+
 ---
 
-## Testing Checklist
+## Testing
 
-- [ ] Add Clockistry domain to `ALLOWED_ORIGINS`
-- [ ] Deploy new `/api/clockistry/create-payment-intent` endpoint
-- [ ] Test endpoint with Clockistry credentials
-- [ ] Create test payment in PayMongo test mode
-- [ ] Verify webhook is received by Clockistry backend
-- [ ] Confirm Clockistry updates company plan after payment
-- [ ] Test failed payment flow
-- [ ] Switch to PayMongo live mode
-
----
-
-## Support Contacts
-
-**Clockistry Team:** [Your contact info]  
-**PayMongo Docs:** https://developers.paymongo.com/
+1. **Test Endpoint:** Call `/api/clockistry/create-payment-intent` with test data
+2. **Test Checkout:** Complete a test payment using PayMongo test card: `4343434343434345`
+3. **Verify Webhook:** Check that your webhook receives the event
+4. **Verify Plan Upgrade:** Confirm company is upgraded after payment
 
 ---
 
 ## Important Notes
 
-1. **Metadata is critical:** Clockistry requires `company_id`, `pricing_level`, and `user_count` in the metadata to process upgrades correctly.
+1. **No GHL Integration:** Clockistry payments do NOT go to GHL/LeadConnector - they are processed separately
+2. **Idempotency:** Use `checkoutSessionId` or `internal_transaction_id` to prevent duplicate upgrades
+3. **Webhook Retries:** The backend always returns 200 to PayMongo, but will retry forwarding to your webhook once after 5 seconds if it fails
+4. **Security:** Consider implementing `X-Webhook-Secret` header verification in your webhook handler
 
-2. **Webhook forwarding:** Always return 200 to PayMongo, even if forwarding to Clockistry fails. Use logging to track failures.
+---
 
-3. **Idempotency:** Clockistry uses `checkout_session_id` to prevent duplicate processing. Include it in webhooks.
+## Support
 
-4. **Security:** Consider implementing a shared secret (`CLOCKISTRY_WEBHOOK_SECRET`) to verify webhook authenticity.
+For issues or questions:
+- Check backend logs via PM2: `pm2 logs paymongo-backend`
+- Verify webhook URL is accessible from the internet
+- Confirm CORS origin is whitelisted in backend `.env`

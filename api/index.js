@@ -7137,7 +7137,7 @@ async function applyPaidPlanUpgrade(connection, { orderId, transaction, captureI
 // Create checkout session for plan upgrade via external PayMongo backend
 app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
   try {
-    const { plan, successUrl, cancelUrl } = req.body;
+    const { plan, successUrl, cancelUrl, paymentMethod } = req.body;
     const companyId = req.user.companyId;
     const userId = req.user.uid;
     
@@ -7179,9 +7179,30 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
     
     // Call external PayMongo backend
     const externalApiUrl = process.env.EXTERNAL_PAYMONGO_API_URL || 'https://api.nexistrydigitalsolutions.com';
+
+    const normalizedPaymentMethod = typeof paymentMethod === 'string' ? paymentMethod.trim().toLowerCase() : '';
+    const supportedPaymentMethods = new Set([
+      'all',
+      'gcash',
+      'grabpay',
+      'maya',
+      'shopeepay',
+      'bpi',
+      'unionbank',
+      'dob',
+      'dob_ubp',
+      'qrph',
+      'card'
+    ]);
+    const paymentMethodToSend = normalizedPaymentMethod && supportedPaymentMethods.has(normalizedPaymentMethod)
+      ? normalizedPaymentMethod
+      : 'all';
+    if (normalizedPaymentMethod && !supportedPaymentMethods.has(normalizedPaymentMethod)) {
+      return res.status(400).json({ error: 'Invalid paymentMethod' });
+    }
     
     console.log('Calling external PayMongo API:', `${externalApiUrl}/api/clockistry/create-payment-intent`);
-    console.log('Request data:', { companyId, userId, plan, userCount: billableUserCount });
+    console.log('Request data:', { companyId, userId, plan, userCount: billableUserCount, paymentMethod: paymentMethodToSend });
     
     const response = await axios.post(
       `${externalApiUrl}/api/clockistry/create-payment-intent`,
@@ -7190,6 +7211,7 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
         userId: userId,
         plan: plan,
         userCount: billableUserCount,
+        paymentMethod: paymentMethodToSend,
         successUrl: successUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/success`,
         cancelUrl: cancelUrl || `${process.env.FRONTEND_URL || 'http://localhost:3000'}/billing/cancel`,
         customerEmail: customerEmail,
@@ -7215,6 +7237,7 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
       // Calculate price for local record (same formula as external backend)
       const pricePerUserUSD = plan === 'office' ? 9 : 12;
       const pricePerUserCents = pricePerUserUSD * 100;
+      const totalAmountUSDCents = Math.round(pricePerUserCents * billableUserCount);
       
       await conn.execute(
         `INSERT INTO payment_transactions 
@@ -7224,14 +7247,19 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
           data.transactionId,
           companyId,
           data.checkoutSessionId,
-          data.amount,
+          totalAmountUSDCents,
           'USD',
           'pending',
           JSON.stringify({
             pricing_level: plan,
             user_count: billableUserCount,
             price_per_user: pricePerUserCents,
-            source: 'external_api'
+            source: 'clockistry',
+            amount_php_centavos: data.amount,
+            currency_php: data.currency,
+            checkout_session_id: data.checkoutSessionId,
+            internal_transaction_id: data.transactionId,
+            payment_method: paymentMethodToSend
           })
         ]
       );
@@ -7370,8 +7398,10 @@ const handlePaymongoWebhook = async (req, res) => {
 
     console.log('Extracted values:', { eventType, checkoutSessionId, metadata, status });
 
+    const eventTypeStr = String(eventType || '');
+
     // Handle payment success
-    if (eventType === 'checkout_session.payment.paid' || eventType === 'payment.paid') {
+    if (eventTypeStr.includes('paid')) {
       if (!metadata) {
         console.error('No metadata in webhook payload - cannot process upgrade');
         return res.status(200).json({ received: true, warning: 'No metadata' });
@@ -7447,7 +7477,7 @@ const handlePaymongoWebhook = async (req, res) => {
       }
     } 
     // Handle payment failure
-    else if (eventType === 'payment.failed' || status === 'failed') {
+    else if (eventTypeStr.includes('failed') || String(status || '').includes('failed')) {
       console.log('Processing payment failure for:', checkoutSessionId);
       
       if (checkoutSessionId) {
@@ -7455,7 +7485,7 @@ const handlePaymongoWebhook = async (req, res) => {
         try {
           const [result] = await connection.execute(
             `UPDATE payment_transactions 
-             SET status = 'failed', failed_at = NOW()
+             SET status = 'failed'
              WHERE checkout_session_id = ?`,
             [checkoutSessionId]
           );
@@ -7465,6 +7495,25 @@ const handlePaymongoWebhook = async (req, res) => {
         }
       }
     } 
+    // Handle cancellation / expiry
+    else if (eventTypeStr.includes('cancel') || eventTypeStr.includes('expired')) {
+      console.log('Processing checkout cancellation/expiry for:', checkoutSessionId);
+
+      if (checkoutSessionId) {
+        const connection = await pool.getConnection();
+        try {
+          const [result] = await connection.execute(
+            `UPDATE payment_transactions 
+             SET status = 'cancelled'
+             WHERE checkout_session_id = ?`,
+            [checkoutSessionId]
+          );
+          console.log('Cancelled/expired status update result:', { affectedRows: result?.affectedRows });
+        } finally {
+          connection.release();
+        }
+      }
+    }
     else {
       console.log('Event type not handled:', eventType);
     }
