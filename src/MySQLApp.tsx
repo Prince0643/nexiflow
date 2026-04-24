@@ -43,6 +43,7 @@ import UpgradeCTA from './pages/UpgradeCTA'
 import AIChatWidget from './components/ai/AIChatWidget'
 import TestNotifications from './pages/TestNotifications'
 import DemoPage from './pages/DemoPage'
+import ChromeExtension from './pages/ChromeExtension'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
 // Import the new Root Dashboard
@@ -209,6 +210,11 @@ function MySQLAppContent() {
                     <DemoPage />
                   </ProtectedRoute>
                 } />
+                <Route path="/chrome-extension" element={
+                  <ProtectedRoute allowedPlans={['office', 'enterprise']} redirectTo="/upgrade">
+                    <ChromeExtension />
+                  </ProtectedRoute>
+                } />
                 <Route path="/chat" element={
                   <ProtectedRoute>
                     <Dashboard />
@@ -216,12 +222,12 @@ function MySQLAppContent() {
                 } />
 
                 <Route path="/invoicing" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute allowedRoles={['admin', 'hr', 'super_admin']}>
                     <Invoicing />
                   </ProtectedRoute>
                 } />
                 <Route path="/invoicing/new" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute allowedRoles={['admin', 'hr', 'super_admin']}>
                     <NewInvoice />
                   </ProtectedRoute>
                 } />

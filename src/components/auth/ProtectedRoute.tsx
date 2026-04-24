@@ -1,14 +1,24 @@
 import React from 'react'
 import { Navigate } from 'react-router-dom'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
+import { PricingLevel, UserRole } from '../../types'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
-  requiredRole?: 'employee' | 'admin'
+  requiredRole?: UserRole
+  allowedRoles?: UserRole[]
+  allowedPlans?: PricingLevel[]
+  redirectTo?: string
 }
 
-export default function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
-  const { currentUser, loading } = useMySQLAuth()
+export default function ProtectedRoute({
+  children,
+  requiredRole,
+  allowedRoles,
+  allowedPlans,
+  redirectTo = '/'
+}: ProtectedRouteProps) {
+  const { currentUser, currentCompany, loading } = useMySQLAuth()
 
   if (loading) {
     return (
@@ -25,9 +35,20 @@ export default function ProtectedRoute({ children, requiredRole }: ProtectedRout
     return <Navigate to="/auth" replace />
   }
 
+  if (allowedPlans && allowedPlans.length > 0) {
+    const plan = currentCompany?.pricingLevel
+    if (!plan || !allowedPlans.includes(plan)) {
+      return <Navigate to={redirectTo} replace />
+    }
+  }
+
+  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(currentUser.role)) {
+    return <Navigate to={redirectTo} replace />
+  }
+
   if (requiredRole && currentUser.role !== requiredRole) {
     // Redirect to dashboard if user doesn't have required role
-    return <Navigate to="/" replace />
+    return <Navigate to={redirectTo} replace />
   }
 
   return <>{children}</>

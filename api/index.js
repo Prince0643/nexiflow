@@ -990,14 +990,14 @@ app.put('/api/admin/google-drive/folder-name', authenticateToken, async (req, re
     const raw = typeof req.body?.folderName === 'string' ? req.body.folderName : '';
     const folderName = raw.trim();
 
-    // Allow reset to default by sending empty string
-    if (folderName) {
-      if (folderName.length > 80) {
-        return res.status(400).json({ success: false, error: 'Folder name must be 80 characters or fewer' });
-      }
-      if (/[\\/]/.test(folderName)) {
-        return res.status(400).json({ success: false, error: 'Folder name cannot contain / or \\' });
-      }
+    if (!folderName) {
+      return res.status(400).json({ success: false, error: 'Folder name is required' });
+    }
+    if (folderName.length > 80) {
+      return res.status(400).json({ success: false, error: 'Folder name must be 80 characters or fewer' });
+    }
+    if (/[\\/]/.test(folderName)) {
+      return res.status(400).json({ success: false, error: 'Folder name cannot contain / or \\' });
     }
 
     const connection = await pool.getConnection();
@@ -1008,7 +1008,7 @@ app.put('/api/admin/google-drive/folder-name', authenticateToken, async (req, re
           SET folder_name = ?, folder_id = NULL, updated_at = NOW()
           WHERE company_id = ?
         `,
-        [folderName || null, companyId]
+        [folderName, companyId]
       );
 
       const [rows] = await connection.execute(
@@ -5246,7 +5246,16 @@ const invoiceCreateSchema = Joi.object({
   })).min(1).required()
 });
 
-app.post('/api/invoices', authenticateToken, async (req, res) => {
+const invoiceAllowedRoles = new Set(['admin', 'hr', 'super_admin']);
+const requireInvoiceRole = (req, res, next) => {
+  const role = req?.user?.role;
+  if (!role || !invoiceAllowedRoles.has(role)) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  return next();
+};
+
+app.post('/api/invoices', authenticateToken, requireInvoiceRole, async (req, res) => {
   const { error, value } = invoiceCreateSchema.validate(req.body);
   if (error) {
     return res.status(400).json({
@@ -5363,7 +5372,7 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/invoices', authenticateToken, async (req, res) => {
+app.get('/api/invoices', authenticateToken, requireInvoiceRole, async (req, res) => {
   try {
     const connection = await pool.getConnection();
     try {
@@ -5407,7 +5416,7 @@ app.get('/api/invoices', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/invoices/:id', authenticateToken, async (req, res) => {
+app.get('/api/invoices/:id', authenticateToken, requireInvoiceRole, async (req, res) => {
   const { id } = req.params;
   const connection = await pool.getConnection();
   try {
@@ -5484,7 +5493,7 @@ const invoiceSendSchema = Joi.object({
   message: Joi.string().allow('', null).optional()
 });
 
-app.post('/api/invoices/:id/send', authenticateToken, async (req, res) => {
+app.post('/api/invoices/:id/send', authenticateToken, requireInvoiceRole, async (req, res) => {
   const { id } = req.params;
   const { error, value } = invoiceSendSchema.validate(req.body);
   if (error) {

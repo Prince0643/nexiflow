@@ -43,6 +43,7 @@ import UpgradeCTA from './pages/UpgradeCTA'
 import AIChatWidget from './components/ai/AIChatWidget'
 import TestNotifications from './pages/TestNotifications'
 import DemoPage from './pages/DemoPage'
+import ChromeExtension from './pages/ChromeExtension'
 // Import the new Root Dashboard
 import RootDashboard from './pages/RootDashboard'
 // Import the new Invoicing page
@@ -208,6 +209,11 @@ function AppContent() {
                     <DemoPage />
                   </ProtectedRoute>
                 } />
+                <Route path="/chrome-extension" element={
+                  <ProtectedRoute allowedPlans={['office', 'enterprise']} redirectTo="/upgrade">
+                    <ChromeExtension />
+                  </ProtectedRoute>
+                } />
                 <Route path="/chat" element={
                   <ProtectedRoute>
                     <Dashboard />
@@ -215,12 +221,12 @@ function AppContent() {
                 } />
 
                 <Route path="/invoicing" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute allowedRoles={['admin', 'hr', 'super_admin']}>
                     <Invoicing />
                   </ProtectedRoute>
                 } />
                 <Route path="/invoicing/new" element={
-                  <ProtectedRoute>
+                  <ProtectedRoute allowedRoles={['admin', 'hr', 'super_admin']}>
                     <NewInvoice />
                   </ProtectedRoute>
                 } />

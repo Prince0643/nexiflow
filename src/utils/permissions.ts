@@ -7,6 +7,7 @@ export interface Permission {
   canViewAllTimeEntries: boolean
   canManageTeams: boolean
   canAccessAdminDashboard: boolean
+  canAccessInvoicing: boolean
   canCreateUsers: boolean
   canViewUserDetails: boolean
   canManageSystemSettings: boolean
@@ -23,6 +24,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission> = {
     canViewAllTimeEntries: false,
     canManageTeams: false,
     canAccessAdminDashboard: false,
+    canAccessInvoicing: false,
     canCreateUsers: false,
     canViewUserDetails: false,
     canManageSystemSettings: false,
@@ -37,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission> = {
     canViewAllTimeEntries: true,
     canManageTeams: false,
     canAccessAdminDashboard: true,
+    canAccessInvoicing: true,
     canCreateUsers: true,
     canViewUserDetails: true,
     canManageSystemSettings: false,
@@ -51,6 +54,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission> = {
     canViewAllTimeEntries: true,
     canManageTeams: true,
     canAccessAdminDashboard: true,
+    canAccessInvoicing: true,
     canCreateUsers: true,
     canViewUserDetails: true,
     canManageSystemSettings: false,
@@ -65,6 +69,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission> = {
     canViewAllTimeEntries: true,
     canManageTeams: true,
     canAccessAdminDashboard: true,
+    canAccessInvoicing: true,
     canCreateUsers: true,
     canViewUserDetails: true,
     canManageSystemSettings: true,
@@ -79,6 +84,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission> = {
     canViewAllTimeEntries: true,
     canManageTeams: true,
     canAccessAdminDashboard: true,
+    canAccessInvoicing: false,
     canCreateUsers: true,
     canViewUserDetails: true,
     canManageSystemSettings: true,
@@ -98,6 +104,8 @@ export function canAccessFeature(userRole: UserRole, feature: string): boolean {
       return hasPermission(userRole, 'canManageProjects')
     case 'clients':
       return hasPermission(userRole, 'canManageClients')
+    case 'invoicing':
+      return hasPermission(userRole, 'canAccessInvoicing')
     case 'users':
       return hasPermission(userRole, 'canManageUsers')
     case 'canManageUsers':

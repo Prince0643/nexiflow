@@ -16,7 +16,9 @@
     "deploy-rules": "node deploy-rules.js",
     "migrate-data": "node src/migration/firebaseToMySQL.js",
     "init-db": "node src/scripts/initDatabase.js",
-    "backend": "node start-backend.cjs"
+    "backend": "node start-backend.cjs",
+    "ext:validate": "node scripts/validate-chrome-extension.mjs",
+    "ext:zip": "bash scripts/package-chrome-extension.sh"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

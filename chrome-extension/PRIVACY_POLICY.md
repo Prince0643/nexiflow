@@ -1,6 +1,6 @@
-# NexiFlow Time Tracker — Privacy Policy (Draft)
+# NexiFlow Time Tracker — Privacy Policy
 
-Last updated: 2026-04-22
+Last updated: 2026-04-24
 
 This privacy policy describes how the NexiFlow Time Tracker Chrome extension (the “Extension”) handles data. This document is intended to be published at a public URL for Chrome Web Store listing purposes.
 
@@ -11,10 +11,10 @@ This privacy policy describes how the NexiFlow Time Tracker Chrome extension (th
 
 ## Data the Extension collects and processes
 
-- **Account and session data:** The Extension stores authentication/session data locally in Chrome extension storage to keep the user signed in.
+- **Account and session data:** The Extension stores authentication/session data locally in Chrome extension storage to keep the user signed in, and sends authentication information to the NexiFlow API to perform authorized actions.
 - **Work tracking inputs:** Client, project, and description values entered/selected in the popup are stored locally and sent to the NexiFlow API when starting/stopping tracking.
-- **Optional screenshots:** If the user enables screenshots, the Extension captures images and uploads them to the NexiFlow API.
-- **Technical data:** Basic request metadata (e.g., timestamps) is processed as part of normal API communication.
+- **Optional screenshots:** If the user enables screenshots, the Extension captures images and uploads them to the NexiFlow API for proof-of-work.
+- **Technical data:** Basic request metadata (for example timestamps and request headers required for HTTPS communication) is processed as part of normal API communication.
 
 ## How screenshots work
 
@@ -49,4 +49,3 @@ This privacy policy describes how the NexiFlow Time Tracker Chrome extension (th
 ## Contact
 
 - For privacy questions or data requests, contact: support@nexi-flow.com
-

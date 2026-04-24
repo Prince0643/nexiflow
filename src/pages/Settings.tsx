@@ -236,6 +236,17 @@ export default function Settings() {
         return
       }
 
+      if (!googleDriveStatus.connected) {
+        showMessage('error', 'Connect Google Drive before setting a folder name')
+        return
+      }
+
+      const trimmedFolderName = googleDriveFolderName.trim()
+      if (!trimmedFolderName) {
+        showMessage('error', 'Drive folder name is required')
+        return
+      }
+
       const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
       const response = await fetch(`${API_BASE_URL}/admin/google-drive/folder-name`, {
         method: 'PUT',
@@ -243,7 +254,7 @@ export default function Settings() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         },
-        body: JSON.stringify({ folderName: googleDriveFolderName })
+        body: JSON.stringify({ folderName: trimmedFolderName })
       })
 
       const data = await response.json().catch(() => null)
@@ -1030,31 +1041,34 @@ export default function Settings() {
                 </button>
               </div>
 
-              <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Drive folder name (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={googleDriveFolderName}
-                    onChange={(e) => setGoogleDriveFolderName(e.target.value)}
-                    placeholder="NexiFlow Screenshots"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  />
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Leave blank to use the default folder. Changing this affects future uploads only.
-                  </p>
+              {googleDriveStatus.connected && (
+                <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Drive folder name (required)
+                    </label>
+                    <input
+                      type="text"
+                      value={googleDriveFolderName}
+                      onChange={(e) => setGoogleDriveFolderName(e.target.value)}
+                      placeholder="NexiFlow Screenshots"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      We’ll automatically create this folder in Google Drive (if it doesn’t exist) and use it for future screenshot uploads.
+                    </p>
+                  </div>
+                  <div className="md:col-span-1 flex md:items-end">
+                    <button
+                      onClick={() => void handleSaveGoogleDriveFolderName()}
+                      disabled={!googleDriveFolderName.trim()}
+                      className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium disabled:opacity-50"
+                    >
+                      Save folder name
+                    </button>
+                  </div>
                 </div>
-                <div className="md:col-span-1 flex md:items-end">
-                  <button
-                    onClick={() => void handleSaveGoogleDriveFolderName()}
-                    className="w-full px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 text-sm font-medium"
-                  >
-                    Save folder name
-                  </button>
-                </div>
-              </div>
+              )}
 
               <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
                 <button

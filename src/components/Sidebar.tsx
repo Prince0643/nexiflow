@@ -16,7 +16,8 @@ import {
   Home,
   User,
   Shield,
-  Crown
+  Crown,
+  Chrome
 } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { canAccessFeature } from '../utils/permissions'
@@ -50,17 +51,26 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
       { name: 'Task Management', href: '/management', icon: Kanban, requiredFeature: null },
       { name: 'Teams', href: '/teams', icon: UserCheck, requiredFeature: 'teams' },
       { name: 'Reports', href: '/reports', icon: BarChart3, requiredFeature: null },
-      { name: 'Invoicing', href: '/invoicing', icon: FileText, requiredFeature: null }, // Changed to Invoicing
+      { name: 'Invoicing', href: '/invoicing', icon: FileText, requiredFeature: 'invoicing' },
       { name: 'Admin Dashboard', href: '/admin', icon: User, requiredFeature: 'admin-dashboard' },
       { name: 'Settings', href: '/settings', icon: Settings, requiredFeature: null },
       // Removed PDF Settings from sidebar - will be accessible through Settings page
     ]
 
+    if (currentCompany?.pricingLevel === 'office' || currentCompany?.pricingLevel === 'enterprise') {
+      allNavigation.splice(8, 0, {
+        name: 'Chrome Extension',
+        href: '/chrome-extension',
+        icon: Chrome,
+        requiredFeature: null
+      })
+    }
+
     // For solo pricing level, hide certain tabs and add Upgrade CTA
     if (currentCompany?.pricingLevel === 'solo') {
       // Hide certain tabs for Solo users
       allNavigation = allNavigation.filter(item => 
-        !['Task Management', 'Teams', 'Reports', 'Invoicing'].includes(item.name)
+        !['Task Management', 'Teams', 'Reports', 'Invoicing', 'Chrome Extension'].includes(item.name)
       );
       
       // Add Upgrade CTA tab for Solo users
