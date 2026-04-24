@@ -50,7 +50,7 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
       { name: 'Clients', href: '/clients', icon: Building2, requiredFeature: 'clients' },
       { name: 'Task Management', href: '/management', icon: Kanban, requiredFeature: null },
       { name: 'Teams', href: '/teams', icon: UserCheck, requiredFeature: 'teams' },
-      { name: 'Reports', href: '/reports', icon: BarChart3, requiredFeature: null },
+      { name: 'My Reports', href: '/reports', icon: BarChart3, requiredFeature: null },
       { name: 'Invoicing', href: '/invoicing', icon: FileText, requiredFeature: 'invoicing' },
       { name: 'Admin Dashboard', href: '/admin', icon: User, requiredFeature: 'admin-dashboard' },
       { name: 'Settings', href: '/settings', icon: Settings, requiredFeature: null },
