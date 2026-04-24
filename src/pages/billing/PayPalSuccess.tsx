@@ -36,10 +36,9 @@ export default function PayPalSuccess() {
         const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
         const authToken = localStorage.getItem('authToken')
 
-        // PayPal can redirect back after the user session is gone (new tab/incognito/expired).
-        // Defer capture until after the user signs in again.
+        // If the user isn't signed in (or can't sign in yet because email is unverified),
+        // rely on the PayPal webhook to activate the subscription and show an informational success page.
         if (!authToken) {
-          localStorage.setItem('pendingPayPalOrderId', token)
           setCapturing(false)
           return
         }
@@ -114,13 +113,19 @@ export default function PayPalSuccess() {
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
           <h2 className="text-2xl font-bold mb-4">Almost done</h2>
           <p className="text-gray-600 mb-6">
-            Please sign in to activate your subscription.
+            If your payment was completed, your subscription will be activated shortly. Please verify your email, then sign in to access your account.
           </p>
           <button
-            onClick={() => navigate(`/auth?returnTo=${encodeURIComponent(`/billing/paypal-success?token=${orderId}`)}`)}
+            onClick={() => navigate('/verify-email')}
             className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
           >
-            Sign in to Activate
+            Verify Email
+          </button>
+          <button
+            onClick={() => navigate('/auth')}
+            className="mt-3 w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors"
+          >
+            Sign In
           </button>
         </div>
       </div>

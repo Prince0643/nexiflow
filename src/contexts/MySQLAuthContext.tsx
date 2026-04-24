@@ -30,7 +30,7 @@ interface MySQLAuthContextType {
   signup: (
     credentials: SignupCredentials,
     companyName?: string
-  ) => Promise<{ success: boolean; error?: string; requiresEmailVerification?: boolean }>
+  ) => Promise<{ success: boolean; error?: string; requiresEmailVerification?: boolean; billingToken?: string | null }>
   logout: () => Promise<void>
   refreshSession: () => Promise<void>
   resetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
@@ -305,7 +305,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
 
       if (data.requiresEmailVerification) {
         localStorage.setItem('pendingVerificationEmail', credentials.email)
-        return { success: true, requiresEmailVerification: true }
+        return { success: true, requiresEmailVerification: true, billingToken: data.billingToken ?? null }
       }
       
       // Create AuthUser object

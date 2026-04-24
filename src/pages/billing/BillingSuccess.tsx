@@ -4,15 +4,14 @@ import { CheckCircle } from 'lucide-react'
 
 export default function BillingSuccess() {
   const navigate = useNavigate()
+  const hasAuthToken = !!localStorage.getItem('authToken')
 
   useEffect(() => {
-    // Refresh user data after successful payment
-    const timer = setTimeout(() => {
-      navigate('/settings')
-    }, 5000)
+    if (!hasAuthToken) return
+    const timer = setTimeout(() => navigate('/settings'), 5000)
 
     return () => clearTimeout(timer)
-  }, [navigate])
+  }, [navigate, hasAuthToken])
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -29,15 +28,35 @@ export default function BillingSuccess() {
             Your company plan has been upgraded. You now have access to all features included in your new plan.
           </p>
         </div>
-        <p className="text-sm text-gray-500">
-          Redirecting to settings in 5 seconds...
-        </p>
-        <button
-          onClick={() => navigate('/settings')}
-          className="mt-4 w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
-        >
-          Go to Settings
-        </button>
+        {hasAuthToken ? (
+          <>
+            <p className="text-sm text-gray-500">Redirecting to settings in 5 seconds...</p>
+            <button
+              onClick={() => navigate('/settings')}
+              className="mt-4 w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Go to Settings
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-gray-500">
+              Please verify your email, then sign in to access your upgraded plan.
+            </p>
+            <button
+              onClick={() => navigate('/verify-email')}
+              className="mt-4 w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Verify Email
+            </button>
+            <button
+              onClick={() => navigate('/auth')}
+              className="mt-3 w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors"
+            >
+              Sign In
+            </button>
+          </>
+        )}
       </div>
     </div>
   )

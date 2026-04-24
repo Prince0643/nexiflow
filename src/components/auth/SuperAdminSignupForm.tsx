@@ -83,6 +83,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false)
   const [pendingPlan, setPendingPlan] = useState<UpgradePlan | null>(null)
   const [selectedProvider, setSelectedProvider] = useState<PaymentProvider | null>(null)
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -170,13 +171,17 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
     setIsProviderModalOpen(false)
     setPendingPlan(null)
     setSelectedProvider(null)
+    if (pendingEmail) {
+      navigate(`/verify-email?email=${encodeURIComponent(pendingEmail)}`)
+      return
+    }
     navigate('/')
   }
 
   const startPayment = async (plan: UpgradePlan, provider: PaymentProvider) => {
-    const token = localStorage.getItem('authToken')
+    const token = localStorage.getItem('authToken') || localStorage.getItem('pendingBillingToken')
     if (!token) {
-      setError('Session expired. Please sign in again and try upgrading.')
+      setError('Unable to start payment. Please try again.')
       return
     }
 
@@ -198,11 +203,12 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
           })
         })
 
-        const data = await response.json().catch(() => null)
-        if (response.ok && data?.success && data?.approvalUrl) {
-          window.location.href = data.approvalUrl
-          return
-        }
+      const data = await response.json().catch(() => null)
+      if (response.ok && data?.success && data?.approvalUrl) {
+        localStorage.removeItem('pendingBillingToken')
+        window.location.href = data.approvalUrl
+        return
+      }
 
         setError(data?.error || 'Failed to initiate PayPal checkout. Please try again.')
         return
@@ -223,6 +229,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
       const data = await response.json().catch(() => null)
       if (response.ok && data?.success && data?.checkoutUrl) {
+        localStorage.removeItem('pendingBillingToken')
         window.location.href = data.checkoutUrl
         return
       }
@@ -261,11 +268,21 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
       if (result.success) {
         if (result.requiresEmailVerification) {
+          setPendingEmail(formData.email)
           if (formData.plan === 'office' || formData.plan === 'enterprise') {
             localStorage.setItem('pendingPostSignupPlan', formData.plan)
-          } else {
-            localStorage.removeItem('pendingPostSignupPlan')
+            if (result.billingToken) {
+              localStorage.setItem('pendingBillingToken', result.billingToken)
+            }
+            const paidPlan = formData.plan as UpgradePlan
+            setPendingPlan(paidPlan)
+            setSelectedProvider(null)
+            setIsProviderModalOpen(true)
+            return
           }
+
+          localStorage.removeItem('pendingPostSignupPlan')
+          localStorage.removeItem('pendingBillingToken')
           navigate(`/verify-email?email=${encodeURIComponent(formData.email)}`)
           return
         }

@@ -699,6 +699,71 @@ async function authenticateToken(req, res, next) {
   }
 };
 
+const BILLING_CHECKOUT_SCOPE = 'billing:checkout';
+
+const signBillingCheckoutToken = ({ userId, companyId }) => {
+  return jwt.sign(
+    {
+      tokenType: 'billing_checkout',
+      scopes: [BILLING_CHECKOUT_SCOPE],
+      userId,
+      companyId: companyId || null
+    },
+    process.env.JWT_SECRET || 'clockistry_secret_key',
+    { expiresIn: '15m' }
+  );
+};
+
+async function authenticateCheckoutOrUser(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    console.log('No token provided in request');
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'clockistry_secret_key');
+    const isBillingCheckoutToken = decoded?.tokenType === 'billing_checkout';
+    const scopes = Array.isArray(decoded?.scopes) ? decoded.scopes : [];
+
+    if (isBillingCheckoutToken && !scopes.includes(BILLING_CHECKOUT_SCOPE)) {
+      return res.status(403).json({ error: 'Insufficient token scope' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT * FROM users WHERE id = ? AND is_active = 1',
+        [decoded.userId]
+      );
+
+      if (rows.length === 0) {
+        console.log('User not found or inactive for userId:', decoded.userId);
+        return res.status(401).json({ error: 'Invalid user' });
+      }
+
+      const user = rows[0];
+      req.user = {
+        uid: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        companyId: user.company_id || null
+      };
+      req.auth = { tokenType: isBillingCheckoutToken ? 'billing_checkout' : 'user' };
+
+      next();
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+}
+
 // ============================================
 // GOOGLE DRIVE (PER-COMPANY SUPER ADMIN)
 // ============================================
@@ -3982,9 +4047,15 @@ app.post('/api/auth/signup', async (req, res) => {
       const verifyLink = `${getFrontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}`;
       await billingEmailService.sendEmailVerificationEmail({ name: user.name, email: user.email }, verifyLink);
 
+      const billingToken =
+        role === 'super_admin' && companyData?.id
+          ? signBillingCheckoutToken({ userId, companyId: companyData.id })
+          : null;
+
       res.status(201).json({
         success: true,
         requiresEmailVerification: true,
+        billingToken,
         user: {
           id: user.id,
           name: user.name,
@@ -7135,7 +7206,7 @@ async function applyPaidPlanUpgrade(connection, { orderId, transaction, captureI
 }
 
 // Create checkout session for plan upgrade via external PayMongo backend
-app.post('/api/billing/create-checkout-session', authenticateToken, async (req, res) => {
+app.post('/api/billing/create-checkout-session', authenticateCheckoutOrUser, async (req, res) => {
   try {
     const { plan, successUrl, cancelUrl, paymentMethod } = req.body;
     const companyId = req.user.companyId;
@@ -7147,6 +7218,10 @@ app.post('/api/billing/create-checkout-session', authenticateToken, async (req, 
     
     if (!plan || !['office', 'enterprise'].includes(plan)) {
       return res.status(400).json({ error: 'Invalid plan. Must be office or enterprise' });
+    }
+
+    if (req.user.role !== 'super_admin' && req.user.role !== 'root') {
+      return res.status(403).json({ error: 'Only super admins can upgrade the plan' });
     }
     
     // Bill per active user (up to the plan cap)
@@ -7671,7 +7746,7 @@ app.get('/api/billing/status', authenticateToken, async (req, res) => {
 // ============================================
 
 // Create PayPal order for plan upgrade or seat purchase
-app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res) => {
+app.post('/api/billing/create-paypal-order', authenticateCheckoutOrUser, async (req, res) => {
   try {
     const { plan, additionalSeats, successUrl, cancelUrl } = req.body;
     const companyId = req.user.companyId;
@@ -7699,6 +7774,10 @@ app.post('/api/billing/create-paypal-order', authenticateToken, async (req, res)
       return res.status(400).json({
         error: 'Seat add-ons are not supported. NexiFlow bills per active user per month up to your plan limit (Office: 10, Enterprise: 100).'
       });
+    }
+
+    if (isPlanUpgrade && req.user.role !== 'super_admin' && req.user.role !== 'root') {
+      return res.status(403).json({ error: 'Only super admins can upgrade the plan' });
     }
     
     // Only super_admin can purchase seats

@@ -91,6 +91,8 @@ function AppContent() {
           {/* PayPal can redirect back when the user is logged out; allow activation flow */}
           <Route path="/billing/paypal-success" element={<PayPalSuccess />} />
           <Route path="/billing/paypal-cancel" element={<PayPalCancel />} />
+          <Route path="/billing/success" element={<BillingSuccess />} />
+          <Route path="/billing/cancel" element={<BillingCancel />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     )

@@ -3,6 +3,7 @@ import { XCircle } from 'lucide-react'
 
 export default function BillingCancel() {
   const navigate = useNavigate()
+  const hasAuthToken = !!localStorage.getItem('authToken')
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -21,16 +22,16 @@ export default function BillingCancel() {
         </div>
         <div className="space-y-3">
           <button
-            onClick={() => navigate('/upgrade')}
+            onClick={() => navigate(hasAuthToken ? '/upgrade' : '/auth')}
             className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
           >
             Try Again
           </button>
           <button
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate(hasAuthToken ? '/settings' : '/verify-email')}
             className="w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-300 transition-colors"
           >
-            Go to Settings
+            {hasAuthToken ? 'Go to Settings' : 'Verify Email'}
           </button>
         </div>
       </div>
