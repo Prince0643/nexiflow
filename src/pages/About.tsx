@@ -207,7 +207,7 @@ const About = () => {
       ]
     },
     {
-      role: "HR Manager",
+      role: "Moderator",
       icon: <Users className="h-6 w-6 text-green-600" />,
       permissions: [
         "All employee permissions",

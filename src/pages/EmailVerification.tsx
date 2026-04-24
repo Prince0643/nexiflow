@@ -51,7 +51,19 @@ export default function EmailVerification() {
           localStorage.removeItem('pendingVerificationEmail')
           setVerificationStatus('success')
           setMessage('Email verified. Redirecting to sign in…')
-          window.setTimeout(() => navigate('/auth'), 1200)
+          const pendingPlan = localStorage.getItem('pendingPostSignupPlan')
+          const returnTo =
+            pendingPlan === 'office' || pendingPlan === 'enterprise'
+              ? `/upgrade?plan=${encodeURIComponent(pendingPlan)}&resume=post_signup`
+              : ''
+
+          window.setTimeout(() => {
+            if (returnTo) {
+              navigate(`/auth?returnTo=${encodeURIComponent(returnTo)}`, { replace: true })
+            } else {
+              navigate('/auth', { replace: true })
+            }
+          }, 1200)
         }
       } catch (err: any) {
         if (!cancelled) {

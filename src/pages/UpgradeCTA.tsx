@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import PaymentProviderPickerModal, { PaymentProvider, UpgradePlan } from '../components/billing/PaymentProviderPickerModal'
+import { useSearchParams } from 'react-router-dom'
 import { 
   Crown, 
   Users, 
@@ -17,11 +18,13 @@ import {
 } from 'lucide-react'
 
 export default function UpgradeCTA() {
+  const [searchParams] = useSearchParams()
   const { currentCompany, currentUser } = useMySQLAuth()
   const [loading, setLoading] = useState(false)
   const [isProviderModalOpen, setIsProviderModalOpen] = useState(false)
   const [pendingPlan, setPendingPlan] = useState<UpgradePlan | null>(null)
   const [selectedProvider, setSelectedProvider] = useState<PaymentProvider | null>(null)
+  const didAutoOpenRef = useRef(false)
 
   const OFFICE_PRICE_USD = 9
   const ENTERPRISE_PRICE_USD = 12
@@ -177,6 +180,22 @@ export default function UpgradeCTA() {
     setSelectedProvider(null)
     setIsProviderModalOpen(true)
   }
+
+  useEffect(() => {
+    if (didAutoOpenRef.current) return
+    const resume = (searchParams.get('resume') || '').trim()
+    const planParam = (searchParams.get('plan') || '').trim() as UpgradePlan | ''
+    if (resume !== 'post_signup') return
+    if (planParam !== 'office' && planParam !== 'enterprise') return
+    if (!canUpgrade) return
+    if (!currentCompany) return
+
+    didAutoOpenRef.current = true
+    localStorage.removeItem('pendingPostSignupPlan')
+    setPendingPlan(planParam)
+    setSelectedProvider(null)
+    setIsProviderModalOpen(true)
+  }, [searchParams, canUpgrade, currentCompany])
 
   const closeProviderModal = () => {
     if (loading) return

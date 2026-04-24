@@ -2,10 +2,13 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Eye, EyeOff, AlertCircle, X } from 'lucide-react'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { LoginCredentials } from '../../types'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 interface LoginFormProps {}
 
 export default function LoginForm({}: LoginFormProps) {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [credentials, setCredentials] = useState<LoginCredentials>({
     email: '',
     password: ''
@@ -52,6 +55,12 @@ export default function LoginForm({}: LoginFormProps) {
         const errorMsg = result.error || 'Failed to login. Please try again.'
         errorRef.current = errorMsg
         setError(errorMsg)
+        return
+      }
+
+      const returnTo = (searchParams.get('returnTo') || '').trim()
+      if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+        navigate(returnTo, { replace: true })
       }
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to login. Please try again.'

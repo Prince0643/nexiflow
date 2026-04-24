@@ -41,6 +41,7 @@ export default function Settings() {
   const [showPassword, setShowPassword] = useState(false)
   const canEditRates = currentUser?.role ? canEditHourlyRates(currentUser.role) : false
   const canManageIntegrations = currentUser?.role === 'super_admin' || currentUser?.role === 'root'
+  const canUseIntegrations = canManageIntegrations && currentCompany?.pricingLevel !== 'solo'
   
   // Profile settings
   const [profileData, setProfileData] = useState({
@@ -107,10 +108,16 @@ export default function Settings() {
   }, [currentUser])
 
   useEffect(() => {
-    if (!canManageIntegrations) return
+    if (!canUseIntegrations) return
     if (activeTab !== 'integrations') return
     void loadGoogleDriveStatus()
-  }, [activeTab, canManageIntegrations])
+  }, [activeTab, canUseIntegrations])
+
+  useEffect(() => {
+    if (!canUseIntegrations && activeTab === 'integrations') {
+      setActiveTab('profile')
+    }
+  }, [activeTab, canUseIntegrations])
 
   const loadSettings = async () => {
     try {
@@ -562,7 +569,7 @@ export default function Settings() {
             { id: 'profile', name: 'Profile', icon: User },
             { id: 'general', name: 'General', icon: SettingsIcon },
             { id: 'notifications', name: 'Notifications', icon: Bell },
-            canManageIntegrations && { id: 'integrations', name: 'Integrations', icon: Globe },
+            canUseIntegrations && { id: 'integrations', name: 'Integrations', icon: Globe },
             ((currentUser?.role === 'super_admin' || currentUser?.role === 'root') || 
              currentCompany?.pricingLevel === 'office' || currentCompany?.pricingLevel === 'enterprise') && 
               { id: 'pdf', name: 'PDF Settings', icon: FileText }
@@ -948,7 +955,7 @@ export default function Settings() {
         )}
 
         {/* Integrations Tab */}
-        {activeTab === 'integrations' && canManageIntegrations && (
+        {activeTab === 'integrations' && canUseIntegrations && (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-start justify-between gap-4">
               <div>

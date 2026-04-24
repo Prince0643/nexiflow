@@ -261,6 +261,11 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
       if (result.success) {
         if (result.requiresEmailVerification) {
+          if (formData.plan === 'office' || formData.plan === 'enterprise') {
+            localStorage.setItem('pendingPostSignupPlan', formData.plan)
+          } else {
+            localStorage.removeItem('pendingPostSignupPlan')
+          }
           navigate(`/verify-email?email=${encodeURIComponent(formData.email)}`)
           return
         }
