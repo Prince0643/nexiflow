@@ -5965,32 +5965,59 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 
     const connection = await pool.getConnection();
     try {
-      let query = 'SELECT * FROM users WHERE is_active = 1';
-      const params = [];
+      let query;
+      let params = [];
 
-      // For root users without company, show all users (root dashboard)
-      // For non-root users, always filter by company
       if (req.user.role === 'root') {
-        // Root users can see all users, or filter by their company if they have one
-        if (companyId) {
-          query += ' AND (company_id = ? OR company_id IS NULL)';
-          params.push(companyId);
+        if (!companyId) {
+          query = 'SELECT u.*, u.role AS effective_role, u.company_id AS effective_company_id FROM users u WHERE u.is_active = 1 ORDER BY u.created_at DESC';
+        } else {
+          // Root users with an active company context: include legacy company_id matches, NULL company_id, or memberships in that company.
+          query = `
+            SELECT DISTINCT
+              u.*,
+              COALESCE(m.role, u.role) AS effective_role,
+              COALESCE(m.company_id, u.company_id) AS effective_company_id
+            FROM users u
+            LEFT JOIN company_memberships m
+              ON m.user_id = u.id
+             AND m.company_id = ?
+             AND m.is_active = 1
+            WHERE u.is_active = 1
+              AND (u.company_id = ? OR u.company_id IS NULL OR m.user_id IS NOT NULL)
+            ORDER BY u.created_at DESC
+          `;
+          params = [companyId, companyId];
         }
       } else {
-        // Non-root users MUST have company filtering
-        // If they have a company, show only that company's users
-        // If they don't have a company, show only themselves
-        if (companyId) {
-          query += ' AND company_id = ?';
-          params.push(companyId);
+        // Non-root users are scoped to their active company membership.
+        if (!companyId) {
+          query = `
+            SELECT u.*, u.role AS effective_role, u.company_id AS effective_company_id
+            FROM users u
+            WHERE u.is_active = 1 AND u.id = ?
+            ORDER BY u.created_at DESC
+          `;
+          params = [req.user.uid];
         } else {
-          // No company assigned - user should only see themselves
-          query += ' AND id = ?';
-          params.push(req.user.uid);
+          // Membership-aware filter: include users with membership OR legacy users.company_id fallback.
+          query = `
+            SELECT DISTINCT
+              u.*,
+              COALESCE(m.role, u.role) AS effective_role,
+              ? AS effective_company_id
+            FROM users u
+            LEFT JOIN company_memberships m
+              ON m.user_id = u.id
+             AND m.company_id = ?
+             AND m.is_active = 1
+            WHERE u.is_active = 1
+              AND (m.user_id IS NOT NULL OR u.company_id = ?)
+            ORDER BY u.created_at DESC
+          `;
+          params = [companyId, companyId, companyId];
         }
       }
-
-      query += ' ORDER BY created_at DESC';
 
       const [rows] = await connection.execute(query, params);
       const users = rows.map(row => ({
@@ -5998,8 +6025,8 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
         uid: row.uid,
         name: row.name,
         email: row.email,
-        role: row.role,
-        companyId: row.company_id,
+        role: row.effective_role || row.role,
+        companyId: row.effective_company_id !== undefined ? row.effective_company_id : row.company_id,
         teamId: row.team_id,
         teamRole: row.team_role,
         avatar: row.avatar,
