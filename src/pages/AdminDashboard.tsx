@@ -281,7 +281,8 @@ export default function AdminDashboard() {
     const uidCounts = new Map<string, number>()
     const emailCounts = new Map<string, number>()
 
-    for (const rawUser of items as Array<UserType & { uid?: string | null }>) {
+    for (const rawUser of (items as Array<(UserType & { uid?: string | null }) | null | undefined>)) {
+      if (!rawUser) continue
       const id = typeof rawUser.id === 'string' ? rawUser.id.trim() : ''
       const uid = typeof rawUser.uid === 'string' ? rawUser.uid.trim() : ''
       const email = typeof rawUser.email === 'string' ? rawUser.email.trim().toLowerCase() : ''
@@ -302,7 +303,8 @@ export default function AdminDashboard() {
       if (count > 1) duplicateEmails.add(email)
     }
 
-    for (const rawUser of items as Array<UserType & { uid?: string | null }>) {
+    for (const rawUser of (items as Array<(UserType & { uid?: string | null }) | null | undefined>)) {
+      if (!rawUser) continue
       const id = typeof rawUser.id === 'string' ? rawUser.id.trim() : ''
       const uid = typeof rawUser.uid === 'string' ? rawUser.uid.trim() : ''
       const email = typeof rawUser.email === 'string' ? rawUser.email.trim().toLowerCase() : ''
