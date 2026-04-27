@@ -121,7 +121,7 @@ DROP TABLE IF EXISTS `company_pdf_settings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `company_pdf_settings` (
-  `id` int NOT NULL,
+  `id` int NOT NULL AUTO_INCREMENT,
   `company_id` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
   `company_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `logo_url` text COLLATE utf8mb4_general_ci,

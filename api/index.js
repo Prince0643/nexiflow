@@ -85,6 +85,50 @@ ensureEmailVerificationTables().catch((error) => {
   console.error('Error ensuring email verification tables exist:', error);
 });
 
+const ensureCompanyPdfSettingsTable = async () => {
+  const connection = await pool.getConnection();
+  try {
+    // Ensure table exists (older environments may be missing it)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS company_pdf_settings (
+        id INT NOT NULL AUTO_INCREMENT,
+        company_id VARCHAR(255) NOT NULL,
+        company_name VARCHAR(255) DEFAULT NULL,
+        logo_url TEXT,
+        primary_color VARCHAR(7) DEFAULT '#3B82F6',
+        secondary_color VARCHAR(7) DEFAULT '#10B981',
+        show_powered_by TINYINT(1) DEFAULT 1,
+        custom_footer_text TEXT,
+        PRIMARY KEY (id),
+        UNIQUE KEY unique_company_pdf (company_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    `);
+
+    // Ensure id is AUTO_INCREMENT (required for inserts in /pdf-settings API)
+    const [idRows] = await connection.execute(
+      `
+        SELECT EXTRA
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'company_pdf_settings'
+          AND COLUMN_NAME = 'id'
+        LIMIT 1
+      `
+    );
+
+    const extra = String(idRows?.[0]?.EXTRA || '');
+    if (!extra.toLowerCase().includes('auto_increment')) {
+      await connection.execute('ALTER TABLE company_pdf_settings MODIFY id INT NOT NULL AUTO_INCREMENT');
+    }
+  } finally {
+    connection.release();
+  }
+};
+
+ensureCompanyPdfSettingsTable().catch((error) => {
+  console.error('Error ensuring company_pdf_settings table exists:', error);
+});
+
 const ensurePasswordSetupTables = async () => {
   const connection = await pool.getConnection();
   try {
