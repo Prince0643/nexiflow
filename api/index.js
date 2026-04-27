@@ -5465,39 +5465,38 @@ app.delete('/api/time-entries/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Get time entries for a specific user
-app.get('/api/time-entries/user/:userId', authenticateToken, async (req, res) => {
+const handleGetTimeEntriesForUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     // Check if user has access to this data
     if (req.user.uid !== userId && req.user.role !== 'root' && req.user.companyId) {
       // For non-root users, verify they belong to the same company
       const connection = await pool.getConnection();
       try {
         const [rows] = await connection.execute(
-          'SELECT company_id FROM users WHERE id = ?', 
+          'SELECT company_id FROM users WHERE id = ?',
           [userId]
         );
-        
+
         if (rows.length === 0 || rows[0].company_id !== req.user.companyId) {
-          return res.status(403).json({ error: 'Access denied' });
+          return res.status(403).json({ success: false, error: 'Access denied' });
         }
       } finally {
         connection.release();
       }
     }
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
-        SELECT * FROM time_entries 
+        SELECT * FROM time_entries
         WHERE user_id = ?
         ORDER BY start_time DESC
       `;
-      
+
       const [rows] = await connection.execute(query, [userId]);
-      
+
       const timeEntries = rows.map(row => ({
         id: row.id,
         userId: row.user_id,
@@ -5516,66 +5515,63 @@ app.get('/api/time-entries/user/:userId', authenticateToken, async (req, res) =>
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
-      
-      res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         data: timeEntries,
         count: timeEntries.length
       });
-      
     } finally {
       connection.release();
     }
-    
   } catch (error) {
     console.error('Get time entries by user error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get time entries' 
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get time entries'
     });
   }
-});
+};
 
-// Get currently running time entry for a user
-app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req, res) => {
+const handleGetRunningTimeEntryForUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    
+
     // Check if user has access to this data
     if (req.user.uid !== userId && req.user.role !== 'root' && req.user.companyId) {
       // For non-root users, verify they belong to the same company
       const connection = await pool.getConnection();
       try {
         const [rows] = await connection.execute(
-          'SELECT company_id FROM users WHERE id = ?', 
+          'SELECT company_id FROM users WHERE id = ?',
           [userId]
         );
-        
+
         if (rows.length === 0 || rows[0].company_id !== req.user.companyId) {
-          return res.status(403).json({ error: 'Access denied' });
+          return res.status(403).json({ success: false, error: 'Access denied' });
         }
       } finally {
         connection.release();
       }
     }
-    
+
     const connection = await pool.getConnection();
     try {
       const query = `
-        SELECT * FROM time_entries 
+        SELECT * FROM time_entries
         WHERE user_id = ? AND is_running = 1
         ORDER BY created_at DESC
         LIMIT 1
       `;
-      
+
       const [rows] = await connection.execute(query, [userId]);
       if (rows.length === 0) {
-        return res.json({ 
-          success: true, 
+        return res.json({
+          success: true,
           data: null
         });
       }
-      
+
       const row = rows[0];
       const timeEntry = {
         id: row.id,
@@ -5595,24 +5591,32 @@ app.get('/api/time-entries/user/:userId/running', authenticateToken, async (req,
         createdAt: row.created_at,
         updatedAt: row.updated_at
       };
-      
-      res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         data: timeEntry
       });
-      
     } finally {
       connection.release();
     }
-    
   } catch (error) {
     console.error('Get running time entry error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get running time entry' 
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get running time entry'
     });
   }
-});
+};
+
+// Get time entries for a specific user
+app.get('/api/time-entries/user/:userId', authenticateToken, handleGetTimeEntriesForUser);
+// Legacy alias (Firebase-style underscore route)
+app.get('/api/time_entries/user/:userId', authenticateToken, handleGetTimeEntriesForUser);
+
+// Get currently running time entry for a user
+app.get('/api/time-entries/user/:userId/running', authenticateToken, handleGetRunningTimeEntryForUser);
+// Legacy alias (Firebase-style underscore route)
+app.get('/api/time_entries/user/:userId/running', authenticateToken, handleGetRunningTimeEntryForUser);
 
 // Admin Teams API
 app.get('/api/admin/teams', authenticateToken, async (req, res) => {

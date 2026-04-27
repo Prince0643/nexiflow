@@ -117,23 +117,28 @@ export const timeEntryApiService = {
 
   // Get all time entries for a user
   async getTimeEntries(userId: string): Promise<TimeEntry[]> {
-    const response = await apiRequest<{
-      success: boolean
-      data: TimeEntry[]
-      count: number
-    }>(`/time-entries/user/${userId}`)
-    
-    if (!response.success) {
-      throw new Error('Failed to get time entries')
-    }
+    try {
+      const response = await apiRequest<{
+        success: boolean
+        data: TimeEntry[]
+        count: number
+      }>(`/time-entries/user/${userId}`)
 
-    return response.data.map((entry: TimeEntry) => ({
-      ...entry,
-      startTime: new Date(entry.startTime),
-      endTime: entry.endTime ? new Date(entry.endTime) : undefined,
-      createdAt: new Date(entry.createdAt),
-      updatedAt: new Date(entry.updatedAt)
-    }))
+      if (!response.success) {
+        return []
+      }
+
+      return (response.data || []).map((entry: TimeEntry) => ({
+        ...entry,
+        startTime: new Date(entry.startTime),
+        endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+        createdAt: new Date(entry.createdAt),
+        updatedAt: new Date(entry.updatedAt)
+      }))
+    } catch (error) {
+      console.warn('Failed to fetch time entries for user; returning empty list.', error)
+      return []
+    }
   },
 
   // Get time entries for a specific date range
@@ -212,16 +217,21 @@ export const timeEntryApiService = {
 
   // Get currently running time entry for a user
   async getRunningTimeEntry(userId: string): Promise<TimeEntry | null> {
-    const response = await apiRequest<{
-      success: boolean
-      data: TimeEntry | null
-    }>(`/time-entries/user/${userId}/running`)
-    
-    if (!response.success) {
-      throw new Error('Failed to get running time entry')
+    try {
+      const response = await apiRequest<{
+        success: boolean
+        data: TimeEntry | null
+      }>(`/time-entries/user/${userId}/running`)
+
+      if (!response.success) {
+        return null
+      }
+
+      return response.data
+    } catch (error) {
+      console.warn('Failed to fetch running time entry; returning null.', error)
+      return null
     }
-    
-    return response.data
   },
 
   // Stop a running time entry
