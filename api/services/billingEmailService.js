@@ -137,6 +137,108 @@ If you did not request a password reset, you can safely ignore this email.
 }
 
 /**
+ * Send set-password invite email (admin-created users)
+ */
+async function sendSetPasswordInviteEmail(user, setPasswordLink) {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">Set up your NexiFlow account</h2>
+      <p>Hello ${user.name || 'there'},</p>
+      <p>An administrator created a NexiFlow account for you. Please set your password to activate your account.</p>
+
+      <p>
+        <a href="${setPasswordLink}"
+           style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+          Set Password
+        </a>
+      </p>
+
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        This link will expire in 24 hours.
+      </p>
+    </div>
+  `;
+
+  const text = `
+Set up your NexiFlow account
+
+Hello ${user.name || 'there'},
+
+An administrator created a NexiFlow account for you. Set your password using this link (expires in 24 hours):
+${setPasswordLink}
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: user.email,
+      subject: 'Set your NexiFlow password',
+      text,
+      html
+    });
+
+    console.log(`Set-password invite email sent to ${user.email}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send set-password invite email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Send company invite email (existing user invited to join another company)
+ */
+async function sendCompanyInviteEmail(invitee, inviteLink, companyName, role, inviterName) {
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #333;">You're invited to join ${companyName}</h2>
+      <p>Hello ${invitee.name || 'there'},</p>
+      <p>${inviterName || 'An administrator'} invited you to join <strong>${companyName}</strong> on NexiFlow.</p>
+      <p><strong>Role:</strong> ${role}</p>
+
+      <p>
+        <a href="${inviteLink}"
+           style="display: inline-block; background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+          Review Invite
+        </a>
+      </p>
+
+      <p style="margin-top: 30px; font-size: 12px; color: #666;">
+        This link will expire in 24 hours.
+      </p>
+    </div>
+  `;
+
+  const text = `
+You're invited to join ${companyName}
+
+Hello ${invitee.name || 'there'},
+
+${inviterName || 'An administrator'} invited you to join ${companyName} on NexiFlow.
+Role: ${role}
+
+Review and accept the invite (expires in 24 hours):
+${inviteLink}
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'NexiFlow <support@nexiflow.com>',
+      to: invitee.email,
+      subject: `Invitation to join ${companyName} on NexiFlow`,
+      text,
+      html
+    });
+
+    console.log(`Company invite email sent to ${invitee.email}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to send company invite email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Send grace period notification email
  */
 async function sendGracePeriodNotification(company, superAdmin, graceEndDate) {
@@ -412,5 +514,7 @@ module.exports = {
   sendGracePeriodNotification,
   sendDowngradeNotification,
   sendPasswordResetEmail,
+  sendSetPasswordInviteEmail,
+  sendCompanyInviteEmail,
   sendEmailVerificationEmail
 };

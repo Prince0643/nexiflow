@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, User, Mail, Lock, Shield, Eye, EyeOff } from 'lucide-react'
+import { X, User, Mail, Shield } from 'lucide-react'
 import { UserRole } from '../../types'
 import { getRoleDisplayName, getRoleDescription, canManageUser } from '../../utils/permissions'
 
@@ -13,7 +13,6 @@ interface UserCreateModalProps {
 interface CreateUserData {
   name: string
   email: string
-  password: string
   role: UserRole
   hourlyRate?: number
   timezone: string
@@ -28,12 +27,10 @@ export default function UserCreateModal({
   const [formData, setFormData] = useState<CreateUserData>({
     name: '',
     email: '',
-    password: '',
     role: 'employee',
     hourlyRate: 25,
     timezone: 'America/New_York'
   })
-  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -60,16 +57,6 @@ export default function UserCreateModal({
       return
     }
 
-    if (!formData.password.trim()) {
-      setError('Password is required')
-      return
-    }
-
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters long')
-      return
-    }
-
     // Check if current user can manage the selected role
     if (!canManageUser(currentUserRole, formData.role)) {
       setError(`You don't have permission to create ${getRoleDisplayName(formData.role)} accounts`)
@@ -83,7 +70,6 @@ export default function UserCreateModal({
       setFormData({
         name: '',
         email: '',
-        password: '',
         role: 'employee',
         hourlyRate: 25,
         timezone: 'America/New_York'
@@ -154,32 +140,8 @@ export default function UserCreateModal({
             />
           </div>
 
-          {/* Password Field */}
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                id="password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                required
-                value={formData.password}
-                onChange={handleInputChange}
-                className="input pr-10"
-                placeholder="Enter password"
-                disabled={loading}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                disabled={loading}
-              >
-                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
-            </div>
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 px-4 py-3 rounded-lg text-sm">
+            The user will receive an email invite to set their password.
           </div>
 
           {/* Role Selection */}

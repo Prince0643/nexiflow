@@ -296,7 +296,8 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
         navigate('/')
       } else {
-        setError(result.error || 'Failed to create account. Please try again.')
+        const message = result.error || 'Failed to create account. Please try again.'
+        setError(message)
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to create account. Please try again.')

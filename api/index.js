@@ -85,6 +85,75 @@ ensureEmailVerificationTables().catch((error) => {
   console.error('Error ensuring email verification tables exist:', error);
 });
 
+const ensurePasswordSetupTables = async () => {
+  const connection = await pool.getConnection();
+  try {
+    const [columnRows] = await connection.execute(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'users'
+          AND COLUMN_NAME = 'needs_password_setup'
+        LIMIT 1
+      `
+    );
+    if (!columnRows.length) {
+      await connection.execute(`ALTER TABLE users ADD COLUMN needs_password_setup TINYINT(1) NOT NULL DEFAULT 0`);
+    }
+
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS password_setup_tokens (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(64) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        used_at DATETIME DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_password_setup_token_hash (token_hash),
+        KEY idx_password_setup_user (user_id),
+        CONSTRAINT fk_password_setup_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    `);
+  } finally {
+    connection.release();
+  }
+}
+
+ensurePasswordSetupTables().catch((error) => {
+  console.error('Error ensuring password setup tables exist:', error);
+});
+
+const ensureCompanyInviteTables = async () => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS company_invites (
+        id VARCHAR(255) PRIMARY KEY,
+        company_id VARCHAR(255) NOT NULL,
+        inviter_user_id VARCHAR(255) NOT NULL,
+        invitee_user_id VARCHAR(255) DEFAULT NULL,
+        invitee_email VARCHAR(255) NOT NULL,
+        role ENUM('employee','hr','admin','super_admin','root') NOT NULL,
+        token_hash VARCHAR(64) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        accepted_at DATETIME DEFAULT NULL,
+        declined_at DATETIME DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_company_invites_token_hash (token_hash),
+        KEY idx_company_invites_email (invitee_email),
+        KEY idx_company_invites_company (company_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    `);
+  } finally {
+    connection.release();
+  }
+}
+
+ensureCompanyInviteTables().catch((error) => {
+  console.error('Error ensuring company invite tables exist:', error);
+});
+
 const ensureSystemLogsTable = async () => {
   const connection = await pool.getConnection();
   try {
@@ -195,6 +264,45 @@ async function createEmailVerificationToken(connection, userId) {
   );
 
   return { rawToken, expiresAt };
+}
+
+async function createPasswordSetupToken(connection, userId) {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = sha256Hex(rawToken);
+  const tokenId = uuidv4();
+  const expiresAt = moment().add(24, 'hours').toDate();
+
+  await connection.execute(
+    `INSERT INTO password_setup_tokens (id, user_id, token_hash, expires_at, used_at) VALUES (?, ?, ?, ?, NULL)`,
+    [tokenId, userId, tokenHash, expiresAt]
+  );
+
+  return { rawToken, expiresAt };
+}
+
+async function createCompanyInviteToken(connection, invite) {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = sha256Hex(rawToken);
+  const inviteId = uuidv4();
+  const expiresAt = moment().add(24, 'hours').toDate();
+
+  await connection.execute(
+    `INSERT INTO company_invites
+      (id, company_id, inviter_user_id, invitee_user_id, invitee_email, role, token_hash, expires_at, accepted_at, declined_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+    [
+      inviteId,
+      invite.companyId,
+      invite.inviterUserId,
+      invite.inviteeUserId || null,
+      String(invite.inviteeEmail || '').trim().toLowerCase(),
+      invite.role,
+      tokenHash,
+      expiresAt
+    ]
+  );
+
+  return { rawToken, inviteId, expiresAt };
 }
 
 // Configure uploads directory
@@ -680,12 +788,49 @@ async function authenticateToken(req, res, next) {
       }
       
       const user = rows[0];
+
+      // Multi-company: company is selected per token via decoded.companyId (or decoded.activeCompanyId).
+      // Backwards compatible with older tokens and legacy single-company users.company_id.
+      const tokenCompanyId = decoded.activeCompanyId || decoded.companyId || null;
+      let effectiveCompanyId = tokenCompanyId || user.company_id || null;
+      let effectiveRole = decoded.membershipRole || user.role;
+
+      if (effectiveCompanyId) {
+        try {
+          const [membershipRows] = await connection.execute(
+            'SELECT role, is_active FROM company_memberships WHERE user_id = ? AND company_id = ? LIMIT 1',
+            [user.id, effectiveCompanyId]
+          );
+          if (membershipRows.length) {
+            if (membershipRows[0].is_active === 0) {
+              return res.status(403).json({ error: 'Company membership inactive' });
+            }
+            effectiveRole = membershipRows[0].role || effectiveRole;
+          } else if (user.company_id === effectiveCompanyId) {
+            // Lazy-migrate legacy users into memberships table.
+            await connection.execute(
+              'INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?)',
+              [uuidv4(), user.id, effectiveCompanyId, user.role, new Date(), new Date()]
+            );
+            effectiveRole = user.role;
+          } else {
+            // Token requested a company the user isn't a member of.
+            return res.status(403).json({ error: 'Access denied' });
+          }
+        } catch (e) {
+          // If the memberships table doesn't exist yet, fall back to legacy behavior.
+          console.warn('company_memberships lookup failed; falling back to users.company_id', e?.message || e);
+          effectiveCompanyId = user.company_id || null;
+          effectiveRole = user.role;
+        }
+      }
+
       req.user = {
         uid: user.id,
         email: user.email,
-        role: user.role,
+        role: effectiveRole,
         name: user.name,
-        companyId: user.company_id || null
+        companyId: effectiveCompanyId
       };
       
       console.log('User authenticated successfully:', req.user);
@@ -3223,6 +3368,14 @@ app.post('/api/auth/login', async (req, res) => {
       
       const user = userRows[0];
 
+      if (user.needs_password_setup === 1) {
+        return res.status(403).json({
+          success: false,
+          error: 'This account is pending activation. Please check your email to set your password.',
+          needsPasswordSetup: true
+        });
+      }
+
       // Verify the password
       const isPasswordValid = await bcrypt.compare(password, user.password_hash);
       if (!isPasswordValid) {
@@ -3241,58 +3394,123 @@ app.post('/api/auth/login', async (req, res) => {
         });
       }
       
-      // Generate JWT token
+      // Load memberships (multi-company). Fall back to legacy users.company_id if needed.
+      let memberships = [];
+      try {
+        const [membershipRows] = await connection.execute(
+          `SELECT m.company_id, m.role, m.is_default, m.is_active, c.name, c.is_active AS company_is_active,
+                  c.pricing_level, c.max_members, c.created_at, c.updated_at
+           FROM company_memberships m
+           JOIN companies c ON c.id = m.company_id
+           WHERE m.user_id = ? AND m.is_active = 1
+           ORDER BY m.is_default DESC, c.created_at ASC`,
+          [user.id]
+        );
+        memberships = membershipRows || [];
+      } catch (e) {
+        console.warn('company_memberships lookup failed in login; falling back to users.company_id', e?.message || e);
+      }
+
+      if ((!memberships || memberships.length === 0) && user.company_id) {
+        // Lazy-migrate legacy users into memberships table (best-effort).
+        try {
+          await connection.execute(
+            'INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?)',
+            [uuidv4(), user.id, user.company_id, user.role, new Date(), new Date()]
+          );
+        } catch {
+          // ignore if table doesn't exist yet
+        }
+        const companyQuery = `SELECT * FROM companies WHERE id = ?`;
+        const [companyRows] = await connection.execute(companyQuery, [user.company_id]);
+        if (companyRows.length > 0) {
+          const company = companyRows[0];
+          memberships = [
+            {
+              company_id: company.id,
+              role: user.role,
+              is_default: 1,
+              is_active: 1,
+              name: company.name,
+              company_is_active: company.is_active,
+              pricing_level: company.pricing_level,
+              max_members: company.max_members,
+              created_at: company.created_at,
+              updated_at: company.updated_at
+            }
+          ];
+        }
+      }
+
+      if (!memberships || memberships.length === 0) {
+        return res.status(403).json({
+          success: false,
+          error: 'No active company membership found for this account.'
+        });
+      }
+
+      const activeMembership = memberships.find((m) => m.is_default === 1) || memberships[0];
+      const activeCompanyId = activeMembership.company_id;
+      const membershipRole = activeMembership.role || user.role;
+
+      // Generate JWT token scoped to active company
       const token = jwt.sign(
-        { userId: user.id, email: user.email },
+        { userId: user.id, email: user.email, activeCompanyId, membershipRole },
         process.env.JWT_SECRET || 'clockistry_secret_key',
         { expiresIn: '24h' }
       );
-      
-      // Get company information if user has a company
-      let companyData = null;
-      if (user.company_id) {
-        const companyQuery = `SELECT * FROM companies WHERE id = ?`;
-        const [companyRows] = await connection.execute(companyQuery, [user.company_id]);
-        
-        if (companyRows.length > 0) {
-          const company = companyRows[0];
-          const [settingsRows] = await connection.execute(
-            'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
-            [company.id]
-          );
-          const settings = settingsRows.length
-            ? {
-                companyName: settingsRows[0].company_name || '',
-                logoUrl: settingsRows[0].logo_url || '',
-                primaryColor: settingsRows[0].primary_color || '#3B82F6',
-                secondaryColor: settingsRows[0].secondary_color || '#10B981',
-                showPoweredBy:
-                  settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
-                    ? true
-                    : settingsRows[0].show_powered_by === 1,
-                customFooterText: settingsRows[0].custom_footer_text || ''
-              }
-            : undefined;
-          companyData = {
-            id: company.id,
-            name: company.name,
-            isActive: company.is_active === 1,
-            pricingLevel: company.pricing_level,
-            maxMembers: company.max_members,
-            createdAt: company.created_at,
-            updatedAt: company.updated_at,
-            pdfSettings: settings
-          };
-        }
-      }
+
+      const loadCompanyWithSettings = async (companyId) => {
+        const [companyRows] = await connection.execute('SELECT * FROM companies WHERE id = ? LIMIT 1', [companyId]);
+        if (!companyRows.length) return null;
+        const company = companyRows[0];
+        const [settingsRows] = await connection.execute(
+          'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
+          [company.id]
+        );
+        const settings = settingsRows.length
+          ? {
+              companyName: settingsRows[0].company_name || '',
+              logoUrl: settingsRows[0].logo_url || '',
+              primaryColor: settingsRows[0].primary_color || '#3B82F6',
+              secondaryColor: settingsRows[0].secondary_color || '#10B981',
+              showPoweredBy:
+                settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
+                  ? true
+                  : settingsRows[0].show_powered_by === 1,
+              customFooterText: settingsRows[0].custom_footer_text || ''
+            }
+          : undefined;
+        return {
+          id: company.id,
+          name: company.name,
+          isActive: company.is_active === 1,
+          pricingLevel: company.pricing_level,
+          maxMembers: company.max_members,
+          createdAt: company.created_at,
+          updatedAt: company.updated_at,
+          pdfSettings: settings
+        };
+      };
+
+      const companyData = await loadCompanyWithSettings(activeCompanyId);
+      const companiesData = await Promise.all(
+        memberships.map(async (m) => ({
+          id: m.company_id,
+          name: m.name,
+          role: m.role,
+          isDefault: m.is_default === 1,
+          company: await loadCompanyWithSettings(m.company_id)
+        }))
+      );
       
       // Create user object without sensitive data
       const userData = {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
-        companyId: user.company_id || null,
+        role: membershipRole,
+        companyId: activeCompanyId,
         teamId: user.team_id || null,
         teamRole: user.team_role || null,
         avatar: user.avatar || null,
@@ -3308,7 +3526,8 @@ app.post('/api/auth/login', async (req, res) => {
         success: true, 
         token,
         user: userData,
-        company: companyData
+        company: companyData,
+        companies: companiesData
       });
       
     } finally {
@@ -3342,48 +3561,87 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       const user = userRows[0];
       const emailVerified = user.email_verified === 1;
 
-      let companyData = null;
-      if (user.company_id) {
-        const [companyRows] = await connection.execute('SELECT * FROM companies WHERE id = ? LIMIT 1', [user.company_id]);
-        if (companyRows.length) {
-          const company = companyRows[0];
-          const [settingsRows] = await connection.execute(
-            'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
-            [company.id]
-          );
-          const settings = settingsRows.length
-            ? {
-                companyName: settingsRows[0].company_name || '',
-                logoUrl: settingsRows[0].logo_url || '',
-                primaryColor: settingsRows[0].primary_color || '#3B82F6',
-                secondaryColor: settingsRows[0].secondary_color || '#10B981',
-                showPoweredBy:
-                  settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
-                    ? true
-                    : settingsRows[0].show_powered_by === 1,
-                customFooterText: settingsRows[0].custom_footer_text || ''
-              }
-            : undefined;
+      const loadCompanyWithSettings = async (companyId) => {
+        const [companyRows] = await connection.execute('SELECT * FROM companies WHERE id = ? LIMIT 1', [companyId]);
+        if (!companyRows.length) return null;
+        const company = companyRows[0];
+        const [settingsRows] = await connection.execute(
+          'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
+          [company.id]
+        );
+        const settings = settingsRows.length
+          ? {
+              companyName: settingsRows[0].company_name || '',
+              logoUrl: settingsRows[0].logo_url || '',
+              primaryColor: settingsRows[0].primary_color || '#3B82F6',
+              secondaryColor: settingsRows[0].secondary_color || '#10B981',
+              showPoweredBy:
+                settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
+                  ? true
+                  : settingsRows[0].show_powered_by === 1,
+              customFooterText: settingsRows[0].custom_footer_text || ''
+            }
+          : undefined;
 
-          companyData = {
-            id: company.id,
-            name: company.name,
-            isActive: company.is_active === 1,
-            pricingLevel: company.pricing_level,
-            maxMembers: company.max_members,
-            createdAt: company.created_at,
-            updatedAt: company.updated_at,
-            pdfSettings: settings
-          };
-        }
+        return {
+          id: company.id,
+          name: company.name,
+          isActive: company.is_active === 1,
+          pricingLevel: company.pricing_level,
+          maxMembers: company.max_members,
+          createdAt: company.created_at,
+          updatedAt: company.updated_at,
+          pdfSettings: settings
+        };
+      };
+
+      // Load memberships; fall back to legacy company_id if table is missing.
+      let memberships = [];
+      try {
+        const [membershipRows] = await connection.execute(
+          `SELECT m.company_id, m.role, m.is_default, c.name
+           FROM company_memberships m
+           JOIN companies c ON c.id = m.company_id
+           WHERE m.user_id = ? AND m.is_active = 1
+           ORDER BY m.is_default DESC, c.created_at ASC`,
+          [user.id]
+        );
+        memberships = membershipRows || [];
+      } catch (e) {
+        console.warn('company_memberships lookup failed in /auth/me; falling back to users.company_id', e?.message || e);
       }
+
+      if ((!memberships || memberships.length === 0) && user.company_id) {
+        memberships = [
+          {
+            company_id: user.company_id,
+            role: user.role,
+            is_default: 1,
+            name: null
+          }
+        ];
+      }
+
+      const activeCompanyId = req.user.companyId || (memberships.find((m) => m.is_default === 1)?.company_id || memberships[0]?.company_id || null);
+      const activeRole = req.user.role || (memberships.find((m) => m.company_id === activeCompanyId)?.role || user.role);
+
+      const companyData = activeCompanyId ? await loadCompanyWithSettings(activeCompanyId) : null;
+      const companiesData = await Promise.all(
+        (memberships || []).map(async (m) => ({
+          id: m.company_id,
+          name: m.name,
+          role: m.role,
+          isDefault: m.is_default === 1,
+          company: await loadCompanyWithSettings(m.company_id)
+        }))
+      );
 
       const userData = {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
-        companyId: user.company_id || null,
+        role: activeRole,
+        companyId: activeCompanyId,
         teamId: user.team_id || null,
         teamRole: user.team_role || null,
         avatar: user.avatar || null,
@@ -3395,13 +3653,291 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
         updatedAt: user.updated_at
       };
 
-      res.json({ success: true, user: userData, company: companyData });
+      res.json({ success: true, user: userData, company: companyData, companies: companiesData });
     } finally {
       connection.release();
     }
   } catch (error) {
     console.error('Auth me error:', error);
     res.status(500).json({ success: false, error: 'Failed to load account info' });
+  }
+});
+
+app.post('/api/auth/switch-company', authenticateToken, async (req, res) => {
+  try {
+    const { companyId } = req.body || {};
+    if (!companyId || typeof companyId !== 'string') {
+      return res.status(400).json({ success: false, error: 'companyId is required' });
+    }
+
+    const userId = req.user.uid;
+
+    const connection = await pool.getConnection();
+    try {
+      // Ensure membership exists and is active (fallback to legacy users.company_id).
+      let membership = null;
+      try {
+        const [rows] = await connection.execute(
+          'SELECT role, is_active FROM company_memberships WHERE user_id = ? AND company_id = ? LIMIT 1',
+          [userId, companyId]
+        );
+        membership = rows?.length ? rows[0] : null;
+      } catch (e) {
+        console.warn('company_memberships lookup failed in switch-company', e?.message || e);
+      }
+
+      if (membership) {
+        if (membership.is_active === 0) {
+          return res.status(403).json({ success: false, error: 'Company membership inactive' });
+        }
+      } else {
+        const [userRows] = await connection.execute('SELECT company_id, role FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [userId]);
+        if (!userRows.length || userRows[0].company_id !== companyId) {
+          return res.status(403).json({ success: false, error: 'Access denied' });
+        }
+        membership = { role: userRows[0].role, is_active: 1 };
+      }
+
+      const token = jwt.sign(
+        {
+          userId,
+          email: req.user.email,
+          activeCompanyId: companyId,
+          membershipRole: membership.role
+        },
+        process.env.JWT_SECRET || 'clockistry_secret_key',
+        { expiresIn: '24h' }
+      );
+
+      // Best-effort set default company for user.
+      try {
+        await connection.execute('UPDATE company_memberships SET is_default = 0 WHERE user_id = ?', [userId]);
+        await connection.execute(
+          'UPDATE company_memberships SET is_default = 1 WHERE user_id = ? AND company_id = ?',
+          [userId, companyId]
+        );
+      } catch {
+        // ignore
+      }
+
+      return res.json({ success: true, token });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Switch company error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to switch company' });
+  }
+});
+
+// Validate a company invite token (public; does not accept)
+app.get('/api/company-invites/validate', async (req, res) => {
+  try {
+    const token = String(req.query?.token || '');
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'token is required' });
+    }
+
+    const tokenHash = sha256Hex(token);
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, company_id, inviter_user_id, invitee_email, role, expires_at, accepted_at, declined_at
+         FROM company_invites
+         WHERE token_hash = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [tokenHash]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'Invite not found' });
+      }
+
+      const invite = rows[0];
+      const expiresAt = new Date(invite.expires_at);
+      const isExpired = Date.now() > expiresAt.getTime();
+      const isConsumed = Boolean(invite.accepted_at || invite.declined_at);
+
+      const [companyRows] = await connection.execute(
+        'SELECT id, name FROM companies WHERE id = ? LIMIT 1',
+        [invite.company_id]
+      );
+      const company = companyRows.length ? companyRows[0] : null;
+
+      return res.json({
+        success: true,
+        invite: {
+          id: invite.id,
+          companyId: invite.company_id,
+          companyName: company?.name || null,
+          inviteeEmail: invite.invitee_email,
+          role: invite.role,
+          expiresAt: invite.expires_at,
+          acceptedAt: invite.accepted_at,
+          declinedAt: invite.declined_at,
+          isExpired,
+          isConsumed
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Invite validate error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to validate invite' });
+  }
+});
+
+// Accept a company invite (requires auth)
+app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'token is required' });
+    }
+
+    const tokenHash = sha256Hex(token);
+    const userId = req.user?.uid;
+    const userEmail = String(req.user?.email || '').trim().toLowerCase();
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, company_id, inviter_user_id, invitee_user_id, invitee_email, role, expires_at, accepted_at, declined_at
+         FROM company_invites
+         WHERE token_hash = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [tokenHash]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'Invite not found' });
+      }
+
+      const invite = rows[0];
+      if (invite.accepted_at) {
+        return res.status(400).json({ success: false, error: 'Invite has already been accepted' });
+      }
+      if (invite.declined_at) {
+        return res.status(400).json({ success: false, error: 'Invite has been declined' });
+      }
+
+      const expiresAt = new Date(invite.expires_at);
+      if (Date.now() > expiresAt.getTime()) {
+        return res.status(400).json({ success: false, error: 'Invite has expired' });
+      }
+
+      const inviteEmail = String(invite.invitee_email || '').trim().toLowerCase();
+      if (userEmail && inviteEmail && userEmail !== inviteEmail) {
+        return res.status(403).json({ success: false, error: 'This invite is for a different email address' });
+      }
+
+      await connection.beginTransaction();
+      try {
+        const now = new Date();
+
+        // Insert or re-activate membership (best-effort if table exists).
+        try {
+          await connection.execute(
+            `INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 0, 1, ?, ?)
+             ON DUPLICATE KEY UPDATE is_active = 1, role = VALUES(role), updated_at = VALUES(updated_at)`,
+            [uuidv4(), userId, invite.company_id, invite.role, now, now]
+          );
+        } catch (e) {
+          console.warn('Failed to upsert company_memberships on invite accept:', e?.message || e);
+        }
+
+        await connection.execute(
+          'UPDATE company_invites SET accepted_at = NOW() WHERE id = ? AND accepted_at IS NULL AND declined_at IS NULL',
+          [invite.id]
+        );
+
+        await connection.commit();
+      } catch (e) {
+        try {
+          await connection.rollback();
+        } catch {}
+        throw e;
+      }
+
+      // Optionally return a token scoped to the joined company to allow immediate switching.
+      const joinedCompanyId = invite.company_id;
+      const membershipRole = invite.role;
+      const newToken = jwt.sign(
+        { userId, email: userEmail, activeCompanyId: joinedCompanyId, membershipRole },
+        process.env.JWT_SECRET || 'clockistry_secret_key',
+        { expiresIn: '24h' }
+      );
+
+      return res.json({ success: true, joinedCompanyId, token: newToken });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Invite accept error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to accept invite' });
+  }
+});
+
+// Decline a company invite (requires auth)
+app.post('/api/company-invites/decline', authenticateToken, async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'token is required' });
+    }
+
+    const tokenHash = sha256Hex(token);
+    const userEmail = String(req.user?.email || '').trim().toLowerCase();
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, invitee_email, expires_at, accepted_at, declined_at
+         FROM company_invites
+         WHERE token_hash = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [tokenHash]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'Invite not found' });
+      }
+
+      const invite = rows[0];
+      if (invite.accepted_at) {
+        return res.status(400).json({ success: false, error: 'Invite has already been accepted' });
+      }
+      if (invite.declined_at) {
+        return res.json({ success: true, message: 'Invite already declined' });
+      }
+
+      const expiresAt = new Date(invite.expires_at);
+      if (Date.now() > expiresAt.getTime()) {
+        return res.status(400).json({ success: false, error: 'Invite has expired' });
+      }
+
+      const inviteEmail = String(invite.invitee_email || '').trim().toLowerCase();
+      if (userEmail && inviteEmail && userEmail !== inviteEmail) {
+        return res.status(403).json({ success: false, error: 'This invite is for a different email address' });
+      }
+
+      await connection.execute(
+        'UPDATE company_invites SET declined_at = NOW() WHERE id = ? AND accepted_at IS NULL AND declined_at IS NULL',
+        [invite.id]
+      );
+
+      return res.json({ success: true, message: 'Invite declined' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Invite decline error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to decline invite' });
   }
 });
 
@@ -3546,6 +4082,82 @@ app.post('/api/auth/reset-password', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to reset password'
+    });
+  }
+});
+
+// Set password endpoint (invite / admin-created users)
+app.post('/api/auth/set-password', async (req, res) => {
+  try {
+    const { token, password, confirmPassword } = req.body || {};
+
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'Token is required' });
+    }
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
+    }
+    if (confirmPassword !== undefined && password !== confirmPassword) {
+      return res.status(400).json({ success: false, error: 'Passwords do not match' });
+    }
+
+    const tokenHash = sha256Hex(token);
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT pst.id, pst.user_id, pst.expires_at, pst.used_at
+         FROM password_setup_tokens pst
+         WHERE pst.token_hash = ?
+         ORDER BY pst.created_at DESC
+         LIMIT 1`,
+        [tokenHash]
+      );
+
+      if (!rows.length) {
+        return res.status(400).json({ success: false, error: 'Invalid or expired token' });
+      }
+
+      const setupRow = rows[0];
+      if (setupRow.used_at) {
+        return res.status(400).json({ success: false, error: 'Token has already been used' });
+      }
+
+      const expiresAt = new Date(setupRow.expires_at);
+      if (Date.now() > expiresAt.getTime()) {
+        return res.status(400).json({ success: false, error: 'Invalid or expired token' });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 12);
+
+      await connection.beginTransaction();
+      try {
+        await connection.execute(
+          'UPDATE users SET password_hash = ?, needs_password_setup = 0, email_verified = 1, updated_at = NOW() WHERE id = ? AND is_active = 1',
+          [hashedPassword, setupRow.user_id]
+        );
+
+        await connection.execute(
+          'UPDATE password_setup_tokens SET used_at = NOW() WHERE id = ? AND used_at IS NULL',
+          [setupRow.id]
+        );
+
+        await connection.commit();
+      } catch (e) {
+        try {
+          await connection.rollback();
+        } catch {}
+        throw e;
+      }
+
+      return res.json({ success: true, message: 'Password has been set successfully. You may now sign in.' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Set password error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to set password'
     });
   }
 });
@@ -3964,10 +4576,158 @@ app.post('/api/auth/signup', async (req, res) => {
       const checkUserQuery = `SELECT id FROM users WHERE email = ?`;
       const [existingUsers] = await connection.execute(checkUserQuery, [email]);
       
+      const loadCompanyWithSettings = async (companyId) => {
+        const [companyRows] = await connection.execute('SELECT * FROM companies WHERE id = ? LIMIT 1', [companyId]);
+        if (!companyRows.length) return null;
+        const company = companyRows[0];
+        const [settingsRows] = await connection.execute(
+          'SELECT company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text FROM company_pdf_settings WHERE company_id = ? LIMIT 1',
+          [company.id]
+        );
+        const settings = settingsRows.length
+          ? {
+              companyName: settingsRows[0].company_name || '',
+              logoUrl: settingsRows[0].logo_url || '',
+              primaryColor: settingsRows[0].primary_color || '#3B82F6',
+              secondaryColor: settingsRows[0].secondary_color || '#1E40AF',
+              showPoweredBy:
+                settingsRows[0].show_powered_by === null || settingsRows[0].show_powered_by === undefined
+                  ? true
+                  : settingsRows[0].show_powered_by === 1,
+              customFooterText: settingsRows[0].custom_footer_text || ''
+            }
+          : undefined;
+        return {
+          id: company.id,
+          name: company.name,
+          isActive: company.is_active === 1,
+          pricingLevel: company.pricing_level,
+          maxMembers: company.max_members,
+          createdAt: company.created_at,
+          updatedAt: company.updated_at,
+          pdfSettings: settings
+        };
+      };
+
+      // If the email already exists, treat super_admin signup as "create another company" for that account.
       if (existingUsers.length > 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'User with this email already exists' 
+        if (role !== 'super_admin' || !companyName) {
+          return res.status(400).json({
+            success: false,
+            error: 'User with this email already exists'
+          });
+        }
+
+        const existingUserId = existingUsers[0].id;
+        const [userRows] = await connection.execute('SELECT * FROM users WHERE id = ? AND is_active = 1 LIMIT 1', [existingUserId]);
+        if (!userRows.length) {
+          return res.status(400).json({ success: false, error: 'User with this email already exists' });
+        }
+
+        const existingUser = userRows[0];
+        const isPasswordValid = await bcrypt.compare(password, existingUser.password_hash);
+        if (!isPasswordValid) {
+          return res.status(401).json({
+            success: false,
+            error: 'This email already has an account. Enter the existing account password to add a new company, or sign in instead.'
+          });
+        }
+
+        const now = new Date();
+        const newCompanyId = `-${uuidv4()}`;
+        await connection.execute(
+          `INSERT INTO companies (
+            id, name, is_active, pricing_level, max_members, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [newCompanyId, companyName, 1, 'solo', 1, now, now]
+        );
+
+        const defaultPdfSettings = {
+          companyName,
+          logoUrl: '',
+          primaryColor: '#3B82F6',
+          secondaryColor: '#1E40AF',
+          showPoweredBy: true,
+          customFooterText: ''
+        };
+
+        const pdfSettingsId = Math.floor(Date.now() / 1000);
+        await connection.execute(
+          `
+            INSERT INTO company_pdf_settings (
+              id, company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            pdfSettingsId,
+            newCompanyId,
+            defaultPdfSettings.companyName,
+            defaultPdfSettings.logoUrl,
+            defaultPdfSettings.primaryColor,
+            defaultPdfSettings.secondaryColor,
+            defaultPdfSettings.showPoweredBy ? 1 : 0,
+            defaultPdfSettings.customFooterText
+          ]
+        );
+
+        // Create / update membership and set as default (best-effort).
+        try {
+          await connection.execute('UPDATE company_memberships SET is_default = 0 WHERE user_id = ?', [existingUserId]);
+          await connection.execute(
+            'INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?)',
+            [uuidv4(), existingUserId, newCompanyId, 'super_admin', now, now]
+          );
+        } catch (e) {
+          // ignore if table not migrated yet
+          console.warn('company_memberships insert failed during existing-user company create:', e?.message || e);
+          await connection.execute('UPDATE users SET company_id = ? WHERE id = ?', [newCompanyId, existingUserId]);
+        }
+
+        const token = jwt.sign(
+          { userId: existingUserId, email: existingUser.email, activeCompanyId: newCompanyId, membershipRole: 'super_admin' },
+          process.env.JWT_SECRET || 'clockistry_secret_key',
+          { expiresIn: '24h' }
+        );
+
+        // Return updated membership list (if available)
+        let companiesData = [];
+        try {
+          const [membershipRows] = await connection.execute(
+            `SELECT m.company_id, m.role, m.is_default, c.name
+             FROM company_memberships m
+             JOIN companies c ON c.id = m.company_id
+             WHERE m.user_id = ? AND m.is_active = 1
+             ORDER BY m.is_default DESC, c.created_at ASC`,
+            [existingUserId]
+          );
+          companiesData = await Promise.all(
+            (membershipRows || []).map(async (m) => ({
+              id: m.company_id,
+              name: m.name,
+              role: m.role,
+              isDefault: m.is_default === 1,
+              company: await loadCompanyWithSettings(m.company_id)
+            }))
+          );
+        } catch {
+          companiesData = [];
+        }
+
+        const companyData = await loadCompanyWithSettings(newCompanyId);
+
+        return res.status(201).json({
+          success: true,
+          token,
+          user: {
+            id: existingUser.id,
+            name: existingUser.name,
+            email: existingUser.email,
+            role: 'super_admin',
+            companyId: newCompanyId,
+            emailVerified: existingUser.email_verified === 1
+          },
+          company: companyData,
+          companies: companiesData
         });
       }
       
@@ -4052,6 +4812,16 @@ app.post('/api/auth/signup', async (req, res) => {
         // Update user with company ID
         const updateUserQuery = `UPDATE users SET company_id = ? WHERE id = ?`;
         await connection.execute(updateUserQuery, [companyId, userId]);
+
+        // Multi-company: also create membership row (best-effort; migration may not have run yet).
+        try {
+          await connection.execute(
+            'INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?)',
+            [uuidv4(), userId, companyId, 'super_admin', now, now]
+          );
+        } catch (e) {
+          console.warn('company_memberships insert failed during new signup:', e?.message || e);
+        }
         
         companyData = {
           id: companyId.toString(),
@@ -5209,7 +5979,7 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
 const adminUserCreateSchema = Joi.object({
   name: Joi.string().trim().min(1).required(),
   email: Joi.string().trim().email().required(),
-  password: Joi.string().min(8).required(),
+  password: Joi.string().min(8).optional().empty(''),
   role: Joi.string().valid('employee', 'hr', 'admin', 'super_admin', 'root').required(),
   hourlyRate: Joi.number().min(0).optional(),
   timezone: Joi.string().trim().min(1).optional(),
@@ -5275,18 +6045,70 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
       }
 
       const [existingUsers] = await connection.execute(
-        'SELECT id FROM users WHERE email = ? LIMIT 1',
+        'SELECT id, name, email FROM users WHERE email = ? LIMIT 1',
         [value.email]
       );
 
       if (existingUsers.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: 'User with this email already exists'
+        // If the email already exists, do not create a second user; invite the existing user to join this company.
+        if (!createCompanyId) {
+          return res.status(400).json({
+            success: false,
+            error: 'User with this email already exists'
+          });
+        }
+
+        let inviteEmailSent = false;
+        try {
+          const existingUser = existingUsers[0];
+          const inviterUserId = req.user?.uid;
+          const inviterName = req.user?.name || null;
+
+          const { rawToken } = await createCompanyInviteToken(connection, {
+            companyId: createCompanyId,
+            inviterUserId,
+            inviteeUserId: existingUser.id,
+            inviteeEmail: existingUser.email,
+            role: value.role
+          });
+
+          const [companyRows] = await connection.execute(
+            'SELECT name FROM companies WHERE id = ? LIMIT 1',
+            [createCompanyId]
+          );
+          const companyName = companyRows.length ? companyRows[0].name : 'your company';
+
+          const frontendUrl = getFrontendUrl();
+          const inviteLink = `${frontendUrl}/auth?mode=accept-invite&token=${rawToken}`;
+
+          const emailResult = await billingEmailService.sendCompanyInviteEmail(
+            { name: existingUser.name, email: existingUser.email },
+            inviteLink,
+            companyName,
+            value.role,
+            inviterName
+          );
+          inviteEmailSent = Boolean(emailResult?.success);
+          if (!inviteEmailSent) {
+            console.error('Company invite email send failed:', emailResult?.error);
+          }
+        } catch (e) {
+          console.error('Failed to create/send company invite:', e);
+        }
+
+        return res.status(200).json({
+          success: true,
+          inviteCreated: true,
+          inviteEmailSent,
+          message: inviteEmailSent
+            ? 'Invite sent to existing user to join this company.'
+            : 'Invite created but failed to send email.'
         });
       }
 
-      const hashedPassword = await bcrypt.hash(value.password, 12);
+      const shouldInvite = !value.password;
+      const passwordToHash = shouldInvite ? crypto.randomBytes(48).toString('hex') : value.password;
+      const hashedPassword = await bcrypt.hash(passwordToHash, 12);
 
       const userId = uuidv4();
       const now = new Date();
@@ -5314,6 +6136,44 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
         now
       ]);
 
+      let inviteEmailSent = false;
+      if (shouldInvite) {
+        try {
+          await connection.execute('UPDATE users SET needs_password_setup = 1 WHERE id = ?', [userId]);
+        } catch (e) {
+          console.warn('Failed to set needs_password_setup flag (column may not exist yet):', e?.message || e);
+        }
+
+        try {
+          const { rawToken } = await createPasswordSetupToken(connection, userId);
+          const frontendUrl = getFrontendUrl();
+          const setPasswordLink = `${frontendUrl}/auth?mode=set-password&token=${rawToken}`;
+          const emailResult = await billingEmailService.sendSetPasswordInviteEmail(
+            { name: value.name, email: value.email },
+            setPasswordLink
+          );
+          inviteEmailSent = Boolean(emailResult?.success);
+          if (!inviteEmailSent) {
+            console.error('Set-password invite email send failed:', emailResult?.error);
+          }
+        } catch (e) {
+          console.error('Failed to create/send password setup token:', e);
+        }
+      }
+
+      // Multi-company: create membership row for the assigned company (best-effort).
+      if (createCompanyId) {
+        try {
+          await connection.execute(
+            'INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?)',
+            [uuidv4(), userId, createCompanyId, value.role, now, now]
+          );
+        } catch (e) {
+          // Ignore if the table doesn't exist yet.
+          console.warn('Failed to insert company_memberships row on user create:', e?.message || e);
+        }
+      }
+
       return res.status(201).json({
         success: true,
         data: {
@@ -5332,7 +6192,12 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
           createdAt: now,
           updatedAt: now
         },
-        message: 'User created successfully'
+        inviteEmailSent,
+        message: shouldInvite
+          ? inviteEmailSent
+            ? 'User created and invitation email sent.'
+            : 'User created. Failed to send invitation email.'
+          : 'User created successfully'
       });
     } finally {
       connection.release();

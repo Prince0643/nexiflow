@@ -24,6 +24,7 @@ function isJwtExpired(token: string): boolean {
 interface MySQLAuthContextType {
   currentUser: AuthUser | null
   currentCompany: Company | null
+  companies: any[]
   loading: boolean
   authActionLoading: boolean
   login: (credentials: LoginCredentials) => Promise<{ success: boolean; error?: string }>
@@ -32,6 +33,7 @@ interface MySQLAuthContextType {
     companyName?: string
   ) => Promise<{ success: boolean; error?: string; requiresEmailVerification?: boolean; billingToken?: string | null }>
   logout: () => Promise<void>
+  switchCompany: (companyId: string) => Promise<{ success: boolean; error?: string }>
   refreshSession: () => Promise<void>
   resetPassword?: (email: string) => Promise<{ success: boolean; error?: string }>
 }
@@ -53,6 +55,7 @@ interface MySQLAuthProviderProps {
 export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [currentCompany, setCurrentCompany] = useState<Company | null>(null)
+  const [companies, setCompanies] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [authActionLoading, setAuthActionLoading] = useState(false)
 
@@ -104,6 +107,14 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       } else {
         setCurrentCompany(null)
         localStorage.removeItem('currentCompany')
+      }
+
+      if (Array.isArray(data.companies)) {
+        setCompanies(data.companies)
+        localStorage.setItem('companies', JSON.stringify(data.companies))
+      } else {
+        setCompanies([])
+        localStorage.removeItem('companies')
       }
     } catch (error) {
       console.error('Error refreshing session:', error)
@@ -158,14 +169,17 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       try {
         const storedUser = localStorage.getItem('currentUser')
         const storedCompany = localStorage.getItem('currentCompany')
+        const storedCompanies = localStorage.getItem('companies')
         const storedToken = localStorage.getItem('authToken')
 
         if (storedToken && isJwtExpired(storedToken)) {
           localStorage.removeItem('currentUser')
           localStorage.removeItem('currentCompany')
+          localStorage.removeItem('companies')
           localStorage.removeItem('authToken')
           setCurrentUser(null)
           setCurrentCompany(null)
+          setCompanies([])
           return
         }
 
@@ -176,6 +190,13 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
           if (storedCompany) {
             const company = JSON.parse(storedCompany)
             setCurrentCompany(company)
+          }
+          if (storedCompanies) {
+            try {
+              setCompanies(JSON.parse(storedCompanies))
+            } catch {
+              setCompanies([])
+            }
           }
 
           // Best-effort: finalize any pending PayPal activation, then refresh company plan/tier.
@@ -197,8 +218,10 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
     // Clear state and localStorage
     setCurrentUser(null)
     setCurrentCompany(null)
+    setCompanies([])
     localStorage.removeItem('currentUser')
     localStorage.removeItem('currentCompany')
+    localStorage.removeItem('companies')
     localStorage.removeItem('authToken')
   }
 
@@ -258,9 +281,44 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
         setCurrentCompany(data.company)
         localStorage.setItem('currentCompany', JSON.stringify(data.company))
       }
+
+      if (Array.isArray(data.companies)) {
+        setCompanies(data.companies)
+        localStorage.setItem('companies', JSON.stringify(data.companies))
+      } else {
+        setCompanies([])
+        localStorage.removeItem('companies')
+      }
       
       // Log successful login
       await mysqlLoggingService.logAuthEvent('login', data.user.id, data.user.name, true)
+
+      // If user arrived via a company invite link, accept it after login (best-effort).
+      try {
+        const pendingInviteToken = localStorage.getItem('pendingInviteToken')
+        if (pendingInviteToken) {
+          const inviteResponse = await fetch(`${API_BASE_URL}/company-invites/accept`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${data.token}`
+            },
+            body: JSON.stringify({ token: pendingInviteToken })
+          })
+
+          const inviteData = await inviteResponse.json().catch(() => null)
+          if (inviteResponse.ok && inviteData?.success) {
+            if (inviteData?.token) {
+              localStorage.setItem('authToken', inviteData.token)
+            }
+          }
+
+          localStorage.removeItem('pendingInviteToken')
+        }
+      } catch (e) {
+        console.warn('Failed to auto-accept pending invite:', e)
+        localStorage.removeItem('pendingInviteToken')
+      }
 
       // If PayPal redirected back while logged out, auto-activate after sign-in.
       await finalizePendingPayPalCapture()
@@ -274,6 +332,34 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       return { success: false, error: 'Login failed. Please try again.' }
     } finally {
       setAuthActionLoading(false)
+    }
+  }
+
+  async function switchCompany(companyId: string) {
+    try {
+      const token = localStorage.getItem('authToken')
+      if (!token) return { success: false, error: 'Not authenticated' }
+
+      const response = await fetch(`${API_BASE_URL}/auth/switch-company`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ companyId })
+      })
+
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data?.success || !data?.token) {
+        return { success: false, error: data?.error || 'Failed to switch company' }
+      }
+
+      localStorage.setItem('authToken', data.token)
+      await refreshSession()
+      return { success: true }
+    } catch (error) {
+      console.error('Error switching company:', error)
+      return { success: false, error: 'Failed to switch company' }
     }
   }
 
@@ -301,6 +387,37 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       
       if (!data.success) {
         return { success: false, error: data.error || 'Signup failed. Please try again.' }
+      }
+
+      // Some signup flows (e.g. existing account creating a new company) may return a token and log the user in.
+      if (data.token && data.user) {
+        const authUser: AuthUser = {
+          uid: data.user.id,
+          email: data.user.email,
+          role: data.user.role,
+          name: data.user.name,
+          companyId: data.user.companyId || null,
+          teamId: data.user.teamId || null,
+          teamRole: data.user.teamRole || null,
+          avatar: data.user.avatar || null,
+          emailVerified: data.user.emailVerified ?? true
+        }
+
+        setCurrentUser(authUser)
+        localStorage.setItem('currentUser', JSON.stringify(authUser))
+        localStorage.setItem('authToken', data.token)
+
+        if (data.company) {
+          setCurrentCompany(data.company)
+          localStorage.setItem('currentCompany', JSON.stringify(data.company))
+        }
+
+        if (Array.isArray(data.companies)) {
+          setCompanies(data.companies)
+          localStorage.setItem('companies', JSON.stringify(data.companies))
+        }
+
+        return { success: true }
       }
 
       if (data.requiresEmailVerification) {
@@ -353,8 +470,10 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       // Clear state and localStorage
       setCurrentUser(null)
       setCurrentCompany(null)
+      setCompanies([])
       localStorage.removeItem('currentUser')
       localStorage.removeItem('currentCompany')
+      localStorage.removeItem('companies')
       localStorage.removeItem('authToken')
       
       // Log successful logout
@@ -400,11 +519,13 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
   const value = {
     currentUser,
     currentCompany,
+    companies,
     loading,
     authActionLoading,
     login,
     signup,
     logout,
+    switchCompany,
     refreshSession,
     resetPassword
   }

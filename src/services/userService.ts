@@ -155,7 +155,7 @@ export const userService = {
   async createUser(userData: {
     name: string
     email: string
-    password: string
+    password?: string
     role: UserRole
     hourlyRate?: number
     timezone: string

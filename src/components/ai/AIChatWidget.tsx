@@ -532,12 +532,20 @@ export default function AIChatWidget() {
                 : 'border-gray-200 bg-white text-gray-900'
             }`}
           >
-            <button
-              type="button"
+            <span
+              role="button"
+              tabIndex={0}
               aria-label="Dismiss help"
               onClick={(e) => {
                 e.stopPropagation()
                 setIsTeaserDismissed(true)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setIsTeaserDismissed(true)
+                }
               }}
               className={`absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full transition-colors sm:flex ${
                 isDarkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'
@@ -545,7 +553,7 @@ export default function AIChatWidget() {
               title="Dismiss"
             >
               <X className="h-4 w-4" />
-            </button>
+            </span>
             <span className="text-sm font-semibold">Need help?</span>
             <span className={`mt-1 text-xs leading-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
               Ask AI to start your timer, find a page, or explain a workflow.

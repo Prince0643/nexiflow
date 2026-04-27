@@ -2,19 +2,56 @@ import { Home, Info, UserPlus } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import LoginForm from '../components/auth/LoginForm'
 import SuperAdminSignupForm from '../components/auth/SuperAdminSignupForm'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
 export default function Auth() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { currentUser } = useMySQLAuth()
   const isDemo = searchParams.get('demo') === 'true'
   const [showSignup, setShowSignup] = useState(searchParams.get('signup') === 'super_admin')
 
   const mode = (searchParams.get('mode') || '').toLowerCase()
   const resetToken = searchParams.get('token')
+  const isAcceptInviteMode = mode === 'accept-invite'
+  const isSetPasswordMode = mode === 'set-password'
   const isResetMode = mode === 'reset-password' || (!!resetToken && !mode)
+  const isPasswordFlow = isSetPasswordMode || isResetMode
+
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [inviteInfo, setInviteInfo] = useState<any>(null)
+  const [inviteAccepted, setInviteAccepted] = useState(false)
+
+  const inviteToken = useMemo(() => (isAcceptInviteMode ? resetToken : null), [isAcceptInviteMode, resetToken])
+
+  useEffect(() => {
+    if (!isAcceptInviteMode) return
+    if (!inviteToken) {
+      setInviteError('Invite token is missing.')
+      return
+    }
+
+    // Persist so login can auto-accept.
+    localStorage.setItem('pendingInviteToken', inviteToken)
+
+    setInviteLoading(true)
+    setInviteError('')
+    fetch(`${API_BASE_URL}/company-invites/validate?token=${encodeURIComponent(inviteToken)}`)
+      .then((r) => r.json().catch(() => null))
+      .then((data) => {
+        if (!data?.success) {
+          setInviteError(data?.error || 'Failed to load invite.')
+          return
+        }
+        setInviteInfo(data.invite)
+      })
+      .catch((e) => setInviteError(e?.message || 'Failed to load invite.'))
+      .finally(() => setInviteLoading(false))
+  }, [API_BASE_URL, isAcceptInviteMode, inviteToken])
 
   const [resetPassword, setResetPassword] = useState('')
   const [resetConfirmPassword, setResetConfirmPassword] = useState('')
@@ -32,7 +69,7 @@ export default function Auth() {
     setResetSuccess('')
 
     if (!resetToken) {
-      setResetError('Reset token is missing. Please request a new password reset email.')
+      setResetError(isSetPasswordMode ? 'Invite token is missing. Please request a new invite email.' : 'Reset token is missing. Please request a new password reset email.')
       return
     }
     if (!resetPassword || resetPassword.length < 8) {
@@ -46,7 +83,8 @@ export default function Auth() {
 
     setResetLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      const endpoint = isSetPasswordMode ? `${API_BASE_URL}/auth/set-password` : `${API_BASE_URL}/auth/reset-password`
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -60,11 +98,17 @@ export default function Auth() {
 
       const data = await response.json().catch(() => null)
       if (!response.ok || !data?.success) {
-        setResetError(data?.error || 'Failed to reset password. Please try again.')
+        setResetError(
+          data?.error || (isSetPasswordMode ? 'Failed to set password. Please try again.' : 'Failed to reset password. Please try again.')
+        )
         return
       }
 
-      setResetSuccess('Password reset successful. You may now sign in with your new password.')
+      setResetSuccess(
+        isSetPasswordMode
+          ? 'Password set successfully. You may now sign in.'
+          : 'Password reset successful. You may now sign in with your new password.'
+      )
       setResetPassword('')
       setResetConfirmPassword('')
 
@@ -119,10 +163,142 @@ export default function Auth() {
 
         {/* Form Container */}
         <div className="bg-white/80 rounded-3xl shadow-2xl border border-gray-200 p-8 backdrop-blur-xl dark:bg-white/10 dark:border-white/20">
-          {isResetMode ? (
+          {isAcceptInviteMode ? (
             <div>
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Reset Password</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Enter a new password for your account.</p>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Company Invite</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">Sign in to review and accept this invite.</p>
+
+              {inviteError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/30 dark:border-red-800">
+                  <p className="text-sm text-red-700 dark:text-red-200">{inviteError}</p>
+                </div>
+              )}
+
+              {inviteAccepted && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg dark:bg-green-900/30 dark:border-green-800">
+                  <p className="text-sm text-green-700 dark:text-green-200">
+                    Invite accepted. You can now switch to the new company from your profile menu.
+                  </p>
+                </div>
+              )}
+
+              {inviteLoading ? (
+                <div className="text-sm text-gray-600 dark:text-gray-400">Loading invite…</div>
+              ) : inviteInfo ? (
+                <div className="mb-6 rounded-xl border border-gray-200 dark:border-white/20 p-4 bg-white/60 dark:bg-white/5">
+                  <div className="text-sm text-gray-700 dark:text-gray-200">
+                    <div><span className="font-semibold">Company:</span> {inviteInfo.companyName || inviteInfo.companyId}</div>
+                    <div><span className="font-semibold">Role:</span> {inviteInfo.role}</div>
+                    <div><span className="font-semibold">Invite for:</span> {inviteInfo.inviteeEmail}</div>
+                  </div>
+                </div>
+              ) : null}
+
+              {currentUser ? (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    className="w-full btn-primary py-3 text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={inviteLoading || inviteAccepted || !inviteToken}
+                    onClick={async () => {
+                      if (!inviteToken) return
+                      setInviteLoading(true)
+                      setInviteError('')
+                      try {
+                        const authToken = localStorage.getItem('authToken')
+                        const response = await fetch(`${API_BASE_URL}/company-invites/accept`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+                          },
+                          body: JSON.stringify({ token: inviteToken })
+                        })
+                        const data = await response.json().catch(() => null)
+                        if (!response.ok || !data?.success) {
+                          setInviteError(data?.error || 'Failed to accept invite.')
+                          return
+                        }
+                        localStorage.removeItem('pendingInviteToken')
+                        if (data?.token) {
+                          localStorage.setItem('authToken', data.token)
+                        }
+                        setInviteAccepted(true)
+                        window.setTimeout(() => navigate('/dashboard'), 900)
+                      } catch (e: any) {
+                        setInviteError(e?.message || 'Failed to accept invite.')
+                      } finally {
+                        setInviteLoading(false)
+                      }
+                    }}
+                  >
+                    {inviteLoading ? 'Accepting…' : 'Accept Invite'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-white/20 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={inviteLoading || inviteAccepted || !inviteToken}
+                    onClick={async () => {
+                      if (!inviteToken) return
+                      setInviteLoading(true)
+                      setInviteError('')
+                      try {
+                        const authToken = localStorage.getItem('authToken')
+                        const response = await fetch(`${API_BASE_URL}/company-invites/decline`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+                          },
+                          body: JSON.stringify({ token: inviteToken })
+                        })
+                        const data = await response.json().catch(() => null)
+                        if (!response.ok || !data?.success) {
+                          setInviteError(data?.error || 'Failed to decline invite.')
+                          return
+                        }
+                        localStorage.removeItem('pendingInviteToken')
+                        navigate('/auth')
+                      } catch (e: any) {
+                        setInviteError(e?.message || 'Failed to decline invite.')
+                      } finally {
+                        setInviteLoading(false)
+                      }
+                    }}
+                  >
+                    Decline
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    className="w-full btn-primary py-3 text-lg font-medium"
+                    onClick={() => {
+                      setShowSignup(false)
+                    }}
+                  >
+                    Continue to Sign In
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-white/20 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                    onClick={() => navigate('/landing')}
+                  >
+                    Back
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : isPasswordFlow ? (
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+                {isSetPasswordMode ? 'Set Password' : 'Reset Password'}
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                {isSetPasswordMode ? 'Set a password to activate your account.' : 'Enter a new password for your account.'}
+              </p>
 
               {resetError && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/30 dark:border-red-800">
@@ -168,7 +344,7 @@ export default function Auth() {
                   disabled={resetLoading}
                   className="w-full btn-primary py-3 text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {resetLoading ? 'Resetting...' : 'Reset Password'}
+                  {resetLoading ? 'Saving...' : isSetPasswordMode ? 'Set Password' : 'Reset Password'}
                 </button>
               </form>
 

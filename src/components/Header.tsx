@@ -39,12 +39,14 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const updatesRef = useRef<HTMLDivElement>(null)
   const mobileMenuRef = useRef<HTMLDivElement>(null)
   
-  const { currentUser, currentCompany, logout } = useMySQLAuth()
+  const { currentUser, currentCompany, companies, switchCompany, logout } = useMySQLAuth()
   const { searchQuery, setSearchQuery, searchResults, isSearching, performSearch, clearSearch } = useSearch()
   const { notifications, unreadCount, markAsRead, markAllAsRead, refreshNotifications } = useNotifications()
   const { isDarkMode, toggleDarkMode } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
+
+  const [isSwitchingCompany, setIsSwitchingCompany] = useState(false)
 
   // AI Widget visibility state
   const [isAIWidgetHidden, setIsAIWidgetHidden] = useState(false);
@@ -120,6 +122,23 @@ export default function Header({ onMenuClick }: HeaderProps) {
       localStorage.setItem('seenUpdates', JSON.stringify(updatedSeen));
     }
   };
+
+  const handleSwitchCompany = async (companyId: string) => {
+    if (!companyId || companyId === currentCompany?.id) return
+    setIsSwitchingCompany(true)
+    try {
+      const result = await switchCompany(companyId)
+      if (!result.success) {
+        alert(result.error || 'Failed to switch company')
+      } else {
+        // Close menus and refresh route data.
+        setShowUserMenu(false)
+        navigate(0)
+      }
+    } finally {
+      setIsSwitchingCompany(false)
+    }
+  }
 
   // Handle clicks outside of dropdowns
   useEffect(() => {
@@ -618,6 +637,30 @@ export default function Header({ onMenuClick }: HeaderProps) {
                     </div>
                   </div>
                   <div className="py-1">
+                    {Array.isArray(companies) && companies.length > 1 && (
+                      <div className="px-4 py-2">
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                          Company
+                        </label>
+                        <select
+                          disabled={isSwitchingCompany}
+                          value={currentCompany?.id || ''}
+                          onChange={(e) => handleSwitchCompany(e.target.value)}
+                          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+                        >
+                          {companies.map((c: any) => (
+                            <option key={c.id} value={c.id}>
+                              {c.company?.name || c.name || c.id}
+                            </option>
+                          ))}
+                        </select>
+                        {isSwitchingCompany && (
+                          <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                            Switching…
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <Link
                       to="/settings"
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
