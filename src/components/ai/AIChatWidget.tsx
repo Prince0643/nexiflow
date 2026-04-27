@@ -66,6 +66,7 @@ export default function AIChatWidget() {
   const [isAIProcessing, setIsAIProcessing] = useState(false)
   const [messages, setMessages] = useState<AIChatMessage[]>([])
   const [widgetHeight, setWidgetHeight] = useState<number>(400)
+  const [isTeaserDismissed, setIsTeaserDismissed] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Position state - fixed at bottom right
@@ -518,19 +519,33 @@ export default function AIChatWidget() {
           bottom: '20px'
         }}
       >
-        {!isOpen && (
+        {!isOpen && !isTeaserDismissed && (
           <button
             type="button"
             onClick={() => {
               setIsOpen(true)
               focusInputSoon()
             }}
-            className={`hidden sm:flex max-w-[220px] flex-col rounded-2xl border px-4 py-3 text-left shadow-lg transition-transform hover:-translate-y-0.5 ${
+            className={`relative hidden sm:flex max-w-[220px] flex-col rounded-2xl border px-4 py-3 text-left shadow-lg transition-transform hover:-translate-y-0.5 ${
               isDarkMode
                 ? 'border-gray-700 bg-gray-800 text-gray-100'
                 : 'border-gray-200 bg-white text-gray-900'
             }`}
           >
+            <button
+              type="button"
+              aria-label="Dismiss help"
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsTeaserDismissed(true)
+              }}
+              className={`absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full transition-colors sm:flex ${
+                isDarkMode ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'
+              }`}
+              title="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
             <span className="text-sm font-semibold">Need help?</span>
             <span className={`mt-1 text-xs leading-5 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
               Ask AI to start your timer, find a page, or explain a workflow.

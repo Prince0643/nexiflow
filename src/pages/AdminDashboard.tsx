@@ -75,6 +75,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<DashboardUser[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [runningTimeEntries, setRunningTimeEntries] = useState<TimeEntry[]>([])
+  const [runningTimersNowMs, setRunningTimersNowMs] = useState<number>(() => Date.now())
   const [projects, setProjects] = useState<Project[]>([])
   const [clients, setClients] = useState<Client[]>([])
   const [teams, setTeams] = useState<Team[]>([])
@@ -107,6 +108,22 @@ export default function AdminDashboard() {
   const runningEntriesPollTimeoutRef = useRef<number | null>(null)
   const isRunningEntriesPollInFlightRef = useRef(false)
   const runningEntriesPollDelayRef = useRef(ADMIN_RUNNING_POLL_INTERVAL_MS)
+
+  useEffect(() => {
+    if (activeTab !== 'overview') return
+    if (runningTimeEntries.length === 0) return
+
+    const intervalId = window.setInterval(() => setRunningTimersNowMs(Date.now()), 1000)
+    return () => window.clearInterval(intervalId)
+  }, [activeTab, runningTimeEntries.length])
+
+  const getRunningEntryLiveDurationSeconds = (entry: TimeEntry) => {
+    const baseDuration = Number(entry.duration || 0)
+    const startMs = entry.startTime ? new Date(entry.startTime as any).getTime() : NaN
+    if (!Number.isFinite(startMs)) return baseDuration
+    const live = Math.max(0, Math.floor((runningTimersNowMs - startMs) / 1000))
+    return Math.max(baseDuration, live)
+  }
 
   useEffect(() => {
     if (currentUser?.role && ['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) {
@@ -941,7 +958,7 @@ export default function AdminDashboard() {
                               {entry.description || 'No description'}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                              {formatDurationToHHMMSS(entry.duration)}
+                              {formatDurationToHHMMSS(getRunningEntryLiveDurationSeconds(entry))}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                               <button

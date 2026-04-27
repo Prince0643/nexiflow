@@ -97,9 +97,19 @@ export default function NewInvoice() {
         const start = new Date(startDate)
         const end = new Date(endDate)
         end.setHours(23, 59, 59, 999) // Include the entire end day
-        
-        // Load time entries for the date range
-        const entries = await timeEntryService.getTimeEntriesByDateRange(currentUser.uid, start, end)
+
+        const role = currentUser.role
+        const canInvoiceCompanyWide = role === 'admin' || role === 'hr' || role === 'super_admin' || role === 'root'
+
+        // Load time entries for the date range (company-wide for invoice roles)
+        const entries = canInvoiceCompanyWide
+          ? await timeEntryService.getCompanyTimeEntriesByDateRangeForClient({
+              clientId: selectedClient,
+              startDate: start,
+              endDate: end,
+              billableOnly: true
+            })
+          : await timeEntryService.getTimeEntriesByDateRange(currentUser.uid, start, end)
         console.log('🔍 Debug - All entries in date range:', entries.length, entries)
         
         // Filter for the selected client and billable entries
@@ -115,8 +125,11 @@ export default function NewInvoice() {
         console.log('🔍 Debug - Entries with project ID:', entriesWithProject.length, entriesWithProject)
         
         const filtered = entries
-          .filter(entry => 
-            entry.isBillable &&
+          .filter(entry => entry.isBillable)
+          .filter(entry =>
+            // Prefer filtering by explicit clientId when present (company-wide fetch uses it)
+            entry.clientId === selectedClient ||
+            // Fallback: match client via projectId mapping
             (entry.projectId === null || (entry.projectId && clientProjectIds.includes(entry.projectId)))
           )
           .map(entry => ({

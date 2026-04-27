@@ -62,6 +62,20 @@ export const timeEntryService = {
     return timeEntryApiService.getTimeEntriesByDateRange(userId, startDate, endDate)
   },
 
+  async getCompanyTimeEntriesByDateRangeForClient(args: {
+    clientId: string
+    startDate: Date
+    endDate: Date
+    billableOnly?: boolean
+  }): Promise<TimeEntry[]> {
+    return timeEntryApiService.getAdminTimeEntries({
+      clientId: args.clientId,
+      startDate: args.startDate,
+      endDate: args.endDate,
+      billableOnly: args.billableOnly !== false
+    })
+  },
+
   // Get currently running time entry
   async getRunningTimeEntry(userId: string): Promise<TimeEntry | null> {
     return timeEntryApiService.getRunningTimeEntry(userId)
@@ -94,12 +108,7 @@ export const timeEntryService = {
 
   // Get all running time entries (for admin use)
   async getAllRunningTimeEntries(companyId?: string | null): Promise<TimeEntry[]> {
-    const allEntries = await fetchAllTimeEntries()
-    const running = allEntries.filter(entry => entry.isRunning)
-    if (companyId) {
-      return running.filter(entry => entry.companyId === companyId)
-    }
-    return running
+    return timeEntryApiService.getAdminRunningTimeEntries(companyId)
   },
 
   // Get time summary for dashboard

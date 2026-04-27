@@ -2737,6 +2737,193 @@ app.get('/api/admin/teams/company/:companyId', authenticateToken, authorizeAdmin
   }
 });
 
+// Create team (admin only)
+app.post('/api/admin/teams', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { name, description, leaderId, color } = req.body || {};
+    const requestingUserId = req.user?.id;
+    const companyId = req.user?.companyId || null;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'name is required' });
+    }
+    if (!color || typeof color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      return res.status(400).json({ success: false, error: 'color must be a hex value like #3B82F6' });
+    }
+    // Current UI expects the logged-in user to be the team leader
+    if (!leaderId || leaderId !== requestingUserId) {
+      return res.status(400).json({ success: false, error: 'leaderId must match the current user' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [userRows] = await connection.execute('SELECT name, email FROM users WHERE id = ?', [leaderId]);
+      if (userRows.length === 0) {
+        return res.status(400).json({ success: false, error: 'Leader user not found' });
+      }
+
+      const leader = userRows[0];
+      const teamId = uuidv4();
+      const memberId = uuidv4();
+      const now = new Date();
+
+      await connection.execute(
+        `INSERT INTO teams (
+          id, name, description, leader_id, leader_name, leader_email, color,
+          company_id, is_active, member_count, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          teamId,
+          name.trim(),
+          description && String(description).trim() ? String(description).trim() : null,
+          leaderId,
+          leader.name,
+          leader.email,
+          color,
+          companyId,
+          1,
+          1,
+          requestingUserId,
+          now,
+          now
+        ]
+      );
+
+      await connection.execute(
+        `INSERT INTO team_members (
+          id, team_id, user_id, user_name, user_email, team_role, joined_at, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [memberId, teamId, leaderId, leader.name, leader.email, 'leader', now, 1]
+      );
+
+      await connection.execute(
+        'UPDATE users SET team_id = ?, team_role = ? WHERE id = ?',
+        [teamId, 'leader', leaderId]
+      );
+
+      res.status(201).json({
+        success: true,
+        data: { id: teamId },
+        message: 'Team created successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Create team error:', error);
+    res.status(500).json({ success: false, error: 'Failed to create team' });
+  }
+});
+
+// Update team (admin only)
+app.put('/api/admin/teams/:teamId', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { name, description, color } = req.body || {};
+    const companyId = req.user?.companyId || null;
+
+    const connection = await pool.getConnection();
+    try {
+      const [teamRows] = await connection.execute('SELECT * FROM teams WHERE id = ? AND is_active = 1', [teamId]);
+      if (teamRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Team not found' });
+      }
+
+      const team = teamRows[0];
+      if (req.user?.role !== 'root' && companyId && team.company_id !== companyId) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
+
+      const fields = [];
+      const values = [];
+
+      if (name !== undefined) {
+        if (!String(name).trim()) {
+          return res.status(400).json({ success: false, error: 'name cannot be empty' });
+        }
+        fields.push('name = ?');
+        values.push(String(name).trim());
+      }
+
+      if (description !== undefined) {
+        const desc = String(description).trim();
+        fields.push('description = ?');
+        values.push(desc ? desc : null);
+      }
+
+      if (color !== undefined) {
+        if (!String(color).trim() || !/^#[0-9A-Fa-f]{6}$/.test(String(color).trim())) {
+          return res.status(400).json({ success: false, error: 'color must be a hex value like #3B82F6' });
+        }
+        fields.push('color = ?');
+        values.push(String(color).trim());
+      }
+
+      if (fields.length === 0) {
+        return res.json({ success: true, message: 'No changes' });
+      }
+
+      fields.push('updated_at = ?');
+      values.push(new Date());
+      values.push(teamId);
+
+      await connection.execute(`UPDATE teams SET ${fields.join(', ')} WHERE id = ?`, values);
+
+      res.json({ success: true, message: 'Team updated successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Update team error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update team' });
+  }
+});
+
+// Delete team (admin only) - soft delete
+app.delete('/api/admin/teams/:teamId', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const companyId = req.user?.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [teamRows] = await connection.execute('SELECT * FROM teams WHERE id = ?', [teamId]);
+      if (teamRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Team not found'
+        });
+      }
+
+      const team = teamRows[0];
+      if (req.user?.role !== 'root' && companyId && team.company_id !== companyId) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied'
+        });
+      }
+
+      await connection.execute(
+        'UPDATE teams SET is_active = 0, updated_at = ? WHERE id = ?',
+        [new Date(), teamId]
+      );
+
+      res.json({
+        success: true,
+        message: 'Team deleted successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Delete team error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete team'
+    });
+  }
+});
+
 // Get team members
 app.get('/api/teams/:teamId/members', authenticateToken, async (req, res) => {
   try {

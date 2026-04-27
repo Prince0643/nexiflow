@@ -57,10 +57,19 @@ export const teamService = {
   _mentionableUsersCache: new Map<string, { users: any[], timestamp: number }>(),
   _CACHE_DURATION: 5 * 60 * 1000, // 5 minutes
 
-  // TODO: Backend needs POST /api/teams endpoint
-  async createTeam(_teamData: CreateTeamData, _createdBy: string, _leaderName: string, _leaderEmail: string, _companyId?: string | null): Promise<string> {
-    console.warn('[teamService] createTeam not implemented in API')
-    throw new Error('Team creation not yet implemented in MySQL backend')
+  async createTeam(
+    teamData: CreateTeamData,
+    _createdBy: string,
+    _leaderName: string,
+    _leaderEmail: string,
+    _companyId?: string | null
+  ): Promise<string> {
+    return teamApiService.createTeam({
+      name: teamData.name,
+      description: teamData.description ?? null,
+      leaderId: teamData.leaderId,
+      color: teamData.color
+    })
   },
 
   // Get all teams (admin only)
@@ -79,10 +88,12 @@ export const teamService = {
     return null
   },
 
-  // TODO: Backend needs PUT /api/teams/:id endpoint
-  async updateTeam(_teamId: string, _updates: UpdateTeamData): Promise<void> {
-    console.warn('[teamService] updateTeam not implemented in API')
-    throw new Error('Team update not yet implemented in MySQL backend')
+  async updateTeam(teamId: string, updates: UpdateTeamData): Promise<void> {
+    await teamApiService.updateTeam(teamId, {
+      name: updates.name,
+      description: updates.description,
+      color: updates.color
+    })
   },
 
   // TODO: Backend needs DELETE /api/teams/:id endpoint

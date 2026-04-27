@@ -37,10 +37,16 @@ const apiRequest = async <T>(
     const response = await fetch(url, config)
     
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      const contentType = response.headers.get('content-type') || ''
+      const isJson = contentType.includes('application/json')
+      const errorData = isJson ? await response.json().catch(() => ({})) : {}
 
       // Allow callers to handle missing endpoints (migration period)
       if (response.status === 404) {
+        // If the server returns a JSON error payload, treat it as a real 404 (e.g. "Team not found").
+        if (errorData && (errorData.error || errorData.message)) {
+          throw new Error(errorData.error || errorData.message)
+        }
         throw new Error('API endpoint not found')
       }
       
@@ -130,6 +136,56 @@ export const teamApiService = {
     }
 
     return response.data
+  },
+
+  async createTeam(payload: {
+    name: string
+    description?: string | null
+    leaderId: string
+    color: string
+  }): Promise<string> {
+    const response = await apiRequest<{
+      success: boolean
+      data?: { id: string }
+      message?: string
+    }>(`/admin/teams`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.success || !response.data?.id) {
+      throw new Error(response.message || 'Failed to create team')
+    }
+
+    return response.data.id
+  },
+
+  async updateTeam(
+    teamId: string,
+    payload: { name?: string; description?: string | null; color?: string }
+  ): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/admin/teams/${teamId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.success) {
+      throw new Error(response.message || 'Failed to update team')
+    }
+  },
+
+  async deleteTeam(teamId: string): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/admin/teams/${teamId}`, { method: 'DELETE' })
+
+    if (!response.success) {
+      throw new Error(response.message || 'Failed to delete team')
+    }
   }
 }
 

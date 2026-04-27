@@ -3630,6 +3630,7 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
     }
 
     const companyId = req.user.companyId;
+    const { startDate, endDate, projectId, clientId, billableOnly } = req.query;
 
     const connection = await pool.getConnection();
     try {
@@ -3639,6 +3640,34 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
       if (!isGlobalAdminRole(req.user.role) && companyId) {
         query += ' WHERE company_id = ?';
         params.push(companyId);
+      } else {
+        query += ' WHERE 1=1';
+      }
+
+      if (startDate) {
+        query += ' AND start_time >= ?';
+        params.push(new Date(startDate));
+      }
+
+      if (endDate) {
+        const adjustedEndDate = new Date(endDate);
+        adjustedEndDate.setHours(23, 59, 59, 999);
+        query += ' AND start_time <= ?';
+        params.push(adjustedEndDate);
+      }
+
+      if (projectId) {
+        query += ' AND project_id = ?';
+        params.push(projectId);
+      }
+
+      if (clientId) {
+        query += ' AND client_id = ?';
+        params.push(clientId);
+      }
+
+      if (billableOnly === 'true') {
+        query += ' AND is_billable = 1';
       }
 
       query += ' ORDER BY start_time DESC';
@@ -4820,6 +4849,203 @@ app.get('/api/admin/teams', authenticateToken, async (req, res) => {
   }
 });
 
+app.post('/api/admin/teams', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user.companyId;
+    const userId = req.user.uid;
+    const role = req.user.role;
+
+    const isAdmin = role === 'admin' || role === 'super_admin' || role === 'root';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const { name, description, leaderId, color } = req.body || {};
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'name is required' });
+    }
+
+    if (!color || typeof color !== 'string' || !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      return res.status(400).json({ success: false, error: 'color must be a hex value like #3B82F6' });
+    }
+
+    // Current UI expects the logged-in user to be the team leader
+    if (!leaderId || leaderId !== userId) {
+      return res.status(400).json({ success: false, error: 'leaderId must match the current user' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [userRows] = await connection.execute('SELECT name, email FROM users WHERE id = ? AND is_active = 1', [leaderId]);
+      if (userRows.length === 0) {
+        return res.status(400).json({ success: false, error: 'Leader user not found' });
+      }
+
+      const leader = userRows[0];
+      const teamId = uuidv4();
+      const memberId = uuidv4();
+      const now = new Date();
+
+      await connection.execute(
+        `INSERT INTO teams (
+          id, name, description, leader_id, leader_name, leader_email, color,
+          company_id, is_active, member_count, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          teamId,
+          name.trim(),
+          description && String(description).trim() ? String(description).trim() : null,
+          leaderId,
+          leader.name,
+          leader.email,
+          color,
+          companyId || null,
+          1,
+          1,
+          userId,
+          now,
+          now
+        ]
+      );
+
+      await connection.execute(
+        `INSERT INTO team_members (
+          id, team_id, user_id, user_name, user_email, team_role, joined_at, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [memberId, teamId, leaderId, leader.name, leader.email, 'leader', now, 1]
+      );
+
+      await connection.execute(
+        'UPDATE users SET team_id = ?, team_role = ? WHERE id = ?',
+        [teamId, 'leader', leaderId]
+      );
+
+      res.status(201).json({
+        success: true,
+        data: { id: teamId },
+        message: 'Team created successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error creating team:', error);
+    res.status(500).json({ success: false, error: 'Failed to create team' });
+  }
+});
+
+app.put('/api/admin/teams/:teamId', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const companyId = req.user.companyId;
+    const role = req.user.role;
+
+    const isAdmin = role === 'admin' || role === 'super_admin' || role === 'root';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const { name, description, color } = req.body || {};
+
+    const connection = await pool.getConnection();
+    try {
+      const [teamRows] = await connection.execute('SELECT * FROM teams WHERE id = ? AND is_active = 1', [teamId]);
+      if (teamRows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Team not found' });
+      }
+
+      const team = teamRows[0];
+      if (role !== 'root' && companyId && team.company_id !== companyId) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
+
+      const fields = [];
+      const values = [];
+
+      if (name !== undefined) {
+        if (!String(name).trim()) {
+          return res.status(400).json({ success: false, error: 'name cannot be empty' });
+        }
+        fields.push('name = ?');
+        values.push(String(name).trim());
+      }
+
+      if (description !== undefined) {
+        const desc = String(description).trim();
+        fields.push('description = ?');
+        values.push(desc ? desc : null);
+      }
+
+      if (color !== undefined) {
+        if (!String(color).trim() || !/^#[0-9A-Fa-f]{6}$/.test(String(color).trim())) {
+          return res.status(400).json({ success: false, error: 'color must be a hex value like #3B82F6' });
+        }
+        fields.push('color = ?');
+        values.push(String(color).trim());
+      }
+
+      if (fields.length === 0) {
+        return res.json({ success: true, message: 'No changes' });
+      }
+
+      fields.push('updated_at = ?');
+      values.push(new Date());
+      values.push(teamId);
+
+      await connection.execute(`UPDATE teams SET ${fields.join(', ')} WHERE id = ?`, values);
+
+      res.json({ success: true, message: 'Team updated successfully' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error updating team:', error);
+    res.status(500).json({ success: false, error: 'Failed to update team' });
+  }
+});
+
+app.delete('/api/admin/teams/:teamId', authenticateToken, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const companyId = req.user.companyId;
+    const role = req.user.role;
+
+    const isAdmin = role === 'admin' || role === 'super_admin' || role === 'root';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [teamRows] = await connection.execute('SELECT * FROM teams WHERE id = ?', [teamId]);
+      if (teamRows.length === 0) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+
+      const team = teamRows[0];
+      if (role !== 'root' && companyId && team.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await connection.execute(
+        'UPDATE teams SET is_active = 0, updated_at = ? WHERE id = ?',
+        [new Date(), teamId]
+      );
+
+      res.json({
+        success: true,
+        message: 'Team deleted successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error deleting team:', error);
+    res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
 // Team Stats API
 app.get('/api/teams/:teamId/stats', authenticateToken, async (req, res) => {
   try {
@@ -5447,6 +5673,18 @@ app.get('/api/invoices', authenticateToken, requireInvoiceRole, async (req, res)
   try {
     const connection = await pool.getConnection();
     try {
+      const role = req.user.role;
+      const companyId = req.user.companyId || null;
+
+      // Root can see all invoices by default; non-root invoice roles are scoped to company.
+      let whereClause = '1=1';
+      const whereParams = [];
+
+      if (role !== 'root') {
+        whereClause = 'i.company_id = ?';
+        whereParams.push(companyId);
+      }
+
       const [rows] = await connection.execute(
         `SELECT 
           i.id,
@@ -5465,9 +5703,9 @@ app.get('/api/invoices', authenticateToken, requireInvoiceRole, async (req, res)
           i.updated_at
         FROM invoices i
         LEFT JOIN clients c ON c.id = i.client_id
-        WHERE i.created_by = ?
+        WHERE ${whereClause}
         ORDER BY i.created_at DESC`,
-        [req.user.uid]
+        whereParams
       );
 
       return res.json({
@@ -5491,6 +5729,16 @@ app.get('/api/invoices/:id', authenticateToken, requireInvoiceRole, async (req, 
   const { id } = req.params;
   const connection = await pool.getConnection();
   try {
+    const role = req.user.role;
+    const companyId = req.user.companyId || null;
+
+    let whereClause = 'i.id = ?';
+    const whereParams = [id];
+    if (role !== 'root') {
+      whereClause += ' AND i.company_id = ?';
+      whereParams.push(companyId);
+    }
+
     const [invoiceRows] = await connection.execute(
       `SELECT
         i.id,
@@ -5510,9 +5758,9 @@ app.get('/api/invoices/:id', authenticateToken, requireInvoiceRole, async (req, 
         i.updated_at
       FROM invoices i
       LEFT JOIN clients c ON c.id = i.client_id
-      WHERE i.id = ? AND i.created_by = ?
+      WHERE ${whereClause}
       LIMIT 1`,
-      [id, req.user.uid]
+      whereParams
     );
 
     if (!invoiceRows || invoiceRows.length === 0) {
@@ -5586,6 +5834,16 @@ app.post('/api/invoices/:id/send', authenticateToken, requireInvoiceRole, async 
 
   const connection = await pool.getConnection();
   try {
+    const role = req.user.role;
+    const companyId = req.user.companyId || null;
+
+    let whereClause = 'i.id = ?';
+    const whereParams = [id];
+    if (role !== 'root') {
+      whereClause += ' AND i.company_id = ?';
+      whereParams.push(companyId);
+    }
+
     const [rows] = await connection.execute(
       `SELECT 
         i.id,
@@ -5596,9 +5854,9 @@ app.post('/api/invoices/:id/send', authenticateToken, requireInvoiceRole, async 
         c.email AS client_email
       FROM invoices i
       LEFT JOIN clients c ON c.id = i.client_id
-      WHERE i.id = ? AND i.created_by = ?
+      WHERE ${whereClause}
       LIMIT 1`,
-      [id, req.user.uid]
+      whereParams
     );
 
     if (!rows || rows.length === 0) {
@@ -5640,10 +5898,11 @@ app.post('/api/invoices/:id/send', authenticateToken, requireInvoiceRole, async 
       ]
     });
 
-    await connection.execute(
-      `UPDATE invoices SET status = 'sent' WHERE id = ? AND created_by = ?`,
-      [id, req.user.uid]
-    );
+    if (role === 'root') {
+      await connection.execute(`UPDATE invoices SET status = 'sent' WHERE id = ?`, [id]);
+    } else {
+      await connection.execute(`UPDATE invoices SET status = 'sent' WHERE id = ? AND company_id = ?`, [id, companyId]);
+    }
 
     return res.json({ success: true });
   } catch (err) {

@@ -152,6 +152,64 @@ export const timeEntryApiService = {
     });
   },
 
+  async getAdminTimeEntries(filters: {
+    startDate?: Date
+    endDate?: Date
+    clientId?: string
+    projectId?: string
+    billableOnly?: boolean
+  } = {}): Promise<TimeEntry[]> {
+    const params = new URLSearchParams()
+    if (filters.startDate) params.append('startDate', filters.startDate.toISOString())
+    if (filters.endDate) params.append('endDate', filters.endDate.toISOString())
+    if (filters.clientId) params.append('clientId', filters.clientId)
+    if (filters.projectId) params.append('projectId', filters.projectId)
+    if (filters.billableOnly) params.append('billableOnly', 'true')
+
+    const endpoint = `/admin/time-entries${params.toString() ? `?${params.toString()}` : ''}`
+    const response = await apiRequest<{
+      success: boolean
+      data: TimeEntry[]
+      count: number
+    }>(endpoint)
+
+    if (!response.success) {
+      throw new Error('Failed to get admin time entries')
+    }
+
+    return response.data.map((entry: TimeEntry) => ({
+      ...entry,
+      startTime: new Date(entry.startTime),
+      endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+      createdAt: new Date(entry.createdAt),
+      updatedAt: new Date(entry.updatedAt)
+    }))
+  },
+
+  async getAdminRunningTimeEntries(companyId?: string | null): Promise<TimeEntry[]> {
+    const params = new URLSearchParams()
+    if (companyId) params.append('companyId', companyId)
+
+    const endpoint = `/admin/time-entries/running${params.toString() ? `?${params.toString()}` : ''}`
+    const response = await apiRequest<{
+      success: boolean
+      data: TimeEntry[]
+      count: number
+    }>(endpoint)
+
+    if (!response.success) {
+      throw new Error('Failed to get running admin time entries')
+    }
+
+    return response.data.map((entry: TimeEntry) => ({
+      ...entry,
+      startTime: new Date(entry.startTime),
+      endTime: entry.endTime ? new Date(entry.endTime) : undefined,
+      createdAt: new Date(entry.createdAt),
+      updatedAt: new Date(entry.updatedAt)
+    }))
+  },
+
   // Get currently running time entry for a user
   async getRunningTimeEntry(userId: string): Promise<TimeEntry | null> {
     const response = await apiRequest<{

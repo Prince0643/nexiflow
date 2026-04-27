@@ -3,7 +3,7 @@
   "name": "NexiFlow Time Tracker",
   "version": "0.1.1",
   "description": "Track time and optionally capture screenshots for proof-of-work.",
-  "permissions": ["storage", "alarms", "desktopCapture", "offscreen", "tabs", "activeTab"],
+  "permissions": ["storage", "alarms", "desktopCapture", "offscreen", "activeTab"],
   "host_permissions": [
     "https://nexi-flow.com/*"
   ],

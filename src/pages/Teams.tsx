@@ -207,10 +207,7 @@ export default function Teams() {
   const handleDeleteTeam = async (team: Team) => {
     if (window.confirm(`Are you sure you want to delete "${team.name}"?`)) {
       try {
-        // We'll need to implement team deletion via API
-        // For now, we'll use the mysqlTeamService directly
-        const { mysqlTeamService } = await import('../services/mysqlTeamService');
-        await mysqlTeamService.deleteTeam(team.id)
+        await teamApiService.deleteTeam(team.id)
         loadData()
       } catch (error) {
         setError('Failed to delete team')
@@ -1110,4 +1107,3 @@ export default function Teams() {
     </div>
   )
 }
-
