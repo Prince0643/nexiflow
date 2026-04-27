@@ -277,6 +277,7 @@ export default function Auth() {
                     className="w-full btn-primary py-3 text-lg font-medium"
                     onClick={() => {
                       setShowSignup(false)
+                      navigate('/auth')
                     }}
                   >
                     Continue to Sign In
