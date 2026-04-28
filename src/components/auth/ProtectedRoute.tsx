@@ -35,6 +35,11 @@ export default function ProtectedRoute({
     return <Navigate to="/auth" replace />
   }
 
+  // Root users can operate without a company context; don't block them on plan gating.
+  if (currentUser.role === 'root') {
+    return <>{children}</>
+  }
+
   if (allowedPlans && allowedPlans.length > 0) {
     const plan = currentCompany?.pricingLevel
     if (!plan || !allowedPlans.includes(plan)) {

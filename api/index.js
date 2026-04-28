@@ -3487,9 +3487,44 @@ app.post('/api/auth/login', async (req, res) => {
       }
 
       if (!memberships || memberships.length === 0) {
-        return res.status(403).json({
-          success: false,
-          error: 'No active company membership found for this account.'
+        // Root users may exist without any company context (dev/system access).
+        if (user.role !== 'root') {
+          return res.status(403).json({
+            success: false,
+            error: 'No active company membership found for this account.'
+          });
+        }
+
+        // Allow root login with a null active company.
+        const token = jwt.sign(
+          { userId: user.id, email: user.email, activeCompanyId: null, membershipRole: 'root' },
+          process.env.JWT_SECRET || 'clockistry_secret_key',
+          { expiresIn: '24h' }
+        );
+
+        const userData = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: 'root',
+          companyId: null,
+          teamId: user.team_id || null,
+          teamRole: user.team_role || null,
+          avatar: user.avatar || null,
+          emailVerified,
+          timezone: user.timezone,
+          hourlyRate: user.hourly_rate,
+          isActive: user.is_active === 1,
+          createdAt: user.created_at,
+          updatedAt: user.updated_at
+        };
+
+        return res.json({
+          success: true,
+          token,
+          user: userData,
+          company: null,
+          companies: []
         });
       }
 
