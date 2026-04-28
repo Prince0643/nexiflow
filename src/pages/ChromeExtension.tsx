@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom'
 import { Chrome, CheckCircle2, ArrowRight, Camera, Clock } from 'lucide-react'
+
+const CHROME_WEB_STORE_URL = 'https://chromewebstore.google.com/detail/nexiflow-time-tracker/ajebmcddconkbpafckcnkcpidcnjnfmd'
 
 export default function ChromeExtension() {
   return (
@@ -12,26 +13,20 @@ export default function ChromeExtension() {
                 <Chrome className="h-6 w-6 text-primary-600 dark:text-primary-300" />
               </div>
               <div className="flex-1">
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-                  NexiFlow Chrome Extension
-                </h1>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">NexiFlow Chrome Extension</h1>
                 <p className="mt-2 text-gray-600 dark:text-gray-300 max-w-2xl">
                   Track time faster, keep work logs consistent, and optionally capture screenshots for proof-of-work while tracking.
                 </p>
                 <div className="mt-5 flex flex-wrap gap-3">
-                  <Link
-                    to="/coming-soon"
+                  <a
+                    href={CHROME_WEB_STORE_URL}
+                    target="_blank"
+                    rel="noreferrer"
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors text-sm font-medium"
                   >
                     Install from Chrome Web Store
                     <ArrowRight className="h-4 w-4" />
-                  </Link>
-                  <Link
-                    to="/coming-soon"
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm font-medium"
-                  >
-                    View setup guide
-                  </Link>
+                  </a>
                 </div>
               </div>
             </div>
@@ -132,4 +127,3 @@ export default function ChromeExtension() {
     </div>
   )
 }
-
