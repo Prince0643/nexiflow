@@ -4405,14 +4405,15 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
 
       if (effectiveStartDate) {
         query += ' AND start_time >= ?';
-        params.push(effectiveStartDate);
+        // Avoid driver-specific issues with Date bindings by using a MySQL-friendly datetime string.
+        params.push(effectiveStartDate.toISOString().slice(0, 19).replace('T', ' '));
       }
 
       if (effectiveEndDate) {
         const adjustedEndDate = new Date(effectiveEndDate);
         adjustedEndDate.setHours(23, 59, 59, 999);
         query += ' AND start_time <= ?';
-        params.push(adjustedEndDate);
+        params.push(adjustedEndDate.toISOString().slice(0, 19).replace('T', ' '));
       }
 
       if (projectId) {
