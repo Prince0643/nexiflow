@@ -5718,12 +5718,12 @@ const handleGetTimeEntriesForUser = async (req, res) => {
         SELECT * FROM time_entries
         WHERE user_id = ?
       `;
-      const params = [userId];
+      const params = [String(userId)];
 
       // If the request is scoped to an active company (multi-company tokens), filter results accordingly.
       if (req.user.companyId) {
         query += ' AND company_id = ?';
-        params.push(req.user.companyId);
+        params.push(String(req.user.companyId));
       }
 
       if (effectiveStartDate) {
@@ -5739,7 +5739,7 @@ const handleGetTimeEntriesForUser = async (req, res) => {
       }
 
       query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+      params.push(Number(limit), Number(offset));
 
       const [rows] = await connection.execute(query, params);
 
