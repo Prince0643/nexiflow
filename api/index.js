@@ -4853,6 +4853,7 @@ app.put('/api/admin/time-entries/:id', authenticateToken, async (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password, confirmPassword, role, companyName, plan } = req.body;
+    const normalizedPlan = plan || 'solo';
 
     const sendGhlInboundWebhook = async ({ payload }) => {
       const webhookUrl = process.env.GHL_INBOUND_WEBHOOK_URL;
@@ -5063,7 +5064,7 @@ app.post('/api/auth/signup', async (req, res) => {
                   isActive: companyData.isActive
                 }
               : { id: newCompanyId, name: companyName, pricingLevel: 'solo', isActive: true },
-            planSelected: plan || null,
+            planSelected: normalizedPlan,
             billing: {
               requiresEmailVerification: false,
               billingTokenIssued: false
@@ -5231,7 +5232,7 @@ app.post('/api/auth/signup', async (req, res) => {
                 isActive: companyData.isActive
               }
             : null,
-          planSelected: plan || null,
+          planSelected: normalizedPlan,
           billing: {
             requiresEmailVerification: true,
             billingTokenIssued: !!billingToken
