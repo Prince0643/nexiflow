@@ -400,6 +400,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
           password: credentials.password,
           confirmPassword: credentials.confirmPassword,
           role: credentials.role,
+          plan: credentials.plan,
           companyName: companyName
         }),
       })

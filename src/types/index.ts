@@ -41,6 +41,7 @@ export interface SignupCredentials {
   password: string
   confirmPassword: string
   role: UserRole
+  plan?: PricingLevel
 }
 
 export interface Company {

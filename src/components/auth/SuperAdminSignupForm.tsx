@@ -263,7 +263,8 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
           email: formData.email,
           password: formData.password,
           confirmPassword: formData.confirmPassword,
-          role: 'super_admin'
+          role: 'super_admin',
+          plan: formData.plan
         },
         formData.companyName
       )

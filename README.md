@@ -88,6 +88,12 @@ A modern, Clockify-like time tracking application built with React, TypeScript, 
    OPENAI_API_KEY=your_openai_api_key_here
    OPENAI_MODEL=gpt-4o-mini
    ```
+
+   Optional (GHL inbound webhook on signup):
+   ```bash
+   GHL_INBOUND_WEBHOOK_URL=https://hooks.leadconnectorhq.com/...
+   GHL_INBOUND_WEBHOOK_SECRET=your_shared_secret
+   ```
    
    **Important**: Never commit your `.env.local` file to version control. It's already included in `.gitignore`.
 

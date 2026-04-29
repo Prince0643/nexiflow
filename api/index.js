@@ -4852,7 +4852,36 @@ app.put('/api/admin/time-entries/:id', authenticateToken, async (req, res) => {
 // Signup endpoint
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, role, companyName } = req.body;
+    const { name, email, password, confirmPassword, role, companyName, plan } = req.body;
+
+    const sendGhlInboundWebhook = async ({ payload }) => {
+      const webhookUrl = process.env.GHL_INBOUND_WEBHOOK_URL;
+      if (!webhookUrl) return;
+
+      const secret = process.env.GHL_INBOUND_WEBHOOK_SECRET || '';
+      const timestamp = Date.now().toString();
+      const rawBody = JSON.stringify(payload);
+
+      const signature = secret
+        ? `sha256=${crypto.createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex')}`
+        : '';
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-Nexiflow-Timestamp': timestamp,
+        ...(signature ? { 'X-Nexiflow-Signature': signature } : {})
+      };
+
+      try {
+        const response = await fetch(webhookUrl, { method: 'POST', headers, body: rawBody });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          console.warn('GHL inbound webhook failed:', response.status, text);
+        }
+      } catch (e) {
+        console.warn('GHL inbound webhook error:', e?.message || e);
+      }
+    };
     
     // Basic validation
     if (!name || !email || !password || !confirmPassword) {
@@ -5014,6 +5043,38 @@ app.post('/api/auth/signup', async (req, res) => {
 
         const companyData = await loadCompanyWithSettings(newCompanyId);
 
+        await sendGhlInboundWebhook({
+          payload: {
+            event: 'super_admin_signup',
+            occurredAt: new Date().toISOString(),
+            app: 'nexiflow',
+            user: {
+              id: existingUser.id,
+              name: existingUser.name,
+              email: existingUser.email,
+              role: 'super_admin',
+              emailVerified: existingUser.email_verified === 1
+            },
+            company: companyData
+              ? {
+                  id: companyData.id,
+                  name: companyData.name,
+                  pricingLevel: companyData.pricingLevel,
+                  isActive: companyData.isActive
+                }
+              : { id: newCompanyId, name: companyName, pricingLevel: 'solo', isActive: true },
+            planSelected: plan || null,
+            billing: {
+              requiresEmailVerification: false,
+              billingTokenIssued: false
+            },
+            source: {
+              ip: req.ip || null,
+              userAgent: req.headers['user-agent'] || null
+            }
+          }
+        });
+
         return res.status(201).json({
           success: true,
           token,
@@ -5149,6 +5210,38 @@ app.post('/api/auth/signup', async (req, res) => {
         role === 'super_admin' && companyData?.id
           ? signBillingCheckoutToken({ userId, companyId: companyData.id })
           : null;
+
+      await sendGhlInboundWebhook({
+        payload: {
+          event: role === 'super_admin' ? 'super_admin_signup' : 'signup',
+          occurredAt: new Date().toISOString(),
+          app: 'nexiflow',
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            emailVerified: false
+          },
+          company: companyData
+            ? {
+                id: companyData.id,
+                name: companyData.name,
+                pricingLevel: companyData.pricingLevel,
+                isActive: companyData.isActive
+              }
+            : null,
+          planSelected: plan || null,
+          billing: {
+            requiresEmailVerification: true,
+            billingTokenIssued: !!billingToken
+          },
+          source: {
+            ip: req.ip || null,
+            userAgent: req.headers['user-agent'] || null
+          }
+        }
+      });
 
       res.status(201).json({
         success: true,
