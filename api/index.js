@@ -2903,6 +2903,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Build/version info (useful for verifying production deployments)
+app.get('/api/version', (req, res) => {
+  res.json({
+    gitSha: process.env.GIT_SHA || process.env.COMMIT_SHA || null,
+    builtAt: process.env.BUILD_TIME || null,
+    serverTime: new Date().toISOString()
+  });
+});
+
 // Company PDF Settings API
 app.get('/api/companies/:companyId/pdf-settings', authenticateToken, async (req, res) => {
   try {
@@ -4430,8 +4439,9 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
         query += ' AND is_billable = 1';
       }
 
-      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+      // Some MySQL/MariaDB builds are finicky about binding LIMIT/OFFSET in prepared statements.
+      // We only interpolate after Joi validation (int + bounds) to avoid injection risk.
+      query += ` ORDER BY start_time DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
 
       const [rows] = await connection.execute(query, params);
       const entries = rows.map(row => ({
@@ -4523,8 +4533,7 @@ app.get('/api/admin/time-entries/running', authenticateToken, async (req, res) =
         params.push(effectiveCompanyId);
       }
 
-      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+      query += ` ORDER BY start_time DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
 
       const [rows] = await connection.execute(query, params);
       const entries = rows.map(row => ({
@@ -5212,7 +5221,7 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
       // Apply filters
       if (effectiveStartDate) {
         query += ' AND start_time >= ?';
-        params.push(effectiveStartDate);
+        params.push(effectiveStartDate.toISOString().slice(0, 19).replace('T', ' '));
       }
       
       if (effectiveEndDate) {
@@ -5220,7 +5229,7 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
         const adjustedEndDate = new Date(effectiveEndDate);
         adjustedEndDate.setHours(23, 59, 59, 999);
         query += ' AND start_time <= ?';
-        params.push(adjustedEndDate);
+        params.push(adjustedEndDate.toISOString().slice(0, 19).replace('T', ' '));
       }
       
       if (projectId) {
@@ -5232,8 +5241,7 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
         query += ' AND is_billable = 1';
       }
       
-      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
-      params.push(limit, offset);
+      query += ` ORDER BY start_time DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
       
       const [rows] = await connection.execute(query, params);
       
@@ -5729,18 +5737,19 @@ const handleGetTimeEntriesForUser = async (req, res) => {
 
       if (effectiveStartDate) {
         query += ' AND start_time >= ?';
-        params.push(effectiveStartDate);
+        // Avoid driver-specific issues with Date bindings by using a MySQL-friendly datetime string.
+        params.push(effectiveStartDate.toISOString().slice(0, 19).replace('T', ' '));
       }
 
       if (effectiveEndDate) {
         const adjustedEndDate = new Date(effectiveEndDate);
         adjustedEndDate.setHours(23, 59, 59, 999);
         query += ' AND start_time <= ?';
-        params.push(adjustedEndDate);
+        // Avoid driver-specific issues with Date bindings by using a MySQL-friendly datetime string.
+        params.push(adjustedEndDate.toISOString().slice(0, 19).replace('T', ' '));
       }
 
-      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
-      params.push(Number(limit), Number(offset));
+      query += ` ORDER BY start_time DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
 
       const [rows] = await connection.execute(query, params);
 
@@ -7541,10 +7550,10 @@ app.get('/api/projects/company/:companyId', authenticateToken, async (req, res) 
       const [countRows] = await connection.execute(countQuery, params);
       const total = Number(countRows?.[0]?.total || 0);
 
-      const query = `SELECT * FROM projects${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-      const dataParams = [...params, limit, offset];
-
-      const [rows] = await connection.execute(query, dataParams);
+      // Some MySQL/MariaDB builds are finicky about binding LIMIT/OFFSET in prepared statements.
+      // parsePagination() already validates/coerces these to safe integers.
+      const query = `SELECT * FROM projects${where} ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`;
+      const [rows] = await connection.execute(query, params);
       const projects = rows.map(mapProjectRow);
       
       res.json({
