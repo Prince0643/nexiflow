@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
-import { X, Clock, User, FolderOpen, DollarSign, Save, Trash2 } from 'lucide-react'
-import { TimeEntry, Project, User as UserType } from '../../types'
+import { X, Clock, User, FolderOpen, Building2, DollarSign, Save, Trash2 } from 'lucide-react'
+import { TimeEntry, Project, Client, User as UserType } from '../../types'
 import { timeEntryService } from '../../services/timeEntryService'
-import { projectService } from '../../services/projectService'
-import { userService } from '../../services/userService'
+import {
+  adminProjectsAPI as projectService,
+  adminClientsAPI as clientService,
+  adminUsersAPI as userService
+} from '../../services/adminApiService'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 
 interface TimeEntryEditModalProps {
@@ -24,9 +27,11 @@ export default function TimeEntryEditModal({
   const { currentUser } = useMySQLAuth()
   const [loading, setLoading] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
+  const [clients, setClients] = useState<Client[]>([])
   const [users, setUsers] = useState<UserType[]>([])
   const [formData, setFormData] = useState({
     description: '',
+    clientId: '',
     projectId: '',
     userId: '',
     startTime: '',
@@ -47,6 +52,7 @@ export default function TimeEntryEditModal({
       
       setFormData({
         description: timeEntry.description || '',
+        clientId: '',
         projectId: timeEntry.projectId || '',
         userId: timeEntry.userId || '',
         startTime: startTime.toISOString().slice(0, 16), // Format for datetime-local input
@@ -56,6 +62,15 @@ export default function TimeEntryEditModal({
       })
     }
   }, [isOpen, timeEntry])
+
+  useEffect(() => {
+    if (!isOpen || !timeEntry) return
+    if (!formData.projectId || formData.clientId) return
+    const selected = projects.find((p) => String(p.id) === String(formData.projectId))
+    const inferredClientId = selected?.clientId ? String(selected.clientId) : ''
+    if (!inferredClientId) return
+    setFormData((prev) => ({ ...prev, clientId: inferredClientId }))
+  }, [formData.clientId, formData.projectId, isOpen, projects, timeEntry])
 
   const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
     const seen = new Set<string>()
@@ -71,11 +86,16 @@ export default function TimeEntryEditModal({
 
   const loadData = async () => {
     try {
-      const [projectsData, usersData] = await Promise.all([
-        projectService.getProjects(),
-        userService.getAllUsers()
+      const companyId = currentUser?.companyId || null
+      const isRootLike = currentUser?.role === 'root' || currentUser?.role === 'super_admin'
+
+      const [projectsData, clientsData, usersData] = await Promise.all([
+        projectService.getProjectsForCompany(companyId),
+        clientService.getClientsForCompany(companyId),
+        isRootLike ? userService.getAllUsers() : userService.getUsersForCompany(companyId)
       ])
       setProjects(dedupeById<Project>(projectsData))
+      setClients(dedupeById<Client>(clientsData))
       setUsers(dedupeById<UserType>(usersData))
     } catch (error) {
       console.error('Error loading data:', error)
@@ -99,6 +119,10 @@ export default function TimeEntryEditModal({
     const newFormData = {
       ...formData,
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }
+
+    if (name === 'clientId') {
+      newFormData.projectId = ''
     }
 
     // Handle connected fields
@@ -133,14 +157,20 @@ export default function TimeEntryEditModal({
 
     try {
       setLoading(true)
-      
+
       const startTime = new Date(formData.startTime)
       const endTime = new Date(formData.endTime)
       const duration = parseDuration(formData.duration)
+
+      const selectedProject = projects.find((p) => String(p.id) === String(formData.projectId))
+      const selectedClient = clients.find((c) => String(c.id) === String(formData.clientId))
       
       const updates = {
         description: formData.description,
         projectId: formData.projectId,
+        projectName: selectedProject?.name || undefined,
+        clientId: formData.clientId,
+        clientName: selectedClient?.name || undefined,
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
         duration: duration,
@@ -195,6 +225,10 @@ export default function TimeEntryEditModal({
 
   if (!isOpen || !timeEntry) return null
 
+  const filteredProjects = formData.clientId
+    ? projects.filter((project) => String(project.clientId || '') === String(formData.clientId))
+    : []
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
@@ -237,6 +271,27 @@ export default function TimeEntryEditModal({
             </select>
           </div>
 
+          {/* Client Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <Building2 className="h-4 w-4 inline mr-1" />
+              Client
+            </label>
+            <select
+              name="clientId"
+              value={formData.clientId}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+            >
+              <option value="">Select Client</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Project Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -247,10 +302,11 @@ export default function TimeEntryEditModal({
               name="projectId"
               value={formData.projectId}
               onChange={handleInputChange}
+              disabled={!formData.clientId}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             >
               <option value="">Select Project</option>
-              {projects.map(project => (
+              {filteredProjects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
                 </option>

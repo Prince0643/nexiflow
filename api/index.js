@@ -4320,28 +4320,96 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const companyId = req.user.companyId;
-    const { startDate, endDate, projectId, clientId, billableOnly } = req.query;
+    const isGlobalAdmin = isGlobalAdminRole(req.user.role);
+    const actorCompanyId = req.user.companyId;
+
+    const querySchema = Joi.object({
+      companyId: Joi.string().trim().allow('', null),
+      startDate: Joi.string().trim().allow('', null),
+      endDate: Joi.string().trim().allow('', null),
+      projectId: Joi.string().trim().allow('', null),
+      clientId: Joi.string().trim().allow('', null),
+      billableOnly: Joi.string().valid('true', 'false').allow('', null),
+      limit: Joi.number().integer().min(1).max(200).default(50),
+      offset: Joi.number().integer().min(0).default(0)
+    });
+
+    const { error: queryError, value: queryValue } = querySchema.validate(req.query, {
+      abortEarly: false,
+      stripUnknown: true,
+      convert: true
+    });
+
+    if (queryError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid query parameters',
+        details: queryError.details.map((d) => d.message)
+      });
+    }
+
+    const {
+      companyId: requestedCompanyIdRaw,
+      startDate: startDateRaw,
+      endDate: endDateRaw,
+      projectId,
+      clientId,
+      billableOnly,
+      limit,
+      offset
+    } = queryValue;
+
+    // Company-only scoping:
+    // - Non-global admins are always scoped to their own company
+    // - Global admins must explicitly pass `companyId` to avoid accidental cross-company queries
+    const requestedCompanyId = typeof requestedCompanyIdRaw === 'string' && requestedCompanyIdRaw.length
+      ? requestedCompanyIdRaw
+      : null;
+    const effectiveCompanyId = isGlobalAdmin ? requestedCompanyId : actorCompanyId;
+
+    if (isGlobalAdmin && !effectiveCompanyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'companyId is required for global admins'
+      });
+    }
+
+    if (!effectiveCompanyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User company scope is missing'
+      });
+    }
+
+    // Default date window: last 30 days if neither startDate nor endDate provided
+    const hasStartDate = typeof startDateRaw === 'string' && startDateRaw.length > 0;
+    const hasEndDate = typeof endDateRaw === 'string' && endDateRaw.length > 0;
+    const effectiveStartDate = hasStartDate ? new Date(startDateRaw) : (hasEndDate ? null : moment().subtract(30, 'days').toDate());
+    const effectiveEndDate = hasEndDate ? new Date(endDateRaw) : null;
+
+    if (effectiveStartDate && Number.isNaN(effectiveStartDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid startDate' });
+    }
+
+    if (effectiveEndDate && Number.isNaN(effectiveEndDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid endDate' });
+    }
 
     const connection = await pool.getConnection();
     try {
       let query = 'SELECT * FROM time_entries';
       const params = [];
 
-      if (!isGlobalAdminRole(req.user.role) && companyId) {
-        query += ' WHERE company_id = ?';
-        params.push(companyId);
-      } else {
-        query += ' WHERE 1=1';
-      }
+      query += ' WHERE company_id = ?';
+      params.push(effectiveCompanyId);
 
-      if (startDate) {
+      if (effectiveStartDate) {
         query += ' AND start_time >= ?';
-        params.push(new Date(startDate));
+        params.push(effectiveStartDate);
       }
 
-      if (endDate) {
-        const adjustedEndDate = new Date(endDate);
+      if (effectiveEndDate) {
+        const adjustedEndDate = new Date(effectiveEndDate);
         adjustedEndDate.setHours(23, 59, 59, 999);
         query += ' AND start_time <= ?';
         params.push(adjustedEndDate);
@@ -4361,7 +4429,8 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
         query += ' AND is_billable = 1';
       }
 
-      query += ' ORDER BY start_time DESC';
+      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
 
       const [rows] = await connection.execute(query, params);
       const entries = rows.map(row => ({
@@ -4383,7 +4452,7 @@ app.get('/api/admin/time-entries', authenticateToken, async (req, res) => {
         updatedAt: row.updated_at
       }));
 
-      res.json({ success: true, data: entries, count: entries.length });
+      res.json({ success: true, data: entries, count: entries.length, limit, offset });
     } finally {
       connection.release();
     }
@@ -4399,11 +4468,49 @@ app.get('/api/admin/time-entries/running', authenticateToken, async (req, res) =
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const queryCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId : null;
-    const shouldIgnoreQueryCompanyId = Boolean(queryCompanyId && queryCompanyId.startsWith('-'));
-    const effectiveCompanyId = isGlobalAdminRole(req.user.role)
-      ? (shouldIgnoreQueryCompanyId ? null : queryCompanyId)
-      : req.user.companyId;
+    const isGlobalAdmin = isGlobalAdminRole(req.user.role);
+    const actorCompanyId = req.user.companyId;
+
+    const querySchema = Joi.object({
+      companyId: Joi.string().trim().allow('', null),
+      limit: Joi.number().integer().min(1).max(200).default(50),
+      offset: Joi.number().integer().min(0).default(0)
+    });
+
+    const { error: queryError, value: queryValue } = querySchema.validate(req.query, {
+      abortEarly: false,
+      stripUnknown: true,
+      convert: true
+    });
+
+    if (queryError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid query parameters',
+        details: queryError.details.map((d) => d.message)
+      });
+    }
+
+    const { companyId: requestedCompanyIdRaw, limit, offset } = queryValue;
+
+    const requestedCompanyId = typeof requestedCompanyIdRaw === 'string' && requestedCompanyIdRaw.length
+      ? requestedCompanyIdRaw
+      : null;
+    const effectiveCompanyId = isGlobalAdmin ? requestedCompanyId : actorCompanyId;
+
+    if (isGlobalAdmin && !effectiveCompanyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'companyId is required for global admins'
+      });
+    }
+
+    if (!effectiveCompanyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'User company scope is missing'
+      });
+    }
 
     const connection = await pool.getConnection();
     try {
@@ -4415,7 +4522,8 @@ app.get('/api/admin/time-entries/running', authenticateToken, async (req, res) =
         params.push(effectiveCompanyId);
       }
 
-      query += ' ORDER BY start_time DESC';
+      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
 
       const [rows] = await connection.execute(query, params);
       const entries = rows.map(row => ({
@@ -4437,7 +4545,7 @@ app.get('/api/admin/time-entries/running', authenticateToken, async (req, res) =
         updatedAt: row.updated_at
       }));
 
-      res.json({ success: true, data: entries, count: entries.length });
+      res.json({ success: true, data: entries, count: entries.length, limit, offset });
     } finally {
       connection.release();
     }
@@ -5040,9 +5148,53 @@ app.post('/api/auth/resend-verification', async (req, res) => {
 // Time Entries API
 app.get('/api/time-entries', authenticateToken, async (req, res) => {
   try {
-    const { startDate, endDate, projectId, billableOnly } = req.query;
     const userId = req.user.uid;
     const companyId = req.user.companyId;
+
+    const querySchema = Joi.object({
+      startDate: Joi.string().trim().allow('', null),
+      endDate: Joi.string().trim().allow('', null),
+      projectId: Joi.string().trim().allow('', null),
+      billableOnly: Joi.string().valid('true', 'false').allow('', null),
+      limit: Joi.number().integer().min(1).max(200).default(50),
+      offset: Joi.number().integer().min(0).default(0)
+    });
+
+    const { error: queryError, value: queryValue } = querySchema.validate(req.query, {
+      abortEarly: false,
+      stripUnknown: true,
+      convert: true
+    });
+
+    if (queryError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid query parameters',
+        details: queryError.details.map((d) => d.message)
+      });
+    }
+
+    const {
+      startDate: startDateRaw,
+      endDate: endDateRaw,
+      projectId,
+      billableOnly,
+      limit,
+      offset
+    } = queryValue;
+
+    const hasStartDate = typeof startDateRaw === 'string' && startDateRaw.length > 0;
+    const hasEndDate = typeof endDateRaw === 'string' && endDateRaw.length > 0;
+    const effectiveStartDate = hasStartDate ? new Date(startDateRaw) : (hasEndDate ? null : moment().subtract(30, 'days').toDate());
+    const effectiveEndDate = hasEndDate ? new Date(endDateRaw) : null;
+
+    if (effectiveStartDate && Number.isNaN(effectiveStartDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid startDate' });
+    }
+
+    if (effectiveEndDate && Number.isNaN(effectiveEndDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid endDate' });
+    }
     
     const connection = await pool.getConnection();
     try {
@@ -5057,14 +5209,14 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
       }
       
       // Apply filters
-      if (startDate) {
+      if (effectiveStartDate) {
         query += ' AND start_time >= ?';
-        params.push(new Date(startDate));
+        params.push(effectiveStartDate);
       }
       
-      if (endDate) {
+      if (effectiveEndDate) {
         // Fix for date range filtering: set end date to end of day to include all entries for that day
-        const adjustedEndDate = new Date(endDate);
+        const adjustedEndDate = new Date(effectiveEndDate);
         adjustedEndDate.setHours(23, 59, 59, 999);
         query += ' AND start_time <= ?';
         params.push(adjustedEndDate);
@@ -5079,7 +5231,8 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
         query += ' AND is_billable = 1';
       }
       
-      query += ' ORDER BY start_time DESC';
+      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
       
       const [rows] = await connection.execute(query, params);
       
@@ -5105,7 +5258,9 @@ app.get('/api/time-entries', authenticateToken, async (req, res) => {
       res.json({
         success: true,
         data: entries,
-        count: entries.length
+        count: entries.length,
+        limit,
+        offset
       });
     } finally {
       connection.release();
@@ -5504,6 +5659,41 @@ const handleGetTimeEntriesForUser = async (req, res) => {
   try {
     const { userId } = req.params;
 
+    const querySchema = Joi.object({
+      startDate: Joi.string().trim().allow('', null),
+      endDate: Joi.string().trim().allow('', null),
+      limit: Joi.number().integer().min(1).max(200).default(50),
+      offset: Joi.number().integer().min(0).default(0)
+    });
+
+    const { error: queryError, value: queryValue } = querySchema.validate(req.query, {
+      abortEarly: false,
+      stripUnknown: true,
+      convert: true
+    });
+
+    if (queryError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid query parameters',
+        details: queryError.details.map((d) => d.message)
+      });
+    }
+
+    const { startDate: startDateRaw, endDate: endDateRaw, limit, offset } = queryValue;
+    const hasStartDate = typeof startDateRaw === 'string' && startDateRaw.length > 0;
+    const hasEndDate = typeof endDateRaw === 'string' && endDateRaw.length > 0;
+    const effectiveStartDate = hasStartDate ? new Date(startDateRaw) : (hasEndDate ? null : moment().subtract(30, 'days').toDate());
+    const effectiveEndDate = hasEndDate ? new Date(endDateRaw) : null;
+
+    if (effectiveStartDate && Number.isNaN(effectiveStartDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid startDate' });
+    }
+
+    if (effectiveEndDate && Number.isNaN(effectiveEndDate.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid endDate' });
+    }
+
     // Check if user has access to this data
     if (req.user.uid !== userId && req.user.role !== 'root' && req.user.companyId) {
       // For non-root users, verify they belong to the same company
@@ -5524,13 +5714,34 @@ const handleGetTimeEntriesForUser = async (req, res) => {
 
     const connection = await pool.getConnection();
     try {
-      const query = `
+      let query = `
         SELECT * FROM time_entries
         WHERE user_id = ?
-        ORDER BY start_time DESC
       `;
+      const params = [userId];
 
-      const [rows] = await connection.execute(query, [userId]);
+      // If the request is scoped to an active company (multi-company tokens), filter results accordingly.
+      if (req.user.companyId) {
+        query += ' AND company_id = ?';
+        params.push(req.user.companyId);
+      }
+
+      if (effectiveStartDate) {
+        query += ' AND start_time >= ?';
+        params.push(effectiveStartDate);
+      }
+
+      if (effectiveEndDate) {
+        const adjustedEndDate = new Date(effectiveEndDate);
+        adjustedEndDate.setHours(23, 59, 59, 999);
+        query += ' AND start_time <= ?';
+        params.push(adjustedEndDate);
+      }
+
+      query += ' ORDER BY start_time DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
+
+      const [rows] = await connection.execute(query, params);
 
       const timeEntries = rows.map(row => ({
         id: row.id,
@@ -5554,7 +5765,9 @@ const handleGetTimeEntriesForUser = async (req, res) => {
       return res.json({
         success: true,
         data: timeEntries,
-        count: timeEntries.length
+        count: timeEntries.length,
+        limit,
+        offset
       });
     } finally {
       connection.release();
@@ -5595,11 +5808,12 @@ const handleGetRunningTimeEntryForUser = async (req, res) => {
       const query = `
         SELECT * FROM time_entries
         WHERE user_id = ? AND is_running = 1
+        ${req.user.companyId ? 'AND company_id = ?' : ''}
         ORDER BY created_at DESC
         LIMIT 1
       `;
 
-      const [rows] = await connection.execute(query, [userId]);
+      const [rows] = await connection.execute(query, req.user.companyId ? [userId, req.user.companyId] : [userId]);
       if (rows.length === 0) {
         return res.json({
           success: true,

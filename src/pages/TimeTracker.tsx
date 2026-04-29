@@ -31,8 +31,12 @@ export default function TimeTrackerPage() {
   const [projects, setProjects] = useState<Project[]>([])
 
   useEffect(() => {
-    loadTimeData()
-  }, [currentUser])
+    // Clear immediately so company switching doesn't show stale entries.
+    setAllEntries([])
+    setRecentEntries([])
+    setTimeSummary(null)
+    void loadTimeData()
+  }, [currentCompany?.id, currentUser])
 
   useEffect(() => {
     const hasRunningEntry = allEntries.some((entry) => entry.isRunning)
@@ -50,11 +54,12 @@ export default function TimeTrackerPage() {
     
     setLoading(true)
     try {
+      const companyId = currentCompany?.id || currentUser.companyId || null
       const [summary, entries, clientsData, projectsData] = await Promise.all([
         timeEntryService.getTimeSummary(currentUser.uid),
         timeEntryService.getTimeEntries(currentUser.uid),
-        currentUser.companyId ? clientApiService.getClientsForCompany(currentUser.companyId) : clientApiService.getClients(),
-        currentUser.companyId ? projectApiService.getProjectsForCompany(currentUser.companyId) : projectApiService.getProjects()
+        companyId ? clientApiService.getClientsForCompany(companyId) : clientApiService.getClients(),
+        companyId ? projectApiService.getProjectsForCompany(companyId) : projectApiService.getProjects()
       ])
       setTimeSummary(summary)
       setClients(clientsData)

@@ -126,10 +126,16 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => {
-    if (currentUser?.role && ['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) {
-      loadData()
+    if (!currentUser?.role) return
+    if (!['admin', 'hr', 'super_admin', 'root'].includes(currentUser.role)) return
+
+    // Global admins require an active company context before company-scoped admin queries can succeed.
+    if ((currentUser.role === 'root' || currentUser.role === 'super_admin') && !currentCompany?.id) {
+      return
     }
-  }, [currentUser])
+
+    loadData()
+  }, [currentCompany?.id, currentUser])
 
   // Fetch seat limit data
   useEffect(() => {
@@ -352,28 +358,37 @@ export default function AdminDashboard() {
     try {
       setLoading(true)
       console.log('Loading admin data...')
+
+      const isGlobalAdmin = currentUser?.role === 'root' || currentUser?.role === 'super_admin'
+      const effectiveCompanyId = isGlobalAdmin ? (currentCompany?.id || null) : (currentUser?.companyId || null)
       
       // Use company-scoped user fetching for proper multi-tenancy
       let usersData: UserType[]
-      if (currentUser?.role === 'root' || currentUser?.role === 'super_admin') {
+      if (isGlobalAdmin) {
         // Root and super admins can see all users across all companies
         usersData = await userService.getAllUsers()
       } else {
         // Company admins can only see users from their company
-        usersData = await userService.getUsersForCompany(currentUser?.companyId || null)
+        usersData = await userService.getUsersForCompany(effectiveCompanyId)
       }
 
-      const runningTimeEntriesCompanyId =
-        currentUser?.role === 'root' || currentUser?.role === 'super_admin'
-          ? null
-          : (currentUser?.companyId || null)
+      if (isGlobalAdmin && !effectiveCompanyId) {
+        setError('Select a company in your profile to load admin data.')
+        setUsers(normalizeUsers(usersData))
+        setTimeEntries([])
+        setRunningTimeEntries([])
+        setProjects([])
+        setClients([])
+        setTeams([])
+        return
+      }
       
       const [timeEntriesData, runningTimeEntriesData, projectsData, clientsData, teamsData] = await Promise.all([
-        timeEntryService.getAllTimeEntries(),
-        timeEntryService.getAllRunningTimeEntries(runningTimeEntriesCompanyId),
-        projectService.getProjectsForCompany(currentUser?.companyId || null),
-        clientService.getClientsForCompany(currentUser?.companyId || null), // Fixed: use clientService instead of projectService
-        teamService.getTeamsForCompany(currentUser?.companyId || null)
+        timeEntryService.getAllTimeEntries(effectiveCompanyId),
+        timeEntryService.getAllRunningTimeEntries(effectiveCompanyId),
+        projectService.getProjectsForCompany(effectiveCompanyId),
+        clientService.getClientsForCompany(effectiveCompanyId), // Fixed: use clientService instead of projectService
+        teamService.getTeamsForCompany(effectiveCompanyId)
       ])
       
       // Company scoping for non-root roles: restrict to same company data
@@ -382,7 +397,7 @@ export default function AdminDashboard() {
       let scopedProjects = projectsData
       let scopedClients = clientsData
       let scopedTeams = teamsData
-      if (currentUser?.role !== 'root' && currentUser?.companyId) {
+      if (!isGlobalAdmin && currentUser?.companyId) {
         const allowedUsers = new Set(usersData.map(u => u.id))
         scopedTimeEntries = timeEntriesData.filter((te: TimeEntry) => te.userId && allowedUsers.has(te.userId))
         scopedRunningTimeEntries = runningTimeEntriesData.filter((te: TimeEntry) => te.userId && allowedUsers.has(te.userId))
@@ -1523,13 +1538,10 @@ export default function AdminDashboard() {
         timeEntry={editingTimeEntry}
         onSave={async (updatedEntry) => {
           try {
-            // Update time entry in database
-            await timeEntryService.updateTimeEntry(updatedEntry.id, updatedEntry)
-            
             // Update time entry in state
-            setTimeEntries(timeEntries.map(entry => 
-              entry.id === updatedEntry.id ? updatedEntry : entry
-            ))
+            setTimeEntries((prev) =>
+              prev.map((entry) => (String(entry.id) === String(updatedEntry.id) ? updatedEntry : entry))
+            )
             
             setIsTimeEntryEditModalOpen(false)
           } catch (error) {

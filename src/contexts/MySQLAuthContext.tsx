@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { AuthUser, LoginCredentials, SignupCredentials, Company } from '../types'
 import { mysqlLoggingService } from '../services/mysqlLoggingService'
 
@@ -58,6 +58,7 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
   const [companies, setCompanies] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [authActionLoading, setAuthActionLoading] = useState(false)
+  const didAutoSelectSoleCompanyRef = useRef(false)
 
   const refreshSession = async () => {
     const token = localStorage.getItem('authToken')
@@ -115,6 +116,26 @@ export function MySQLAuthProvider({ children }: MySQLAuthProviderProps) {
       } else {
         setCompanies([])
         localStorage.removeItem('companies')
+      }
+
+      // Auto-select sole company when user has exactly one available company but no active company is set.
+      // This commonly happens for global admins where the UI does not show a company selector unless there are multiple companies.
+      const isGlobalAdmin = data?.user?.role === 'root' || data?.user?.role === 'super_admin'
+      if (
+        !data.company &&
+        Array.isArray(data.companies) &&
+        data.companies.length === 1 &&
+        data.companies[0]?.id
+      ) {
+        const soleCompany = data.companies[0] as Company
+        setCurrentCompany(soleCompany)
+        localStorage.setItem('currentCompany', JSON.stringify(soleCompany))
+
+        if (isGlobalAdmin && !didAutoSelectSoleCompanyRef.current) {
+          didAutoSelectSoleCompanyRef.current = true
+          // Align backend session scope to the sole company to satisfy company-scoped admin routes.
+          await switchCompany(String(soleCompany.id))
+        }
       }
     } catch (error) {
       console.error('Error refreshing session:', error)

@@ -84,6 +84,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
   const [pendingPlan, setPendingPlan] = useState<UpgradePlan | null>(null)
   const [selectedProvider, setSelectedProvider] = useState<PaymentProvider | null>(null)
   const [pendingEmail, setPendingEmail] = useState<string | null>(null)
+  const [emailAlreadyExists, setEmailAlreadyExists] = useState(false)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -154,6 +155,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
     }
 
     setError('')
+    if (step === 1) setEmailAlreadyExists(false)
     setStep(prev => (prev === 3 ? 3 : ((prev + 1) as Step)))
   }
 
@@ -296,8 +298,21 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
 
         navigate('/')
       } else {
-        const message = result.error || 'Failed to create account. Please try again.'
-        setError(message)
+        const rawMessage = result.error || 'Failed to create account. Please try again.'
+        if (rawMessage.toLowerCase().includes('already has an account')) {
+          setEmailAlreadyExists(true)
+          setStep(2)
+          setFormData((prev) => ({
+            ...prev,
+            password: '',
+            confirmPassword: ''
+          }))
+          setError(
+            "This email is already registered. To add a new company under this email, enter your existing account password to continue."
+          )
+          return
+        }
+        setError(rawMessage)
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to create account. Please try again.')
@@ -447,7 +462,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-slate-700 dark:text-white/80 mb-2 ml-1">
-                Password
+                {emailAlreadyExists ? 'Account Password' : 'Password'}
               </label>
               <div className="relative">
                 <input
@@ -458,7 +473,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                   value={formData.password}
                   onChange={handleInputChange}
                   className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all pr-12 text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
-                  placeholder="Create a strong password"
+                  placeholder={emailAlreadyExists ? 'Enter your existing account password' : 'Create a strong password'}
                   disabled={loading}
                 />
                 <button
@@ -475,15 +490,17 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                 </button>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className={`text-xs ${passwordStrength.length ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>8+ characters</div>
-                <div className={`text-xs ${passwordStrength.uppercase ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Uppercase</div>
-                <div className={`text-xs ${passwordStrength.lowercase ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Lowercase</div>
-                <div className={`text-xs ${passwordStrength.number ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Number</div>
-                <div className={`text-xs col-span-2 ${passwordStrength.special ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>
-                  Special character (!@#$%^&*)
+              {!emailAlreadyExists && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className={`text-xs ${passwordStrength.length ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>8+ characters</div>
+                  <div className={`text-xs ${passwordStrength.uppercase ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Uppercase</div>
+                  <div className={`text-xs ${passwordStrength.lowercase ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Lowercase</div>
+                  <div className={`text-xs ${passwordStrength.number ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>Number</div>
+                  <div className={`text-xs col-span-2 ${passwordStrength.special ? 'text-green-600 dark:text-green-300' : 'text-slate-500 dark:text-white/40'}`}>
+                    Special character (!@#$%^&*)
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div>
@@ -502,7 +519,7 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
                   value={formData.confirmPassword}
                   onChange={handleInputChange}
                   className="w-full px-4 py-3.5 bg-white border border-gray-200 rounded-2xl text-slate-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/40 transition-all pr-12 text-lg dark:bg-white/10 dark:border-white/20 dark:text-white dark:placeholder-white/40 dark:focus:ring-white/30 dark:focus:border-white/40 backdrop-blur-sm"
-                  placeholder="Confirm your password"
+                  placeholder={emailAlreadyExists ? 'Confirm your existing account password' : 'Confirm your password'}
                   disabled={loading}
                 />
                 <button

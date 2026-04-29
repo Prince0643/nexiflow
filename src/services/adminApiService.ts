@@ -159,12 +159,20 @@ export const adminUsersAPI = {
 // Admin Time Entries API
 export const adminTimeEntriesAPI = {
   // Get all time entries (for admin use)
-  async getAllTimeEntries(): Promise<TimeEntry[]> {
+  async getAllTimeEntries(companyId: string | null): Promise<TimeEntry[]> {
+    const queryParams = new URLSearchParams()
+    if (companyId) {
+      queryParams.append('companyId', companyId)
+    }
+
+    const queryString = queryParams.toString()
+    const endpoint = `/admin/time-entries${queryString ? `?${queryString}` : ''}`
+
     const response = await apiRequest<{
       success: boolean
       data: TimeEntry[]
       count: number
-    }>('/admin/time-entries')
+    }>(endpoint)
     
     if (!response.success) {
       throw new Error('Failed to get time entries')
@@ -175,14 +183,13 @@ export const adminTimeEntriesAPI = {
 
   // Get all running time entries (for admin use)
   async getAllRunningTimeEntries(companyId: string | null): Promise<TimeEntry[]> {
-    const queryParams = new URLSearchParams();
-    // Legacy Firebase-style company IDs should not be forwarded to the MySQL API.
-    if (companyId && !companyId.startsWith('-')) {
-      queryParams.append('companyId', companyId);
+    const queryParams = new URLSearchParams()
+    if (companyId) {
+      queryParams.append('companyId', companyId)
     }
     
-    const queryString = queryParams.toString();
-    const endpoint = `/admin/time-entries/running${queryString ? `?${queryString}` : ''}`;
+    const queryString = queryParams.toString()
+    const endpoint = `/admin/time-entries/running${queryString ? `?${queryString}` : ''}`
     
     const response = await apiRequest<{
       success: boolean
