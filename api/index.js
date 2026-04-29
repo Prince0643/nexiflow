@@ -510,7 +510,23 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
     const connection = await pool.getConnection();
     try {
       const [rows] = await connection.execute(
-        'SELECT id, name, is_active, pricing_level, max_members, created_at, updated_at FROM companies ORDER BY created_at DESC'
+        `
+          SELECT
+            id,
+            name,
+            is_active,
+            pricing_level,
+            max_members,
+            next_billing_date,
+            last_payment_date,
+            billing_status,
+            grace_period_end_date,
+            payment_reminder_sent_at,
+            created_at,
+            updated_at
+          FROM companies
+          ORDER BY created_at DESC
+        `
       );
 
       const companies = rows.map(row => ({
@@ -519,6 +535,11 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
         isActive: row.is_active === 1,
         pricingLevel: row.pricing_level,
         maxMembers: row.max_members,
+        nextBillingDate: row.next_billing_date,
+        lastPaymentDate: row.last_payment_date,
+        billingStatus: row.billing_status,
+        gracePeriodEndDate: row.grace_period_end_date,
+        paymentReminderSentAt: row.payment_reminder_sent_at,
         createdAt: row.created_at,
         updatedAt: row.updated_at
       }));
@@ -530,6 +551,87 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching companies:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch companies' });
+  }
+});
+
+app.post('/api/admin/companies/:companyId/send-overdue-email', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'root') {
+      return res.status(403).json({ success: false, error: 'Access denied. Root only.' });
+    }
+
+    const { companyId } = req.params;
+    if (!companyId) {
+      return res.status(400).json({ success: false, error: 'companyId is required' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [companyRows] = await connection.execute(
+        'SELECT * FROM companies WHERE id = ? LIMIT 1',
+        [companyId]
+      );
+
+      if (!companyRows.length) {
+        return res.status(404).json({ success: false, error: 'Company not found' });
+      }
+
+      const company = companyRows[0];
+      const nextBilling = company.next_billing_date ? new Date(company.next_billing_date) : null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const isOverdue =
+        String(company.billing_status || '').toLowerCase() === 'overdue' ||
+        (nextBilling && !Number.isNaN(nextBilling.getTime()) && nextBilling < today);
+
+      if (!isOverdue) {
+        return res.status(400).json({
+          success: false,
+          error: 'Company is not overdue'
+        });
+      }
+
+      const [adminRows] = await connection.execute(
+        `SELECT u.email, u.name
+         FROM users u
+         WHERE u.company_id = ? AND u.role = 'super_admin'`,
+        [companyId]
+      );
+
+      if (!adminRows.length) {
+        return res.status(404).json({ success: false, error: 'No super admin found for this company' });
+      }
+
+      const sentTo = [];
+      for (const admin of adminRows) {
+        await billingEmailService.sendPaymentReminder(company, admin, 0);
+        sentTo.push(admin.email);
+      }
+
+      await connection.execute(
+        'UPDATE companies SET payment_reminder_sent_at = NOW() WHERE id = ?',
+        [companyId]
+      );
+
+      return res.json({
+        success: true,
+        message: 'Overdue email sent to all super admins',
+        data: {
+          companyId,
+          companyName: company.name,
+          nextBillingDate: company.next_billing_date,
+          billingStatus: company.billing_status,
+          sentTo,
+          superAdminCount: sentTo.length
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error sending overdue email:', error);
+    return res.status(500).json({ success: false, error: 'Failed to send overdue email' });
   }
 });
 

@@ -49,6 +49,8 @@ export interface Company {
   isActive: boolean
   pricingLevel: PricingLevel
   maxMembers: number
+  nextBillingDate?: string | null
+  billingStatus?: string | null
   createdAt: string
   updatedAt: string
   pdfSettings?: PDFSettings

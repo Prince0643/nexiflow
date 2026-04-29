@@ -39,6 +39,7 @@ export default function RootDashboard() {
   const [loading, setLoading] = useState(true)
   const [downgradingCompanyId, setDowngradingCompanyId] = useState<string | null>(null)
   const [deletingCompanyId, setDeletingCompanyId] = useState<string | null>(null)
+  const [sendingOverdueCompanyId, setSendingOverdueCompanyId] = useState<string | null>(null)
   const [showDowngradeModal, setShowDowngradeModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string; pricingLevel: string } | null>(null)
@@ -176,6 +177,51 @@ export default function RootDashboard() {
       setUsers(usersList)
     } finally {
       setCreatingSuperAdmin(false)
+    }
+  }
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '—'
+    return date.toLocaleDateString()
+  }
+
+  const isCompanyOverdue = (company: any) => {
+    const billingStatus = String(company?.billingStatus || '').toLowerCase()
+    if (billingStatus === 'overdue') return true
+    if (!company?.nextBillingDate) return false
+    const next = new Date(company.nextBillingDate)
+    if (Number.isNaN(next.getTime())) return false
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return next < today
+  }
+
+  const handleSendOverdueEmail = async (company: any) => {
+    if (!company?.id) return
+    const overdue = isCompanyOverdue(company)
+    if (!overdue) return
+
+    const confirmed = window.confirm(`Send overdue email to all super admins of "${company.name}"?`)
+    if (!confirmed) return
+
+    setSendingOverdueCompanyId(company.id)
+    try {
+      const result = await companyService.sendOverdueEmail(company.id)
+      if ((result as any)?.success) {
+        const sentTo = (result as any)?.data?.sentTo || []
+        alert(`Overdue email sent to ${sentTo.length} recipient(s).`)
+        const companiesList = await companyService.getCompanies()
+        setCompanies(companiesList)
+      } else {
+        alert((result as any)?.error || 'Failed to send overdue email')
+      }
+    } catch (error: any) {
+      console.error('Error sending overdue email:', error)
+      alert(error?.message || 'Failed to send overdue email')
+    } finally {
+      setSendingOverdueCompanyId(null)
     }
   }
 
@@ -399,6 +445,7 @@ export default function RootDashboard() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ID</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Plan</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Next Payment</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Users</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                   </tr>
@@ -407,6 +454,8 @@ export default function RootDashboard() {
                   {companies.map((company: any) => {
                     const companyUsers = users.filter(user => user.companyId === company.id).length
                     const isDowngrading = downgradingCompanyId === company.id
+                    const overdue = isCompanyOverdue(company)
+                    const isSendingOverdue = sendingOverdueCompanyId === company.id
                     return (
                       <tr key={company.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{company.name}</td>
@@ -419,9 +468,38 @@ export default function RootDashboard() {
                           }`}>
                             {company.pricingLevel || 'solo'}
                           </span>
+                          {company.billingStatus ? (
+                            <span className={`ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              String(company.billingStatus).toLowerCase() === 'overdue' ? 'bg-red-100 text-red-800' :
+                              String(company.billingStatus).toLowerCase() === 'suspended' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-green-100 text-green-800'
+                            }`}>
+                              {company.billingStatus}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          {formatDate(company.nextBillingDate)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{companyUsers}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                          <button
+                            onClick={() => handleSendOverdueEmail(company)}
+                            disabled={!overdue || isSendingOverdue || isDowngrading || deletingCompanyId === company.id}
+                            className={`inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded ${
+                              overdue
+                                ? 'text-white bg-red-600 hover:bg-red-700'
+                                : 'text-gray-400 bg-gray-200 cursor-not-allowed'
+                            }`}
+                            title={overdue ? 'Send overdue email to super admins' : 'Company is not overdue'}
+                          >
+                            {isSendingOverdue ? (
+                              <Activity className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <AlertTriangle className="h-4 w-4" />
+                            )}
+                            <span className="ml-1 text-xs">Overdue Email</span>
+                          </button>
                           {company.pricingLevel !== 'solo' && (
                             <button
                               onClick={() => handleDowngrade(company)}

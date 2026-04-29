@@ -41,6 +41,8 @@ export const companyService = {
       isActive: Boolean(row.isActive),
       pricingLevel: row.pricingLevel || 'solo',
       maxMembers: row.maxMembers || 1,
+      nextBillingDate: row.nextBillingDate ?? null,
+      billingStatus: row.billingStatus ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       pdfSettings: row.pdfSettings
@@ -94,6 +96,13 @@ export const companyService = {
       method: 'POST',
       body: JSON.stringify({ reason: reason || 'Manual downgrade by root' })
     })
+  },
+
+  async sendOverdueEmail(companyId: string): Promise<{ success: boolean; message?: string; data?: any; error?: string }> {
+    return apiRequest<{ success: boolean; message?: string; data?: any; error?: string }>(
+      `/admin/companies/${companyId}/send-overdue-email`,
+      { method: 'POST' }
+    )
   },
 
   async deleteCompany(companyId: string): Promise<{ success: boolean; message?: string; error?: string }> {
