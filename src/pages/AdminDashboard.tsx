@@ -182,10 +182,16 @@ export default function AdminDashboard() {
   }, [currentUser?.companyId, currentUser?.role])
 
   const loadRunningTimeEntries = async () => {
-    const runningEntriesCompanyId =
-      currentUser?.role === 'root' || currentUser?.role === 'super_admin'
-        ? null
-        : (currentUser?.companyId || null)
+    const isGlobalAdmin = currentUser?.role === 'root' || currentUser?.role === 'super_admin'
+    const runningEntriesCompanyId = isGlobalAdmin
+      ? (currentCompany?.id || null)
+      : (currentUser?.companyId || null)
+
+    if (isGlobalAdmin && !runningEntriesCompanyId) {
+      // Global admins must select a company; avoid spamming the API with invalid requests.
+      setRunningTimeEntries([])
+      return []
+    }
 
     const runningEntries = await timeEntryService.getAllRunningTimeEntries(runningEntriesCompanyId)
     setRunningTimeEntries(runningEntries)
