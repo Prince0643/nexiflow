@@ -13,7 +13,7 @@ import { format, startOfWeek, endOfWeek, subWeeks, subDays, startOfMonth, endOfM
 import { Client, TimeEntry } from '../../types'
 import { useMySQLAuth } from '../../contexts/MySQLAuthContext'
 import { canViewHourlyRates } from '../../utils/permissions'
-import { timeEntryService } from '../../services/timeEntryService'
+import { timeEntryApiService } from '../../services/timeEntryApiService'
 import { formatSecondsToHHMMSS, formatCurrency } from '../../utils'
 
 interface ExportModalProps {
@@ -21,6 +21,7 @@ interface ExportModalProps {
   onClose: () => void
   onConfirm: (data: ExportData) => Promise<void>
   client: Client | null
+  companyId?: string
   timeData: {
     totalHours: number
     billableAmount: number
@@ -61,6 +62,7 @@ export default function ExportModal({
   onClose,
   onConfirm,
   client,
+  companyId,
   timeData,
   timeFilter,
   customStartDate,
@@ -111,6 +113,7 @@ export default function ExportModal({
   const [exportPeriod, setExportPeriod] = useState<'this-week' | 'last-week' | 'yesterday' | 'this-month' | 'custom' | 'all'>('this-week')
   // Add state for dynamic time data
   const [dynamicTimeData, setDynamicTimeData] = useState(timeData)
+  const [timeDataScope, setTimeDataScope] = useState<'company' | 'fallback'>('fallback')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -165,7 +168,17 @@ export default function ExportModal({
       setLoading(true)
       try {
         const { startDate, endDate } = getSelectedDateRange()
-        const timeEntries = await timeEntryService.getAllTimeEntriesByDateRange(startDate, endDate)
+        if (!companyId) {
+          setDynamicTimeData(timeData)
+          setTimeDataScope('fallback')
+          return
+        }
+
+        const timeEntries = await timeEntryApiService.getAdminTimeEntries({
+          companyId,
+          startDate,
+          endDate
+        })
         
         // Filter time entries for this client's projects OR by direct clientId
         const clientProjects = projects.filter(project => project.clientId === client.id)
@@ -189,20 +202,22 @@ export default function ExportModal({
         }
         
         setDynamicTimeData(newTimeData)
+        setTimeDataScope('company')
         setEditableTimeData({
           totalHours: newTimeData.totalHours,
           billableAmount: newTimeData.billableAmount
         })
       } catch (err) {
         console.error('Error loading time data:', err)
-        setError('Failed to load time data for selected period')
+        setDynamicTimeData(timeData)
+        setTimeDataScope('fallback')
       } finally {
         setLoading(false)
       }
     }
     
     loadTimeDataForPeriod()
-  }, [exportPeriod, customPeriod, isOpen, client, projects])
+  }, [exportPeriod, customPeriod, isOpen, client, projects, companyId, timeData])
 
   const handleConfirm = async () => {
     if (!validateForm()) {
@@ -486,7 +501,14 @@ export default function ExportModal({
           {/* Time Data Summary */}
           <div className={`rounded-lg p-4 ${isDarkMode ? 'bg-blue-900/20' : 'bg-blue-50'}`}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className={`font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Time Data Summary</h3>
+              <div>
+                <h3 className={`font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>Time Data Summary</h3>
+                {timeDataScope === 'fallback' && (
+                  <div className={`text-[11px] ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Showing limited totals (insufficient access for company-wide time).
+                  </div>
+                )}
+              </div>
               <label className="flex items-center space-x-2">
                 <input
                   type="checkbox"

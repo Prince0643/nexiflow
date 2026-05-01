@@ -1719,6 +1719,7 @@ export default function Clients() {
         onClose={() => setShowExportModal(false)}
         onConfirm={handleConfirmExport}
         client={exportClient}
+        companyId={currentUser?.companyId || undefined}
         timeData={exportClient ? (() => {
           const timeData = getClientTimeData(exportClient)
           return {
