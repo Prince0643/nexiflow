@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { 
   Clock, 
   BarChart3, 
@@ -17,7 +18,9 @@ import {
   User,
   Shield,
   Crown,
-  Chrome
+  Chrome,
+  ChevronDown,
+  Check
 } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { canAccessFeature } from '../utils/permissions'
@@ -29,7 +32,10 @@ interface SidebarProps {
 
 export default function Sidebar({ open, setOpen }: SidebarProps) {
   const location = useLocation()
-  const { currentUser, currentCompany } = useMySQLAuth()
+  const { currentUser, currentCompany, companies, switchCompany } = useMySQLAuth()
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
+  const [switchError, setSwitchError] = useState<string>('')
+  const companyMenuRef = useRef<HTMLDivElement | null>(null)
 
   // Define navigation items based on user role
   const getNavigationItems = () => {
@@ -84,12 +90,54 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
   }
 
   const navigation = getNavigationItems()
+  const canSwitchCompanies = Array.isArray(companies) && companies.length > 1
+
+  useEffect(() => {
+    if (!companyMenuOpen) return
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCompanyMenuOpen(false)
+    }
+
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node | null
+      if (!target) return
+      if (companyMenuRef.current && !companyMenuRef.current.contains(target)) {
+        setCompanyMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onMouseDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onMouseDown)
+    }
+  }, [companyMenuOpen])
+
+  const handleCompanyRowClick = () => {
+    setSwitchError('')
+    if (!canSwitchCompanies) return
+    setCompanyMenuOpen((v) => !v)
+  }
+
+  const handleSelectCompany = async (companyId: string) => {
+    setSwitchError('')
+    const result = await switchCompany(String(companyId))
+    if (!result?.success) {
+      setSwitchError(result?.error || 'Failed to switch company')
+      return
+    }
+    setCompanyMenuOpen(false)
+    setOpen(false)
+  }
 
   return (
     <div className={`fixed inset-y-0 left-0 z-50 w-64 flex-shrink-0 bg-white dark:bg-gray-800 shadow-lg transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
       open ? 'translate-x-0' : '-translate-x-full'
     }`}>
-      <div className="flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-700 py-5">
+      <div className="relative px-4 border-b border-gray-200 dark:border-gray-700 py-5" ref={companyMenuRef}>
+        <div className="flex items-center justify-between">
         <div className="flex items-center">
           <div className="flex-shrink-0">
             <img 
@@ -109,6 +157,70 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
         >
           <X className="h-6 w-6" />
         </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleCompanyRowClick}
+          className={`mt-3 w-full flex items-center justify-between rounded-lg px-3 py-2 text-left transition-colors ${
+            canSwitchCompanies
+              ? 'hover:bg-gray-100 dark:hover:bg-gray-700'
+              : ''
+          }`}
+          aria-haspopup={canSwitchCompanies ? 'menu' : undefined}
+          aria-expanded={canSwitchCompanies ? companyMenuOpen : undefined}
+          title={canSwitchCompanies ? 'Switch company' : undefined}
+        >
+          <div className="min-w-0 flex items-center space-x-2">
+            <Building2 className="h-4 w-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-xs text-gray-500 dark:text-gray-400">Current company</div>
+              <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                {currentCompany?.name || 'No company selected'}
+              </div>
+            </div>
+          </div>
+          {canSwitchCompanies && (
+            <ChevronDown
+              className={`h-4 w-4 text-gray-500 dark:text-gray-400 transition-transform ${
+                companyMenuOpen ? 'rotate-180' : ''
+              }`}
+            />
+          )}
+        </button>
+
+        {switchError && (
+          <div className="mt-2 px-3 text-xs text-red-600 dark:text-red-400">
+            {switchError}
+          </div>
+        )}
+
+        {companyMenuOpen && canSwitchCompanies && (
+          <div
+            role="menu"
+            className="absolute left-4 right-4 top-[132px] z-50 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg overflow-hidden"
+          >
+            {companies.map((company: any) => {
+              const isCurrent = String(company?.id) === String(currentCompany?.id)
+              return (
+                <button
+                  key={String(company?.id)}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => handleSelectCompany(String(company?.id))}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-sm ${
+                    isCurrent
+                      ? 'bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  <span className="truncate">{company?.name || `Company ${company?.id}`}</span>
+                  {isCurrent && <Check className="h-4 w-4 text-primary-600 dark:text-primary-400" />}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">

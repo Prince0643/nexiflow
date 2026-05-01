@@ -507,8 +507,52 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
 
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Math.min(Math.max(limitRaw || 25, 1), 200);
+    const offset = (page - 1) * limit;
+
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const plan = typeof req.query.plan === 'string' ? req.query.plan.trim() : '';
+    const billingStatus = typeof req.query.billingStatus === 'string' ? req.query.billingStatus.trim() : '';
+    const overdueOnly = String(req.query.overdueOnly || '').toLowerCase() === 'true';
+
+    const where = [];
+    const whereParams = [];
+
+    if (q) {
+      where.push('(name LIKE ? OR id LIKE ?)');
+      const like = `%${q}%`;
+      whereParams.push(like, like);
+    }
+    if (plan) {
+      where.push('pricing_level = ?');
+      whereParams.push(plan);
+    }
+    if (billingStatus) {
+      where.push('billing_status = ?');
+      whereParams.push(billingStatus);
+    }
+    if (overdueOnly) {
+      where.push("(LOWER(COALESCE(billing_status,'')) = 'overdue' OR (next_billing_date IS NOT NULL AND next_billing_date < CURDATE()))");
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
     const connection = await pool.getConnection();
     try {
+      const [countRows] = await connection.execute(
+        `
+          SELECT COUNT(*) as count
+          FROM companies
+          ${whereSql}
+        `,
+        whereParams
+      );
+
+      const totalCount = Array.isArray(countRows) && countRows[0] ? Number(countRows[0].count) : 0;
+      const totalPages = Math.max(Math.ceil(totalCount / limit), 1);
+
       const [rows] = await connection.execute(
         `
           SELECT
@@ -525,8 +569,11 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
             created_at,
             updated_at
           FROM companies
+          ${whereSql}
           ORDER BY created_at DESC
-        `
+          LIMIT ? OFFSET ?
+        `,
+        [...whereParams, limit, offset]
       );
 
       const companies = rows.map(row => ({
@@ -544,7 +591,14 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
         updatedAt: row.updated_at
       }));
 
-      res.json({ success: true, data: companies, count: companies.length });
+      res.json({
+        success: true,
+        data: companies,
+        count: totalCount,
+        page,
+        limit,
+        totalPages
+      });
     } finally {
       connection.release();
     }
@@ -7621,6 +7675,76 @@ app.put('/api/clients/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating client:', error);
     res.status(500).json({ error: 'Failed to update client' });
+  }
+});
+
+app.put('/api/clients/:id/archive', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Client not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await connection.execute(
+        'UPDATE clients SET is_archived = 1, updated_at = ? WHERE id = ?',
+        [new Date(), id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Client archived successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error archiving client:', error);
+    res.status(500).json({ error: 'Failed to archive client' });
+  }
+});
+
+app.put('/api/clients/:id/unarchive', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = req.user.companyId;
+
+    const connection = await pool.getConnection();
+    try {
+      const [existingRows] = await connection.execute('SELECT * FROM clients WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Client not found' });
+      }
+
+      const existing = existingRows[0];
+      if (req.user.role !== 'root' && companyId && existing.company_id !== companyId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      await connection.execute(
+        'UPDATE clients SET is_archived = 0, updated_at = ? WHERE id = ?',
+        [new Date(), id]
+      );
+
+      res.json({
+        success: true,
+        message: 'Client unarchived successfully'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error unarchiving client:', error);
+    res.status(500).json({ error: 'Failed to unarchive client' });
   }
 });
 

@@ -2,6 +2,23 @@ import { PDFSettings, PricingLevel, Company } from '../types'
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
+type CompaniesPagedParams = {
+  page?: number
+  limit?: number
+  q?: string
+  plan?: string
+  billingStatus?: string
+  overdueOnly?: boolean
+}
+
+type CompaniesPagedResult = {
+  companies: Company[]
+  count: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
 const getAuthToken = (): string | null => {
   try {
     return localStorage.getItem('authToken')
@@ -47,6 +64,47 @@ export const companyService = {
       updatedAt: row.updatedAt,
       pdfSettings: row.pdfSettings
     }))
+  },
+
+  async getCompaniesPaged(params: CompaniesPagedParams = {}): Promise<CompaniesPagedResult> {
+    const query = new URLSearchParams()
+    if (params.page != null) query.set('page', String(params.page))
+    if (params.limit != null) query.set('limit', String(params.limit))
+    if (params.q) query.set('q', params.q)
+    if (params.plan) query.set('plan', params.plan)
+    if (params.billingStatus) query.set('billingStatus', params.billingStatus)
+    if (params.overdueOnly) query.set('overdueOnly', 'true')
+
+    const qs = query.toString()
+    const response = await apiRequest<{
+      success: boolean
+      data: any[]
+      count?: number
+      page?: number
+      limit?: number
+      totalPages?: number
+    }>(`/admin/companies${qs ? `?${qs}` : ''}`)
+
+    const companies = (response.success ? response.data : []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      isActive: Boolean(row.isActive),
+      pricingLevel: row.pricingLevel || 'solo',
+      maxMembers: row.maxMembers || 1,
+      nextBillingDate: row.nextBillingDate ?? null,
+      billingStatus: row.billingStatus ?? null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      pdfSettings: row.pdfSettings
+    }))
+
+    return {
+      companies,
+      count: Number(response.count ?? companies.length) || 0,
+      page: Number(response.page ?? params.page ?? 1) || 1,
+      limit: Number(response.limit ?? params.limit ?? 25) || 25,
+      totalPages: Number(response.totalPages ?? 1) || 1
+    }
   },
 
   async getCompanyById(companyId: string): Promise<Company | null> {

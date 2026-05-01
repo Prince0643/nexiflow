@@ -15,7 +15,10 @@ import {
   Building,
   Crown,
   ArrowDownCircle,
-  AlertTriangle
+  AlertTriangle,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { companyService } from '../services/companyService'
@@ -27,6 +30,10 @@ export default function RootDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'companies' | 'superadmins'>('overview')
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [companiesTotalCount, setCompaniesTotalCount] = useState(0)
+  const [companiesTotalPages, setCompaniesTotalPages] = useState(1)
+  const [companiesPage, setCompaniesPage] = useState(1)
+  const companiesPageSize = 25
   const [newCompanyName, setNewCompanyName] = useState('')
   const [creatingCompany, setCreatingCompany] = useState(false)
   const [creatingSuperAdmin, setCreatingSuperAdmin] = useState(false)
@@ -43,6 +50,15 @@ export default function RootDashboard() {
   const [showDowngradeModal, setShowDowngradeModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string; pricingLevel: string } | null>(null)
+  const [companySearch, setCompanySearch] = useState('')
+  const [debouncedCompanySearch, setDebouncedCompanySearch] = useState('')
+  const [companyPlanFilter, setCompanyPlanFilter] = useState<'all' | string>('all')
+  const [companyBillingFilter, setCompanyBillingFilter] = useState<'all' | string>('all')
+  const [companyOverdueOnly, setCompanyOverdueOnly] = useState(false)
+  const [companyTabLoading, setCompanyTabLoading] = useState(false)
+  const [companySearchForAdmin, setCompanySearchForAdmin] = useState('')
+  const [companySearchResults, setCompanySearchResults] = useState<{ id: string; name: string }[]>([])
+  const [companySearchLoading, setCompanySearchLoading] = useState(false)
 
   // Only allow root users to access this page
   if (currentUser?.role !== 'root') {
@@ -67,6 +83,19 @@ export default function RootDashboard() {
     loadData()
   }, [])
 
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedCompanySearch(companySearch)
+    }, 300)
+    return () => window.clearTimeout(id)
+  }, [companySearch])
+
+  useEffect(() => {
+    if (activeTab !== 'companies') return
+    void loadCompaniesPage()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, debouncedCompanySearch, companyPlanFilter, companyBillingFilter, companyOverdueOnly, companiesPage])
+
   const handleDowngrade = async (company: { id: string; name: string; pricingLevel: string }) => {
     if (company.pricingLevel === 'solo') {
       alert('Company is already on solo plan')
@@ -89,8 +118,7 @@ export default function RootDashboard() {
       const result = await companyService.downgradeCompany(selectedCompany.id, 'Manual downgrade by root')
       if (result.success) {
         alert(`Successfully downgraded ${selectedCompany.name} to solo plan`)
-        const companiesList = await companyService.getCompanies()
-        setCompanies(companiesList)
+        await loadCompaniesPage()
       } else {
         alert(`Failed to downgrade: ${result.error || 'Unknown error'}`)
       }
@@ -129,19 +157,41 @@ export default function RootDashboard() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [companiesList, usersList] = await Promise.all([
-        companyService.getCompanies(),
-        userService.getAllUsers()
+      const [usersList, companyMeta] = await Promise.all([
+        userService.getAllUsers(),
+        companyService.getCompaniesPaged({ page: 1, limit: 1 })
       ])
-      setCompanies(companiesList)
       const uniqueUsers = Array.from(
         new Map((usersList || []).map(u => [u.id, u])).values()
       )
       setUsers(uniqueUsers)
+      setCompaniesTotalCount(companyMeta.count)
+      setCompaniesTotalPages(companyMeta.totalPages)
     } catch (error) {
       console.error('Error loading data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCompaniesPage = async () => {
+    setCompanyTabLoading(true)
+    try {
+      const result = await companyService.getCompaniesPaged({
+        page: companiesPage,
+        limit: companiesPageSize,
+        q: debouncedCompanySearch.trim() || undefined,
+        plan: companyPlanFilter === 'all' ? undefined : companyPlanFilter,
+        billingStatus: companyBillingFilter === 'all' ? undefined : companyBillingFilter,
+        overdueOnly: companyOverdueOnly ? true : undefined
+      })
+      setCompanies(result.companies)
+      setCompaniesTotalCount(result.count)
+      setCompaniesTotalPages(result.totalPages)
+    } catch (error) {
+      console.error('Error loading companies page:', error)
+    } finally {
+      setCompanyTabLoading(false)
     }
   }
 
@@ -150,7 +200,7 @@ export default function RootDashboard() {
     setCreatingCompany(true)
     try {
       const created = await companyService.createCompany(newCompanyName.trim())
-      setCompanies(prev => [...prev, { id: created.id, name: created.name }])
+      setCompaniesTotalCount(prev => prev + 1)
       setNewCompanyName('')
     } finally {
       setCreatingCompany(false)
@@ -212,8 +262,7 @@ export default function RootDashboard() {
       if ((result as any)?.success) {
         const sentTo = (result as any)?.data?.sentTo || []
         alert(`Overdue email sent to ${sentTo.length} recipient(s).`)
-        const companiesList = await companyService.getCompanies()
-        setCompanies(companiesList)
+        await loadCompaniesPage()
       } else {
         alert((result as any)?.error || 'Failed to send overdue email')
       }
@@ -223,6 +272,39 @@ export default function RootDashboard() {
     } finally {
       setSendingOverdueCompanyId(null)
     }
+  }
+
+  const clearCompanyFilters = () => {
+    setCompanySearch('')
+    setDebouncedCompanySearch('')
+    setCompanyPlanFilter('all')
+    setCompanyBillingFilter('all')
+    setCompanyOverdueOnly(false)
+    setCompaniesPage(1)
+  }
+
+  const handleSearchCompaniesForAdmin = async () => {
+    const q = companySearchForAdmin.trim()
+    if (!q) {
+      setCompanySearchResults([])
+      return
+    }
+
+    setCompanySearchLoading(true)
+    try {
+      const result = await companyService.getCompaniesPaged({ page: 1, limit: 10, q })
+      setCompanySearchResults(result.companies.map(c => ({ id: c.id, name: c.name })))
+    } catch (error) {
+      console.error('Error searching companies:', error)
+    } finally {
+      setCompanySearchLoading(false)
+    }
+  }
+
+  const handleSelectCompanyForAdmin = (company: { id: string; name: string }) => {
+    setSuperAdminForm(prev => ({ ...prev, companyId: company.id }))
+    setCompanySearchForAdmin(company.name)
+    setCompanySearchResults([])
   }
 
   return (
@@ -274,7 +356,7 @@ export default function RootDashboard() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Companies</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{companies.length}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{companiesTotalCount}</p>
                 </div>
               </div>
             </div>
@@ -355,16 +437,43 @@ export default function RootDashboard() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Company
                   </label>
-                  <select 
-                    className="input w-full"
-                    value={superAdminForm.companyId} 
-                    onChange={e => setSuperAdminForm({ ...superAdminForm, companyId: e.target.value })}
-                  >
-                    <option value="">Select company</option>
-                    {companies.map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="input w-full"
+                      placeholder="Search company by name or ID..."
+                      value={companySearchForAdmin}
+                      onChange={e => setCompanySearchForAdmin(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          void handleSearchCompaniesForAdmin()
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSearchCompaniesForAdmin}
+                      className="btn-primary whitespace-nowrap"
+                      disabled={companySearchLoading || !companySearchForAdmin.trim()}
+                    >
+                      {companySearchLoading ? 'Searching...' : 'Search'}
+                    </button>
+                  </div>
+                  {companySearchResults.length > 0 && (
+                    <div className="mt-2 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                      {companySearchResults.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleSelectCompanyForAdmin(c)}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100"
+                        >
+                          {c.name} <span className="text-xs text-gray-500 dark:text-gray-400">({c.id})</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -427,19 +536,95 @@ export default function RootDashboard() {
 
       {activeTab === 'companies' && (
         <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Companies</h3>
-          {loading ? (
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Companies</h3>
+            <div className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+              Page {companiesPage} of {companiesTotalPages} • {companiesTotalCount} result(s)
+            </div>
+          </div>
+
+          <div className="mb-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+            <div className="md:col-span-5">
+              <div className="relative">
+                <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  className="input w-full pl-9"
+                  placeholder="Search by company name or ID..."
+                  value={companySearch}
+                  onChange={e => {
+                    setCompanySearch(e.target.value)
+                    setCompaniesPage(1)
+                  }}
+                />
+              </div>
+            </div>
+            <div className="md:col-span-3">
+              <select
+                className="input w-full"
+                value={companyPlanFilter}
+                onChange={e => {
+                  setCompanyPlanFilter(e.target.value)
+                  setCompaniesPage(1)
+                }}
+              >
+                <option value="all">All plans</option>
+                <option value="solo">solo</option>
+                <option value="office">office</option>
+                <option value="enterprise">enterprise</option>
+              </select>
+            </div>
+            <div className="md:col-span-3">
+              <select
+                className="input w-full"
+                value={companyBillingFilter}
+                onChange={e => {
+                  setCompanyBillingFilter(e.target.value)
+                  setCompaniesPage(1)
+                }}
+              >
+                <option value="all">All billing statuses</option>
+                <option value="active">active</option>
+                <option value="overdue">overdue</option>
+                <option value="suspended">suspended</option>
+              </select>
+            </div>
+            <div className="md:col-span-1 flex items-center justify-between md:justify-end gap-2">
+              <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 select-none">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={companyOverdueOnly}
+                  onChange={e => {
+                    setCompanyOverdueOnly(e.target.checked)
+                    setCompaniesPage(1)
+                  }}
+                />
+                Overdue
+              </label>
+              <button
+                type="button"
+                onClick={clearCompanyFilters}
+                className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {loading || companyTabLoading ? (
             <div className="flex justify-center py-8">
               <Activity className="h-6 w-6 animate-spin text-gray-400" />
             </div>
-          ) : companies.length === 0 ? (
+          ) : (companies as any[]).length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <Building2 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
               <p>No companies found</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
@@ -451,7 +636,7 @@ export default function RootDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {companies.map((company: any) => {
+                  {(companies as any[]).map((company: any) => {
                     const companyUsers = users.filter(user => user.companyId === company.id).length
                     const isDowngrading = downgradingCompanyId === company.id
                     const overdue = isCompanyOverdue(company)
@@ -533,8 +718,33 @@ export default function RootDashboard() {
                     )
                   })}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+
+              <div className="mt-4 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setCompaniesPage(p => Math.max(p - 1, 1))}
+                  disabled={companiesPage <= 1 || companyTabLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 disabled:opacity-50"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Prev
+                </button>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Page {companiesPage} of {companiesTotalPages}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCompaniesPage(p => Math.min(p + 1, companiesTotalPages))}
+                  disabled={companiesPage >= companiesTotalPages || companyTabLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded border border-gray-200 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 disabled:opacity-50"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -568,7 +778,9 @@ export default function RootDashboard() {
                       <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{user.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{user.email}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{company?.name || 'N/A'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                          {company?.name || user.companyId || 'N/A'}
+                        </td>
                       </tr>
                     )
                   })}

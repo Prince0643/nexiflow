@@ -73,10 +73,14 @@ const apiRequest = async <T>(
 // Client API Service
 export const clientApiService = {
   // Get clients for company
-  async getClientsForCompany(companyId: string | null): Promise<Client[]> {
+  async getClientsForCompany(
+    companyId: string | null,
+    options?: { includeArchived?: boolean }
+  ): Promise<Client[]> {
     if (!companyId) return []
 
-    const endpoint = companyId.startsWith('-') ? '/clients' : `/clients/company/${companyId}`
+    const endpointBase = companyId.startsWith('-') ? '/clients' : `/clients/company/${companyId}`
+    const endpoint = options?.includeArchived ? `${endpointBase}?archived=1` : endpointBase
     
     const response = await apiRequest<{
       success: boolean
@@ -122,13 +126,40 @@ export const clientApiService = {
     }
   },
 
+  async archiveClient(clientId: string): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/clients/${clientId}/archive`, {
+      method: 'PUT'
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to archive client')
+    }
+  },
+
+  async unarchiveClient(clientId: string): Promise<void> {
+    const response = await apiRequest<{
+      success: boolean
+      message?: string
+    }>(`/clients/${clientId}/unarchive`, {
+      method: 'PUT'
+    })
+
+    if (!response.success) {
+      throw new Error('Failed to unarchive client')
+    }
+  },
+
   // Get all clients (fallback for when no company ID)
-  async getClients(): Promise<Client[]> {
+  async getClients(options?: { includeArchived?: boolean }): Promise<Client[]> {
+    const endpoint = options?.includeArchived ? '/clients?archived=1' : '/clients'
     const response = await apiRequest<{
       success: boolean
       data: Client[]
       count: number
-    }>('/clients')
+    }>(endpoint)
     
     if (!response.success) {
       throw new Error('Failed to get clients')
