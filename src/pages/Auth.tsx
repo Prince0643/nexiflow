@@ -10,7 +10,7 @@ const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 export default function Auth() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { currentUser } = useMySQLAuth()
+  const { currentUser, refreshSession } = useMySQLAuth()
   const isDemo = searchParams.get('demo') === 'true'
   const [showSignup, setShowSignup] = useState(searchParams.get('signup') === 'super_admin')
 
@@ -222,6 +222,10 @@ export default function Auth() {
                       if (data?.token) {
                         localStorage.setItem('authToken', data.token)
                       }
+                      // Clear stale company caches and re-hydrate session using the newly issued token.
+                      localStorage.removeItem('currentCompany')
+                      localStorage.removeItem('companies')
+                      await refreshSession()
                       setInviteAccepted(true)
                       window.setTimeout(() => navigate('/dashboard'), 900)
                     } catch (e: any) {
