@@ -349,10 +349,13 @@ async function createCompanyInviteToken(connection, invite) {
   return { rawToken, inviteId, expiresAt };
 }
 
-// Configure uploads directory
+// Configure uploads directories
 const uploadsDir = path.join(__dirname, 'uploads', 'avatars');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const companyLogosDir = path.join(__dirname, 'uploads', 'company-logos');
+for (const dir of [uploadsDir, companyLogosDir]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
 }
 
 // Serve static files from uploads directory BEFORE helmet (to avoid CORS issues)
@@ -498,6 +501,23 @@ const storage = multer.diskStorage({
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, req.user.uid + '-' + uniqueSuffix + path.extname(file.originalname));
   }
+});
+
+// Configure multer for company logo uploads
+const logoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, companyLogosDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname) || '';
+    cb(null, `company-${req.params.companyId}-${uniqueSuffix}${ext}`);
+  }
+});
+
+const uploadCompanyLogo = multer({
+  storage: logoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
 });
 
 // Admin Companies API (root only)
@@ -3192,6 +3212,79 @@ app.put('/api/companies/:companyId/pdf-settings', authenticateToken, async (req,
   } catch (error) {
     console.error('Error updating PDF settings:', error);
     res.status(500).json({ success: false, error: 'Failed to update PDF settings' });
+  }
+});
+
+app.post('/api/companies/:companyId/pdf-logo', authenticateToken, uploadCompanyLogo.single('logo'), async (req, res) => {
+  try {
+    const { companyId } = req.params;
+
+    if (!isAdminRole(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    if (req.user.role !== 'root' && req.user.companyId && String(req.user.companyId) !== String(companyId)) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
+    }
+
+    const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+    if (!allowedTypes.has(req.file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'Invalid file type. Please upload a PNG, JPG, or WEBP image.' });
+    }
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const fileUrl = `${protocol}://${host}/uploads/company-logos/${req.file.filename}`;
+
+    const connection = await pool.getConnection();
+    try {
+      const [companyRows] = await connection.execute(
+        'SELECT id FROM companies WHERE id = ? LIMIT 1',
+        [companyId]
+      );
+
+      if (!companyRows.length) {
+        return res.status(404).json({ success: false, error: 'Company not found' });
+      }
+
+      const [updateResult] = await connection.execute(
+        'UPDATE company_pdf_settings SET logo_url = ? WHERE company_id = ?',
+        [fileUrl, companyId]
+      );
+
+      if (!updateResult.affectedRows) {
+        const insertQuery = `
+          INSERT INTO company_pdf_settings (
+            company_id, company_name, logo_url, primary_color, secondary_color, show_powered_by, custom_footer_text
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
+        await connection.execute(insertQuery, [
+          companyId,
+          '',
+          fileUrl,
+          '#3B82F6',
+          '#10B981',
+          1,
+          ''
+        ]);
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          logoUrl: fileUrl
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error uploading company logo:', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload logo' });
   }
 });
 

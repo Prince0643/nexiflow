@@ -13,6 +13,7 @@ export default function PDFSettingsForm({ companyId, onSettingsUpdate }: PDFSett
   const { currentUser } = useMySQLAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
@@ -82,6 +83,47 @@ export default function PDFSettingsForm({ companyId, onSettingsUpdate }: PDFSett
     }
   }
 
+  const handleLogoUpload = async (file: File | null) => {
+    if (!file) return
+    setUploadingLogo(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const logoUrl = await pdfSettingsService.uploadCompanyLogo(companyId, file)
+      const next = { ...formData, logoUrl }
+      setFormData(next)
+      await pdfSettingsService.updatePDFSettings(companyId, next)
+      setSuccess('Logo uploaded successfully!')
+      onSettingsUpdate?.(next)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      console.error('Error uploading logo:', err)
+      setError(err instanceof Error ? err.message : 'Failed to upload logo')
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
+
+  const handleRemoveLogo = async () => {
+    setSaving(true)
+    setError('')
+    setSuccess('')
+    try {
+      const next = { ...formData, logoUrl: '' }
+      setFormData(next)
+      await pdfSettingsService.updatePDFSettings(companyId, next)
+      setSuccess('Logo removed successfully!')
+      onSettingsUpdate?.(next)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      console.error('Error removing logo:', err)
+      setError(err instanceof Error ? err.message : 'Failed to remove logo')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center p-8">
@@ -128,8 +170,41 @@ export default function PDFSettingsForm({ companyId, onSettingsUpdate }: PDFSett
           
           <div>
             <label htmlFor="logoUrl" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Logo URL
+              Logo
             </label>
+            <div className="flex flex-col gap-3 mb-3">
+              <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => handleLogoUpload(e.target.files?.[0] || null)}
+                  disabled={uploadingLogo}
+                  className="block w-full text-sm text-gray-900 dark:text-gray-100 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 dark:file:bg-gray-700 dark:file:text-gray-100"
+                />
+                {formData.logoUrl ? (
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    disabled={saving || uploadingLogo}
+                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              {formData.logoUrl ? (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={formData.logoUrl}
+                    alt="Company logo preview"
+                    className="h-10 w-10 rounded bg-white object-contain border border-gray-200 dark:border-gray-700"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 break-all">
+                    {formData.logoUrl}
+                  </span>
+                </div>
+              ) : null}
+            </div>
             <input
               type="text"
               id="logoUrl"
@@ -140,7 +215,7 @@ export default function PDFSettingsForm({ companyId, onSettingsUpdate }: PDFSett
               placeholder="https://example.com/logo.png"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              URL to your company logo (must be publicly accessible)
+              Upload a PNG/JPG/WEBP logo (recommended) or paste a direct image URL.
             </p>
           </div>
           

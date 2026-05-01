@@ -86,6 +86,42 @@ export const pdfSettingsService = {
     }
   },
 
+  async uploadCompanyLogo(companyId: string, file: File): Promise<string> {
+    const token = await getAuthToken()
+    const url = `${API_BASE_URL}/companies/${companyId}/pdf-logo`
+
+    const formData = new FormData()
+    formData.append('logo', file)
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: formData
+    })
+
+    const text = await response.text().catch(() => '')
+    let json: any = null
+    try {
+      json = text ? JSON.parse(text) : null
+    } catch {
+      json = null
+    }
+
+    if (!response.ok || !json?.success) {
+      const msg = (json && typeof json.error === 'string' && json.error) || `HTTP error! status: ${response.status}`
+      throw new Error(msg)
+    }
+
+    const logoUrl = json?.data?.logoUrl
+    if (!logoUrl || typeof logoUrl !== 'string') {
+      throw new Error('Logo upload failed')
+    }
+
+    return logoUrl
+  },
+
   // Initialize default PDF settings for a company
   async initializePDFSettings(companyId: string): Promise<PDFSettings> {
     try {

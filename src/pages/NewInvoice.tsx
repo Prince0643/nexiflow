@@ -61,10 +61,11 @@ export default function NewInvoice() {
         const projectsData = await projectService.getProjects()
         setProjects(projectsData)
         
-        // Load PDF settings if user is logged in and has a company
-        if (currentUser?.companyId) {
+        // Load PDF settings using the currently selected company scope when available
+        const pdfCompanyId = currentCompany?.id || currentUser?.companyId
+        if (pdfCompanyId) {
           try {
-            const settings = await pdfSettingsService.getPDFSettings(currentUser.companyId)
+            const settings = await pdfSettingsService.getPDFSettings(pdfCompanyId)
             setPdfSettings(settings)
           } catch (error) {
             console.error('Error loading PDF settings:', error)
@@ -76,7 +77,7 @@ export default function NewInvoice() {
     }
     
     loadData()
-  }, [currentUser])
+  }, [currentUser, currentCompany])
   
   // Filter time entries based on date range and client
   useEffect(() => {
