@@ -194,47 +194,47 @@ export default function Auth() {
                 </div>
               ) : null}
 
-              {currentUser ? (
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    className="w-full btn-primary py-3 text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={inviteLoading || inviteAccepted || !inviteToken}
-                    onClick={async () => {
-                      if (!inviteToken) return
-                      setInviteLoading(true)
-                      setInviteError('')
-                      try {
-                        const authToken = localStorage.getItem('authToken')
-                        const response = await fetch(`${API_BASE_URL}/company-invites/accept`, {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
-                          },
-                          body: JSON.stringify({ token: inviteToken })
-                        })
-                        const data = await response.json().catch(() => null)
-                        if (!response.ok || !data?.success) {
-                          setInviteError(data?.error || 'Failed to accept invite.')
-                          return
-                        }
-                        localStorage.removeItem('pendingInviteToken')
-                        if (data?.token) {
-                          localStorage.setItem('authToken', data.token)
-                        }
-                        setInviteAccepted(true)
-                        window.setTimeout(() => navigate('/dashboard'), 900)
-                      } catch (e: any) {
-                        setInviteError(e?.message || 'Failed to accept invite.')
-                      } finally {
-                        setInviteLoading(false)
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  className="w-full btn-primary py-3 text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={inviteLoading || inviteAccepted || !inviteToken}
+                  onClick={async () => {
+                    if (!inviteToken) return
+                    setInviteLoading(true)
+                    setInviteError('')
+                    try {
+                      const authToken = localStorage.getItem('authToken')
+                      const response = await fetch(`${API_BASE_URL}/company-invites/accept`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+                        },
+                        body: JSON.stringify({ token: inviteToken })
+                      })
+                      const data = await response.json().catch(() => null)
+                      if (!response.ok || !data?.success) {
+                        setInviteError(data?.error || 'Failed to accept invite.')
+                        return
                       }
-                    }}
-                  >
-                    {inviteLoading ? 'Accepting…' : 'Accept Invite'}
-                  </button>
+                      localStorage.removeItem('pendingInviteToken')
+                      if (data?.token) {
+                        localStorage.setItem('authToken', data.token)
+                      }
+                      setInviteAccepted(true)
+                      window.setTimeout(() => navigate('/dashboard'), 900)
+                    } catch (e: any) {
+                      setInviteError(e?.message || 'Failed to accept invite.')
+                    } finally {
+                      setInviteLoading(false)
+                    }
+                  }}
+                >
+                  {inviteLoading ? 'Accepting…' : inviteAccepted ? 'Invite Accepted' : 'Accept Invite'}
+                </button>
 
+                {currentUser ? (
                   <button
                     type="button"
                     className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-white/20 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -269,28 +269,19 @@ export default function Auth() {
                   >
                     Decline
                   </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
+                ) : (
                   <button
                     type="button"
-                    className="w-full btn-primary py-3 text-lg font-medium"
+                    className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-white/20 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
                     onClick={() => {
                       setShowSignup(false)
                       navigate('/auth')
                     }}
                   >
-                    Continue to Sign In
+                    Go to Sign In
                   </button>
-                  <button
-                    type="button"
-                    className="w-full px-4 py-3 rounded-2xl border border-gray-300 dark:border-white/20 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
-                    onClick={() => navigate('/landing')}
-                  >
-                    Back
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : isPasswordFlow ? (
             <div>

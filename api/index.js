@@ -4126,8 +4126,8 @@ app.get('/api/company-invites/validate', async (req, res) => {
   }
 });
 
-// Accept a company invite (requires auth)
-app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
+// Accept a company invite (public; issues JWT for invitee on success)
+app.post('/api/company-invites/accept', async (req, res) => {
   try {
     const { token } = req.body || {};
     if (!token || typeof token !== 'string') {
@@ -4135,8 +4135,20 @@ app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
     }
 
     const tokenHash = sha256Hex(token);
-    const userId = req.user?.uid;
-    const userEmail = String(req.user?.email || '').trim().toLowerCase();
+    // If the requester is already authenticated, use that identity for additional safety checks.
+    let requesterUserId = null;
+    let requesterEmail = '';
+    const authHeader = req.headers['authorization'];
+    const bearerToken = authHeader && authHeader.split(' ')[1];
+    if (bearerToken) {
+      try {
+        const decoded = jwt.verify(bearerToken, process.env.JWT_SECRET || 'clockistry_secret_key');
+        requesterUserId = decoded?.userId || null;
+        requesterEmail = String(decoded?.email || '').trim().toLowerCase();
+      } catch {
+        // Ignore invalid/expired bearer tokens; invite accept can proceed as a magic-link flow.
+      }
+    }
 
     const connection = await pool.getConnection();
     try {
@@ -4154,9 +4166,6 @@ app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
       }
 
       const invite = rows[0];
-      if (invite.accepted_at) {
-        return res.status(400).json({ success: false, error: 'Invite has already been accepted' });
-      }
       if (invite.declined_at) {
         return res.status(400).json({ success: false, error: 'Invite has been declined' });
       }
@@ -4167,8 +4176,45 @@ app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
       }
 
       const inviteEmail = String(invite.invitee_email || '').trim().toLowerCase();
-      if (userEmail && inviteEmail && userEmail !== inviteEmail) {
+      if (requesterEmail && inviteEmail && requesterEmail !== inviteEmail) {
         return res.status(403).json({ success: false, error: 'This invite is for a different email address' });
+      }
+
+      // Resolve invitee user.
+      let inviteeUserId = invite.invitee_user_id || null;
+      let inviteeEmail = inviteEmail;
+
+      if (!inviteeUserId && inviteeEmail) {
+        const [userRows] = await connection.execute(
+          'SELECT id, email FROM users WHERE email = ? AND is_active = 1 LIMIT 1',
+          [inviteeEmail]
+        );
+        if (userRows.length) {
+          inviteeUserId = userRows[0].id;
+          inviteeEmail = String(userRows[0].email || inviteeEmail).trim().toLowerCase();
+        }
+      } else if (inviteeUserId) {
+        const [userRows] = await connection.execute(
+          'SELECT id, email FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+          [inviteeUserId]
+        );
+        if (!userRows.length) {
+          inviteeUserId = null;
+        } else {
+          inviteeEmail = String(userRows[0].email || inviteeEmail).trim().toLowerCase();
+        }
+      }
+
+      if (!inviteeUserId) {
+        return res.status(404).json({
+          success: false,
+          error: 'No account exists for this invite email'
+        });
+      }
+
+      // If the requester is logged in, ensure they can only accept for themselves.
+      if (requesterUserId && requesterUserId !== inviteeUserId) {
+        return res.status(403).json({ success: false, error: 'This invite is for a different user' });
       }
 
       await connection.beginTransaction();
@@ -4181,16 +4227,16 @@ app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
             `INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at)
              VALUES (?, ?, ?, ?, 0, 1, ?, ?)
              ON DUPLICATE KEY UPDATE is_active = 1, role = VALUES(role), updated_at = VALUES(updated_at)`,
-            [uuidv4(), userId, invite.company_id, invite.role, now, now]
+            [uuidv4(), inviteeUserId, invite.company_id, invite.role, now, now]
           );
         } catch (e) {
           console.warn('Failed to upsert company_memberships on invite accept:', e?.message || e);
         }
 
-        await connection.execute(
-          'UPDATE company_invites SET accepted_at = NOW() WHERE id = ? AND accepted_at IS NULL AND declined_at IS NULL',
-          [invite.id]
-        );
+        // Mark accepted (idempotent: if already accepted, leave as-is).
+        await connection.execute('UPDATE company_invites SET accepted_at = COALESCE(accepted_at, NOW()) WHERE id = ?', [
+          invite.id
+        ]);
 
         await connection.commit();
       } catch (e) {
@@ -4204,7 +4250,7 @@ app.post('/api/company-invites/accept', authenticateToken, async (req, res) => {
       const joinedCompanyId = invite.company_id;
       const membershipRole = invite.role;
       const newToken = jwt.sign(
-        { userId, email: userEmail, activeCompanyId: joinedCompanyId, membershipRole },
+        { userId: inviteeUserId, email: inviteeEmail, activeCompanyId: joinedCompanyId, membershipRole },
         process.env.JWT_SECRET || 'clockistry_secret_key',
         { expiresIn: '24h' }
       );
