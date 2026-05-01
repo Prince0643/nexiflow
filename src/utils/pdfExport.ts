@@ -707,8 +707,13 @@ export const generateIndividualClientPDF = async (
           const barX = chartStartX + index * (barWidth + 6); // Reduced spacing
           const barY = chartStartY - barHeight;
           
-          // Draw bar
-          pdf.setFillColor('#3B82F6');
+          // Draw bar (use secondary color)
+          const barColor = settings.secondaryColor || '#10B981';
+          pdf.setFillColor(
+            parseInt(barColor.slice(1, 3), 16),
+            parseInt(barColor.slice(3, 5), 16),
+            parseInt(barColor.slice(5, 7), 16)
+          );
           pdf.rect(barX, barY, barWidth, barHeight, 'F');
           
           // Draw day label

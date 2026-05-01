@@ -13,16 +13,40 @@ import {
   CheckCircle,
   XCircle
 } from 'lucide-react'
+import { useMySQLAuth } from '../contexts/MySQLAuthContext'
+import { pdfSettingsService } from '../services/pdfSettingsService'
 import { invoiceApiService } from '../services/invoiceApiService'
 import { formatCurrency, formatSecondsToHHMMSS } from '../utils'
 import { generateIndividualClientPDF } from '../utils/pdfExport'
 
 export default function Invoicing() {
   const navigate = useNavigate()
+  const { currentUser, currentCompany } = useMySQLAuth()
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [invoices, setInvoices] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [pdfSettings, setPdfSettings] = useState<any>(null)
+
+  useEffect(() => {
+    const loadPdfSettings = async () => {
+      const pdfCompanyId = currentCompany?.id || currentUser?.companyId
+      if (!pdfCompanyId) {
+        setPdfSettings(null)
+        return
+      }
+
+      try {
+        const settings = await pdfSettingsService.getPDFSettings(pdfCompanyId)
+        setPdfSettings(settings)
+      } catch (error) {
+        console.error('Error loading PDF settings:', error)
+        setPdfSettings(null)
+      }
+    }
+
+    loadPdfSettings()
+  }, [currentUser, currentCompany])
 
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -111,7 +135,7 @@ export default function Invoicing() {
       'custom',
       start,
       end,
-      null,
+      pdfSettings,
       undefined,
       timeEntriesForPDF,
       dailyTimeData,
