@@ -1,11 +1,11 @@
 import rateLimit from 'express-rate-limit';
 
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 10 * 60 * 1000, // 10 minutes
   max: 5, // 5 requests per window per IP
   message: {
     success: false,
-    error: 'Too many login attempts. Please try again in 15 minutes.'
+    error: 'Too many login attempts. Please try again in 10 minutes.'
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -13,7 +13,7 @@ export const authLimiter = rateLimit({
 });
 
 export const generalApiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 10 * 60 * 1000, // 10 minutes
   max: 200, // 200 requests per window per IP
   message: {
     success: false,

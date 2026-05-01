@@ -67,8 +67,10 @@ export const timeEntryService = {
     startDate: Date
     endDate: Date
     billableOnly?: boolean
+    companyId?: string
   }): Promise<TimeEntry[]> {
     return timeEntryApiService.getAdminTimeEntries({
+      companyId: args.companyId,
       clientId: args.clientId,
       startDate: args.startDate,
       endDate: args.endDate,

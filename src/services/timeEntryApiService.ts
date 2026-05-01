@@ -160,6 +160,7 @@ export const timeEntryApiService = {
   async getAdminTimeEntries(filters: {
     startDate?: Date
     endDate?: Date
+    companyId?: string
     clientId?: string
     projectId?: string
     billableOnly?: boolean
@@ -167,6 +168,7 @@ export const timeEntryApiService = {
     const params = new URLSearchParams()
     if (filters.startDate) params.append('startDate', filters.startDate.toISOString())
     if (filters.endDate) params.append('endDate', filters.endDate.toISOString())
+    if (filters.companyId) params.append('companyId', filters.companyId)
     if (filters.clientId) params.append('clientId', filters.clientId)
     if (filters.projectId) params.append('projectId', filters.projectId)
     if (filters.billableOnly) params.append('billableOnly', 'true')

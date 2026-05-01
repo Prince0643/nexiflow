@@ -391,9 +391,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Rate limiting - Auth endpoints (stricter)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 10 * 60 * 1000, // 10 minutes
   max: 5, // 5 attempts per window per IP
-  message: { success: false, error: 'Too many login attempts. Please try again in 15 minutes.' }
+  message: { success: false, error: 'Too many login attempts. Please try again in 10 minutes.' }
 });
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
@@ -401,7 +401,7 @@ app.use('/api/auth/signup', authLimiter);
 // Rate limiting - General API
 const isDev = process.env.NODE_ENV !== 'production'
 const createApiLimiter = (max, skip) => rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 10 * 60 * 1000, // 10 minutes
   max: isDev ? 2000 : max,
   skip,
   message: { success: false, error: 'Too many requests. Please try again later.' }

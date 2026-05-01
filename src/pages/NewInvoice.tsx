@@ -28,7 +28,7 @@ interface TimeEntryWithProject extends TimeEntry {
 
 export default function NewInvoice() {
   const navigate = useNavigate()
-  const { currentUser } = useMySQLAuth()
+  const { currentUser, currentCompany } = useMySQLAuth()
   
   // Form state
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -44,6 +44,7 @@ export default function NewInvoice() {
   const [generatedPDF, setGeneratedPDF] = useState<Blob | null>(null)
   const [pdfFileName, setPdfFileName] = useState('')
   const [pdfSettings, setPdfSettings] = useState<any>(null)
+  const [timeEntriesLoadError, setTimeEntriesLoadError] = useState<string | null>(null)
   
   // Refs
   const pdfBlobRef = useRef<Blob | null>(null)
@@ -82,17 +83,20 @@ export default function NewInvoice() {
     const loadTimeEntries = async () => {
       if (!startDate || !endDate || !selectedClient) {
         setFilteredEntries([])
+        setTimeEntriesLoadError(null)
         return
       }
 
       if (!currentUser?.uid) {
         setFilteredEntries([])
+        setTimeEntriesLoadError(null)
         return
       }
       
       try {
         // Reset filtered entries to prevent duplicates
         setFilteredEntries([])
+        setTimeEntriesLoadError(null)
         
         const start = new Date(startDate)
         const end = new Date(endDate)
@@ -100,6 +104,13 @@ export default function NewInvoice() {
 
         const role = currentUser.role
         const canInvoiceCompanyWide = role === 'admin' || role === 'hr' || role === 'super_admin' || role === 'root'
+        const isGlobalInvoiceAdmin = role === 'super_admin' || role === 'root'
+
+        if (isGlobalInvoiceAdmin && !currentCompany?.id) {
+          setFilteredEntries([])
+          setTimeEntriesLoadError('Select a company to load billable time entries.')
+          return
+        }
 
         // Load time entries for the date range (company-wide for invoice roles)
         const entries = canInvoiceCompanyWide
@@ -107,7 +118,8 @@ export default function NewInvoice() {
               clientId: selectedClient,
               startDate: start,
               endDate: end,
-              billableOnly: true
+              billableOnly: true,
+              companyId: isGlobalInvoiceAdmin ? currentCompany?.id : undefined
             })
           : await timeEntryService.getTimeEntriesByDateRange(currentUser.uid, start, end)
         console.log('🔍 Debug - All entries in date range:', entries.length, entries)
@@ -148,11 +160,12 @@ export default function NewInvoice() {
       } catch (error) {
         console.error('Error loading time entries:', error)
         setFilteredEntries([])
+        setTimeEntriesLoadError(error instanceof Error ? error.message : 'Failed to load billable time entries')
       }
     }
     
     loadTimeEntries()
-  }, [startDate, endDate, selectedClient, projects, currentUser])
+  }, [startDate, endDate, selectedClient, projects, currentUser, currentCompany])
   
   // Calculate totals
   const calculateTotals = () => {
@@ -681,9 +694,11 @@ export default function NewInvoice() {
               ) : (
                 <div className="text-center py-8">
                   <Clock className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No billable time entries</h3>
+                  <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">
+                    {timeEntriesLoadError ? 'Unable to load time entries' : 'No billable time entries'}
+                  </h3>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    No billable time entries found for the selected date range and client.
+                    {timeEntriesLoadError || 'No billable time entries found for the selected date range and client.'}
                   </p>
                 </div>
               )}
