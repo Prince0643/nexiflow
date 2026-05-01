@@ -591,12 +591,12 @@ app.get('/api/admin/companies', authenticateToken, async (req, res) => {
           FROM companies
           ${whereSql}
           ORDER BY created_at DESC
-          LIMIT ? OFFSET ?
+          LIMIT ${Number(limit)} OFFSET ${Number(offset)}
         `,
-        [...whereParams, limit, offset]
+        whereParams
       );
 
-      const companies = rows.map(row => ({
+      const companies = (Array.isArray(rows) ? rows : []).map(row => ({
         id: row.id,
         name: row.name,
         isActive: row.is_active === 1,
