@@ -4126,6 +4126,206 @@ app.get('/api/company-invites/validate', async (req, res) => {
   }
 });
 
+// List pending company invites for the active company (requires auth)
+app.get('/api/company-invites/pending', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user?.companyId || null;
+    if (!companyId) {
+      return res.status(400).json({ success: false, error: 'No active company selected' });
+    }
+
+    const isPrivileged = ['admin', 'super_admin', 'hr', 'root'].includes(req.user?.role);
+    if (!isPrivileged) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT
+            ci.id,
+            ci.company_id,
+            ci.inviter_user_id,
+            ci.invitee_user_id,
+            ci.invitee_email,
+            ci.role,
+            ci.expires_at,
+            ci.created_at,
+            u.name AS inviter_name,
+            u.email AS inviter_email
+         FROM company_invites ci
+         LEFT JOIN users u ON u.id = ci.inviter_user_id
+         WHERE ci.company_id = ?
+           AND ci.accepted_at IS NULL
+           AND ci.declined_at IS NULL
+           AND ci.expires_at > NOW()
+         ORDER BY ci.created_at DESC`,
+        [companyId]
+      );
+
+      const invites = (rows || []).map((r) => ({
+        inviteId: r.id,
+        companyId: r.company_id,
+        inviterUserId: r.inviter_user_id,
+        inviterName: r.inviter_name || null,
+        inviterEmail: r.inviter_email || null,
+        inviteeUserId: r.invitee_user_id || null,
+        inviteeEmail: r.invitee_email,
+        role: r.role,
+        expiresAt: r.expires_at,
+        createdAt: r.created_at
+      }));
+
+      return res.json({ success: true, invites, count: invites.length });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Pending invites error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load pending invites' });
+  }
+});
+
+// Resend an existing pending invite (requires auth)
+app.post('/api/company-invites/resend', authenticateToken, async (req, res) => {
+  try {
+    const { inviteId } = req.body || {};
+    if (!inviteId || typeof inviteId !== 'string') {
+      return res.status(400).json({ success: false, error: 'inviteId is required' });
+    }
+
+    const companyId = req.user?.companyId || null;
+    if (!companyId) {
+      return res.status(400).json({ success: false, error: 'No active company selected' });
+    }
+
+    const isPrivileged = ['hr', 'admin', 'super_admin', 'root'].includes(req.user?.role);
+    if (!isPrivileged) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, company_id, invitee_user_id, invitee_email, role, expires_at, accepted_at, declined_at
+         FROM company_invites
+         WHERE id = ? AND company_id = ?
+         LIMIT 1`,
+        [inviteId, companyId]
+      );
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'Invite not found' });
+      }
+
+      const invite = rows[0];
+      if (invite.accepted_at) {
+        return res.status(400).json({ success: false, error: 'Invite has already been accepted' });
+      }
+      if (invite.declined_at) {
+        return res.status(400).json({ success: false, error: 'Invite has been cancelled' });
+      }
+
+      const expiresAt = new Date(invite.expires_at);
+      if (Date.now() > expiresAt.getTime()) {
+        return res.status(400).json({ success: false, error: 'Invite has expired' });
+      }
+
+      const [companyRows] = await connection.execute('SELECT name FROM companies WHERE id = ? LIMIT 1', [companyId]);
+      const companyName = companyRows.length ? companyRows[0].name : 'your company';
+
+      // Cancel the old invite row to avoid multiple pending invites for the same email.
+      await connection.execute(
+        'UPDATE company_invites SET declined_at = NOW() WHERE id = ? AND declined_at IS NULL AND accepted_at IS NULL',
+        [inviteId]
+      );
+
+      const { rawToken, inviteId: newInviteId } = await createCompanyInviteToken(connection, {
+        companyId,
+        inviterUserId: req.user?.uid,
+        inviteeUserId: invite.invitee_user_id || null,
+        inviteeEmail: invite.invitee_email,
+        role: invite.role
+      });
+
+      const frontendUrl = getFrontendUrl();
+      const inviteLink = `${frontendUrl}/auth?mode=accept-invite&token=${rawToken}`;
+
+      const emailResult = await billingEmailService.sendCompanyInviteEmail(
+        { name: null, email: invite.invitee_email },
+        inviteLink,
+        companyName,
+        invite.role,
+        req.user?.name || null
+      );
+
+      return res.json({
+        success: true,
+        inviteId: newInviteId,
+        inviteEmailSent: Boolean(emailResult?.success)
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Invite resend error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to resend invite' });
+  }
+});
+
+// Cancel a pending invite (requires auth)
+app.post('/api/company-invites/cancel', authenticateToken, async (req, res) => {
+  try {
+    const { inviteId } = req.body || {};
+    if (!inviteId || typeof inviteId !== 'string') {
+      return res.status(400).json({ success: false, error: 'inviteId is required' });
+    }
+
+    const companyId = req.user?.companyId || null;
+    if (!companyId) {
+      return res.status(400).json({ success: false, error: 'No active company selected' });
+    }
+
+    const isPrivileged = ['hr', 'admin', 'super_admin', 'root'].includes(req.user?.role);
+    if (!isPrivileged) {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        `SELECT id, accepted_at, declined_at
+         FROM company_invites
+         WHERE id = ? AND company_id = ?
+         LIMIT 1`,
+        [inviteId, companyId]
+      );
+      if (!rows.length) {
+        return res.status(404).json({ success: false, error: 'Invite not found' });
+      }
+
+      const invite = rows[0];
+      if (invite.accepted_at) {
+        return res.status(400).json({ success: false, error: 'Invite has already been accepted' });
+      }
+      if (invite.declined_at) {
+        return res.json({ success: true, message: 'Invite already cancelled' });
+      }
+
+      await connection.execute(
+        'UPDATE company_invites SET declined_at = NOW() WHERE id = ? AND declined_at IS NULL AND accepted_at IS NULL',
+        [inviteId]
+      );
+
+      return res.json({ success: true, message: 'Invite cancelled' });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Invite cancel error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to cancel invite' });
+  }
+});
+
 // Accept a company invite (public; issues JWT for invitee on success)
 app.post('/api/company-invites/accept', async (req, res) => {
   try {

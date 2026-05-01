@@ -34,6 +34,7 @@ import { adminTimeEntriesAPI as timeEntryService } from '../services/adminApiSer
 import { adminProjectsAPI as projectService } from '../services/adminApiService'
 import { adminClientsAPI as clientService } from '../services/adminApiService'
 import { adminTeamsAPI as teamService } from '../services/adminApiService'
+import { adminCompanyInvitesAPI, PendingCompanyInvite } from '../services/adminApiService'
 import { User as UserType, TimeEntry, Project, Client, Team } from '../types'
 import UserDetailsModal from '../components/admin/UserDetailsModal'
 import TimeEntryEditModal from '../components/admin/TimeEntryEditModal'
@@ -58,6 +59,17 @@ type DashboardUser = UserType & {
   actionUserId: string | null
 }
 
+type InviteRow = {
+  id: string
+  inviteId: string
+  name: string
+  email: string
+  role: string
+  inviterLabel: string
+  createdAt: string
+  expiresAt: string
+}
+
 const ADMIN_RUNNING_POLL_INTERVAL_MS = 60000
 const ADMIN_RUNNING_IDLE_POLL_INTERVAL_MS = 5 * 60 * 1000
 const MAX_ADMIN_RUNNING_POLL_BACKOFF_MS = 5 * 60 * 1000
@@ -73,6 +85,7 @@ export default function AdminDashboard() {
     }
   }, [currentUser, navigate])
   const [users, setUsers] = useState<DashboardUser[]>([])
+  const [pendingInvites, setPendingInvites] = useState<PendingCompanyInvite[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [runningTimeEntries, setRunningTimeEntries] = useState<TimeEntry[]>([])
   const [runningTimersNowMs, setRunningTimersNowMs] = useState<number>(() => Date.now())
@@ -383,7 +396,8 @@ export default function AdminDashboard() {
         return
       }
       
-      const [timeEntriesData, runningTimeEntriesData, projectsData, clientsData, teamsData] = await Promise.all([
+      const [pendingInvitesData, timeEntriesData, runningTimeEntriesData, projectsData, clientsData, teamsData] = await Promise.all([
+        effectiveCompanyId ? adminCompanyInvitesAPI.getPendingInvites().catch(() => []) : Promise.resolve([]),
         timeEntryService.getAllTimeEntries(effectiveCompanyId),
         timeEntryService.getAllRunningTimeEntries(effectiveCompanyId),
         projectService.getProjectsForCompany(effectiveCompanyId),
@@ -457,6 +471,7 @@ export default function AdminDashboard() {
       const uniqueTimeEntries = dedupeById<TimeEntry>(enrichedTimeEntries)
 
       setUsers(normalizedUsers)
+      setPendingInvites(pendingInvitesData)
       setTimeEntries(uniqueTimeEntries)
       setRunningTimeEntries(scopedRunningTimeEntries)
       setProjects(uniqueProjects)
@@ -761,6 +776,30 @@ export default function AdminDashboard() {
   const totalDuration = calculateTotalDuration(filteredTimeEntries)
   const chartData = getChartData()
 
+  const filteredInviteRows: InviteRow[] = (pendingInvites || [])
+    .map((invite) => {
+      const inviterLabel = invite.inviterName || invite.inviterEmail || 'Unknown inviter'
+      return {
+        id: `invite:${invite.inviteId}`,
+        inviteId: invite.inviteId,
+        name: 'Pending Invite',
+        email: invite.inviteeEmail,
+        role: invite.role,
+        inviterLabel,
+        createdAt: invite.createdAt,
+        expiresAt: invite.expiresAt
+      }
+    })
+    .filter((row) => {
+      if (!searchTerm) return true
+      const q = searchTerm.trim().toLowerCase()
+      return (
+        row.email.toLowerCase().includes(q) ||
+        row.inviterLabel.toLowerCase().includes(q) ||
+        row.role.toLowerCase().includes(q)
+      )
+    })
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1051,6 +1090,63 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                  {filteredInviteRows.map((invite) => (
+                    <tr key={invite.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-10 w-10">
+                            <div className="h-10 w-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+                              <UserIcon className="h-6 w-6 text-yellow-700 dark:text-yellow-300" />
+                            </div>
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">{invite.name}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{invite.email}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">Invited by {invite.inviterLabel}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                        {getRoleDisplayName(invite.role as any) || invite.role}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">—</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200">
+                          Invited
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await adminCompanyInvitesAPI.resendInvite(invite.inviteId)
+                              } finally {
+                                loadData()
+                              }
+                            }}
+                            className="p-1.5 rounded text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:text-indigo-300 dark:hover:bg-gray-700"
+                            title="Resend invite"
+                          >
+                            <RefreshCw className="h-5 w-5" />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await adminCompanyInvitesAPI.cancelInvite(invite.inviteId)
+                              } finally {
+                                loadData()
+                              }
+                            }}
+                            className="p-1.5 rounded text-red-600 hover:text-red-900 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-gray-700"
+                            title="Cancel invite"
+                          >
+                            <X className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                   {filteredUsers.map((user) => {
                     const team = teams.find(t => t.id === user.teamId)
                     const canManageUser = Boolean(user.actionUserId)

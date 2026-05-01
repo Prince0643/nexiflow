@@ -204,12 +204,10 @@ export default function Auth() {
                     setInviteLoading(true)
                     setInviteError('')
                     try {
-                      const authToken = localStorage.getItem('authToken')
                       const response = await fetch(`${API_BASE_URL}/company-invites/accept`, {
                         method: 'POST',
                         headers: {
-                          'Content-Type': 'application/json',
-                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+                          'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({ token: inviteToken })
                       })

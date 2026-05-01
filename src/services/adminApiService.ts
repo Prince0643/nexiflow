@@ -156,6 +156,51 @@ export const adminUsersAPI = {
   }
 }
 
+export type PendingCompanyInvite = {
+  inviteId: string
+  companyId: string
+  inviterUserId: string
+  inviterName: string | null
+  inviterEmail: string | null
+  inviteeUserId: string | null
+  inviteeEmail: string
+  role: string
+  expiresAt: string
+  createdAt: string
+}
+
+export const adminCompanyInvitesAPI = {
+  async getPendingInvites(): Promise<PendingCompanyInvite[]> {
+    const response = await apiRequest<{
+      success: boolean
+      invites: PendingCompanyInvite[]
+      count: number
+    }>('/company-invites/pending')
+
+    if (!response.success) {
+      throw new Error('Failed to load pending invites')
+    }
+
+    return response.invites || []
+  },
+
+  async resendInvite(inviteId: string): Promise<{ success: boolean; inviteEmailSent?: boolean; inviteId?: string }> {
+    const response = await apiRequest<{ success: boolean; inviteEmailSent?: boolean; inviteId?: string }>(
+      '/company-invites/resend',
+      { method: 'POST', body: JSON.stringify({ inviteId }) }
+    )
+    return response
+  },
+
+  async cancelInvite(inviteId: string): Promise<{ success: boolean; message?: string }> {
+    const response = await apiRequest<{ success: boolean; message?: string }>(
+      '/company-invites/cancel',
+      { method: 'POST', body: JSON.stringify({ inviteId }) }
+    )
+    return response
+  }
+}
+
 // Admin Time Entries API
 export const adminTimeEntriesAPI = {
   // Get all time entries (for admin use)
