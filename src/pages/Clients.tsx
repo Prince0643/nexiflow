@@ -80,6 +80,7 @@ export default function Clients() {
   const [clients, setClients] = useState<Client[]>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
+  const [timeEntriesScope, setTimeEntriesScope] = useState<'company' | 'user'>('user')
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -158,8 +159,25 @@ export default function Clients() {
     
     try {
       const { startDate, endDate } = getDateRange()
-      const timeEntriesData = await timeEntryApiService.getTimeEntriesByDateRange(currentUser.uid, startDate, endDate)
-      setTimeEntries(timeEntriesData)
+      // Prefer company-wide time entries for consistency with Admin Dashboard totals.
+      if (currentUser.companyId) {
+        try {
+          const adminEntries = await timeEntryApiService.getAdminTimeEntries({
+            companyId: currentUser.companyId,
+            startDate,
+            endDate
+          })
+          setTimeEntries(adminEntries)
+          setTimeEntriesScope('company')
+          return
+        } catch (adminError) {
+          console.warn('Falling back to user-only time entries (admin time entries unavailable).', adminError)
+        }
+      }
+
+      const userEntries = await timeEntryApiService.getTimeEntriesByDateRange(currentUser.uid, startDate, endDate)
+      setTimeEntries(userEntries)
+      setTimeEntriesScope('user')
     } catch (error) {
       console.error('Error loading time data:', error)
     }
@@ -1328,7 +1346,12 @@ export default function Clients() {
                       return timeData.totalHours > 0 ? (
                         <>
                           <div className="flex items-center justify-between">
-                            <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Time Rendered</span>
+                            <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                              Time Rendered
+                              {timeEntriesScope === 'user' && (
+                                <span className="ml-1 text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">(your time)</span>
+                              )}
+                            </span>
                             <span className="font-semibold text-gray-900 dark:text-gray-100 text-xs sm:text-sm">{timeData.formattedTime}</span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -1342,7 +1365,12 @@ export default function Clients() {
                         </>
                       ) : (
                         <div className="flex items-center justify-between">
-                          <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Time Rendered</span>
+                          <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                            Time Rendered
+                            {timeEntriesScope === 'user' && (
+                              <span className="ml-1 text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">(your time)</span>
+                            )}
+                          </span>
                           <span className="text-xs sm:text-sm text-gray-400 dark:text-gray-500">No time tracked</span>
                         </div>
                       )
