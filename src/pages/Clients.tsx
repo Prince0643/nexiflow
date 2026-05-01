@@ -496,7 +496,9 @@ export default function Clients() {
         const { startDate, endDate } = getDateRangeForExport()
         
         // Load time data for the selected period
-        const clientTimeEntries = await timeEntryService.getAllTimeEntriesByDateRange(startDate, endDate)
+        const clientTimeEntries = currentUser?.companyId
+          ? await timeEntryApiService.getAdminTimeEntries({ companyId: currentUser.companyId, startDate, endDate })
+          : await timeEntryApiService.getTimeEntriesByDateRange(currentUser!.uid, startDate, endDate)
         
         // Get projects for this client
         const clientProjects = projects.filter(project => project.clientId === exportClient.id)
@@ -621,7 +623,9 @@ export default function Clients() {
         const { startDate, endDate } = getDateRangeForExport()
         
         // Load time data for the selected period
-        const timeEntriesForPeriod = await timeEntryService.getAllTimeEntriesByDateRange(startDate, endDate)
+        const timeEntriesForPeriod = currentUser?.companyId
+          ? await timeEntryApiService.getAdminTimeEntries({ companyId: currentUser.companyId, startDate, endDate })
+          : await timeEntryApiService.getTimeEntriesByDateRange(currentUser!.uid, startDate, endDate)
         
         // Update chart data for the selected period
         const chartDataForPeriod = getTimeChartDataForPeriod(timeEntriesForPeriod)
