@@ -52,6 +52,8 @@ import RootDashboard from './pages/RootDashboard'
 import Invoicing from './pages/Invoicing'
 import NewInvoice from './pages/NewInvoice'
 import { soundManager } from './utils/soundManager'
+import PublicLayout from './components/PublicLayout'
+import { removeLeadConnectorWidget } from './utils/leadConnectorWidget'
 
 function ScrollToTop() {
   const { pathname, search, hash } = useLocation()
@@ -66,6 +68,11 @@ function ScrollToTop() {
 function MySQLAppContent() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { currentUser, loading } = useMySQLAuth()
+
+  useEffect(() => {
+    if (!currentUser) return
+    removeLeadConnectorWidget('69f7ee21cc1c635735173a2b')
+  }, [currentUser])
 
   // Show loading while checking authentication
   if (loading) {
@@ -83,17 +90,17 @@ function MySQLAppContent() {
   if (!currentUser) {
     return (
         <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/auth" element={<Auth />} />
-          <Route path="/super-admin-signup" element={<SuperAdminSignup />} />
-          <Route path="/verify-email" element={<EmailVerification />} />
-          <Route path="/landing" element={<Landing />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/coming-soon" element={<ComingSoon />} />
-          <Route path="/help-center" element={<HelpCenter />} />
-          <Route path="/documentation" element={<Documentation />} />
-          <Route path="/privacy" element={<PrivacyPolicy />} />
-          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/" element={<PublicLayout><Landing /></PublicLayout>} />
+          <Route path="/auth" element={<PublicLayout><Auth /></PublicLayout>} />
+          <Route path="/super-admin-signup" element={<PublicLayout><SuperAdminSignup /></PublicLayout>} />
+          <Route path="/verify-email" element={<PublicLayout><EmailVerification /></PublicLayout>} />
+          <Route path="/landing" element={<PublicLayout><Landing /></PublicLayout>} />
+          <Route path="/about" element={<PublicLayout><About /></PublicLayout>} />
+          <Route path="/coming-soon" element={<PublicLayout><ComingSoon /></PublicLayout>} />
+          <Route path="/help-center" element={<PublicLayout><HelpCenter /></PublicLayout>} />
+          <Route path="/documentation" element={<PublicLayout><Documentation /></PublicLayout>} />
+          <Route path="/privacy" element={<PublicLayout><PrivacyPolicy /></PublicLayout>} />
+          <Route path="/terms" element={<PublicLayout><TermsOfService /></PublicLayout>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
     )
