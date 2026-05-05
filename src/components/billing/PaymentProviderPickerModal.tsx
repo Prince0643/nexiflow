@@ -81,10 +81,10 @@ export default function PaymentProviderPickerModal({
                   : 'text-gray-700 dark:text-gray-300'
               }`}
             >
-              PayMongo
+              NexiPay
             </span>
             <span className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
-              Credit/debit card
+              QRPH, cards, e-wallets, bank transfers
             </span>
           </button>
 
@@ -119,7 +119,7 @@ export default function PaymentProviderPickerModal({
           {selectedProvider === 'paypal'
             ? 'You will be redirected to PayPal to complete your payment.'
             : selectedProvider === 'paymongo'
-              ? 'Secure payment via credit/debit card.'
+              ? 'Pay via NexiPay (QRPH, cards, e-wallets, bank transfers).'
               : 'Select a provider to continue.'}
         </p>
 
@@ -139,4 +139,3 @@ export default function PaymentProviderPickerModal({
     </div>
   )
 }
-
