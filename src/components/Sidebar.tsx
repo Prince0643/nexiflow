@@ -83,6 +83,11 @@ export default function Sidebar({ open, setOpen }: SidebarProps) {
       allNavigation.push({ name: 'Upgrade', href: '/upgrade', icon: Crown, requiredFeature: null });
     }
 
+    // For office pricing level, show Upgrade CTA (Office -> Enterprise)
+    if (currentCompany?.pricingLevel === 'office') {
+      allNavigation.push({ name: 'Upgrade', href: '/upgrade', icon: Crown, requiredFeature: null });
+    }
+
     // Filter navigation based on user permissions
     return allNavigation.filter(item => 
       !item.requiredFeature || (currentUser?.role && canAccessFeature(currentUser.role, item.requiredFeature))
