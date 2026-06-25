@@ -21,7 +21,7 @@ import {
   List,
   Info
 } from 'lucide-react'
-import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, isSameDay, parseISO, subMonths } from 'date-fns'
+import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, isSameDay, parseISO, subMonths, isValid } from 'date-fns'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import { projectService } from '../services/projectService'
 import { timeEntryService } from '../services/timeEntryService'
@@ -49,6 +49,18 @@ const parseDateFromInput = (dateString: string): Date => {
   const [year, month, day] = dateString.split('-').map(Number);
   return new Date(year, month - 1, day);
 };
+
+const formatClientDate = (
+  value: Date | string | number | null | undefined,
+  pattern: string
+): string | null => {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  const date = typeof value === 'string' ? parseISO(value) : new Date(value)
+  return isValid(date) ? format(date, pattern) : null
+}
 
 // Add this helper function to format duration
 const formatDurationToHHMMSS = (seconds: number): string => {
@@ -1403,17 +1415,30 @@ export default function Clients() {
                       </div>
                     )}
 
-                    {(client.clientType || 'full-time') === 'gig' && client.startDate && client.endDate && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs sm:text-sm text-gray-500">Duration</span>
-                        <div className="flex items-center space-x-1">
-                          <Calendar className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
-                          <span className="text-xs sm:text-sm text-gray-900">
-                            {format(client.startDate, 'MMM dd')} - {format(client.endDate, 'MMM dd, yyyy')}
-                          </span>
+                    {(() => {
+                      if ((client.clientType || 'full-time') !== 'gig') {
+                        return null
+                      }
+
+                      const startDateLabel = formatClientDate(client.startDate, 'MMM dd')
+                      const endDateLabel = formatClientDate(client.endDate, 'MMM dd, yyyy')
+
+                      if (!startDateLabel || !endDateLabel) {
+                        return null
+                      }
+
+                      return (
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs sm:text-sm text-gray-500">Duration</span>
+                          <div className="flex items-center space-x-1">
+                            <Calendar className="h-3 w-3 sm:h-4 sm:w-4 text-gray-400" />
+                            <span className="text-xs sm:text-sm text-gray-900">
+                              {startDateLabel} - {endDateLabel}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )
+                    })()}
 
                     <div className="pt-2 sm:pt-3 border-t border-gray-200">
                       <div className="flex items-center justify-between">

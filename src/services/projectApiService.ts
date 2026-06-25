@@ -2,6 +2,7 @@ import { Project, Client, CreateProjectData } from '../types'
 
 // API Configuration
 const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
+const PROJECTS_PAGE_SIZE = 100
 
 // Get auth token for authentication
 const getAuthToken = async (): Promise<string | null> => {
@@ -72,36 +73,37 @@ const apiRequest = async <T>(
 export const projectApiService = {
   // Get projects for company
   async getProjectsForCompany(companyId: string | null, includeArchived: boolean = false): Promise<Project[]> {
-    if (!companyId) return []
-
-    // During Firebase -> MySQL migration, some users/companies may still have Firebase-style IDs.
-    // Backend company-scoped routes reject those. Fall back to non-param endpoints.
-    const endpointBase = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
-    const endpoint = includeArchived ? `${endpointBase}?archived=1` : endpointBase
-
-    const response = await apiRequest<{
-      success: boolean
-      data: Project[]
-      count: number
-    }>(endpoint)
-    
-    if (!response.success) {
-      throw new Error('Failed to get projects for company')
-    }
-    
-    return response.data.map((project: Project) => ({
-      ...project,
-      startDate: (project as any).startDate ? new Date((project as any).startDate) : undefined,
-      endDate: (project as any).endDate ? new Date((project as any).endDate) : undefined,
-      createdAt: new Date((project as any).createdAt),
-      updatedAt: new Date((project as any).updatedAt)
-    }))
+    return this.getAllProjectsForCompany(companyId, { includeArchived })
   },
 
   // Get all projects (fallback for when no company ID)
   async getProjects(includeArchived: boolean = false): Promise<Project[]> {
-    const result = await this.getProjectsPage({ includeArchived, limit: 100, offset: 0 })
-    return result.data
+    return this.getAllProjects({ includeArchived })
+  },
+
+  async getAllProjects(params: { includeArchived?: boolean } = {}): Promise<Project[]> {
+    const projects: Project[] = []
+    let offset = 0
+    let total = Number.POSITIVE_INFINITY
+
+    while (projects.length < total) {
+      const page = await this.getProjectsPage({
+        includeArchived: params.includeArchived,
+        limit: PROJECTS_PAGE_SIZE,
+        offset
+      })
+
+      projects.push(...page.data)
+      total = page.count
+
+      if (page.data.length === 0 || page.data.length < PROJECTS_PAGE_SIZE) {
+        break
+      }
+
+      offset += page.data.length
+    }
+
+    return projects
   },
 
   async getProjectsPage(params: {
@@ -184,6 +186,36 @@ export const projectApiService = {
     }))
 
     return { data: normalized, count: response.count }
+  },
+
+  async getAllProjectsForCompany(
+    companyId: string | null,
+    params: { includeArchived?: boolean } = {}
+  ): Promise<Project[]> {
+    if (!companyId) return []
+
+    const projects: Project[] = []
+    let offset = 0
+    let total = Number.POSITIVE_INFINITY
+
+    while (projects.length < total) {
+      const page = await this.getProjectsForCompanyPage(companyId, {
+        includeArchived: params.includeArchived,
+        limit: PROJECTS_PAGE_SIZE,
+        offset
+      })
+
+      projects.push(...page.data)
+      total = page.count
+
+      if (page.data.length === 0 || page.data.length < PROJECTS_PAGE_SIZE) {
+        break
+      }
+
+      offset += page.data.length
+    }
+
+    return projects
   },
 
   async createProject(projectData: CreateProjectData): Promise<Project> {

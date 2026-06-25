@@ -294,6 +294,17 @@ export default function AdminDashboard() {
     return result
   }
 
+  const getUserIdentityValues = (user: UserType | DashboardUser): string[] => {
+    const values = [
+      user.id,
+      (user as UserType & { uid?: string | null }).uid
+    ]
+
+    return values
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim())
+  }
+
   const normalizeUsers = (items: UserType[]): DashboardUser[] => {
     const seen = new Set<string>()
     const result: DashboardUser[] = []
@@ -418,7 +429,7 @@ export default function AdminDashboard() {
       let scopedClients = clientsData
       let scopedTeams = teamsData
       if (!isGlobalAdmin && currentUser?.companyId) {
-        const allowedUsers = new Set(usersData.map(u => u.id))
+        const allowedUsers = new Set(usersData.flatMap(getUserIdentityValues))
         scopedTimeEntries = timeEntriesData.filter((te: TimeEntry) => te.userId && allowedUsers.has(te.userId))
         scopedRunningTimeEntries = runningTimeEntriesData.filter((te: TimeEntry) => te.userId && allowedUsers.has(te.userId))
       }

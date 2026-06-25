@@ -2,6 +2,8 @@ import { User, TimeEntry, Project, Client, Team, CreateTimeEntryData } from '../
 
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api'
+const ADMIN_TIME_ENTRIES_PAGE_SIZE = 200
+const ADMIN_PROJECTS_PAGE_SIZE = 100
 
 // Get auth token for authentication
 const getAuthToken = async (): Promise<string | null> => {
@@ -205,10 +207,50 @@ export const adminCompanyInvitesAPI = {
 export const adminTimeEntriesAPI = {
   // Get all time entries (for admin use)
   async getAllTimeEntries(companyId: string | null): Promise<TimeEntry[]> {
+    const allEntries: TimeEntry[] = []
+    let offset = 0
+
+    while (true) {
+      const queryParams = new URLSearchParams()
+      if (companyId) {
+        queryParams.append('companyId', companyId)
+      }
+      queryParams.append('limit', String(ADMIN_TIME_ENTRIES_PAGE_SIZE))
+      queryParams.append('offset', String(offset))
+
+      const queryString = queryParams.toString()
+      const endpoint = `/admin/time-entries${queryString ? `?${queryString}` : ''}`
+
+      const response = await apiRequest<{
+        success: boolean
+        data: TimeEntry[]
+        count: number
+      }>(endpoint)
+      
+      if (!response.success) {
+        throw new Error('Failed to get time entries')
+      }
+
+      const pageEntries = response.data || []
+      allEntries.push(...pageEntries)
+
+      if (pageEntries.length < ADMIN_TIME_ENTRIES_PAGE_SIZE) {
+        break
+      }
+
+      offset += pageEntries.length
+    }
+
+    return allEntries
+  },
+
+  async getTimeEntriesPage(companyId: string | null, offset: number = 0): Promise<TimeEntry[]> {
     const queryParams = new URLSearchParams()
     if (companyId) {
       queryParams.append('companyId', companyId)
     }
+    queryParams.append('limit', String(ADMIN_TIME_ENTRIES_PAGE_SIZE))
+    queryParams.append('offset', String(offset))
 
     const queryString = queryParams.toString()
     const endpoint = `/admin/time-entries${queryString ? `?${queryString}` : ''}`
@@ -299,27 +341,54 @@ export const adminProjectsAPI = {
   async getProjectsForCompany(companyId: string | null): Promise<Project[]> {
     if (!companyId) return []
 
+    const projects: Project[] = []
+    let offset = 0
+    let total = Number.POSITIVE_INFINITY
+
+    while (projects.length < total) {
+      const page = await this.getProjectsForCompanyPage(companyId, offset)
+      projects.push(...page.data)
+      total = page.count
+
+      if (page.data.length === 0 || page.data.length < ADMIN_PROJECTS_PAGE_SIZE) {
+        break
+      }
+
+      offset += page.data.length
+    }
+
+    return projects
+  },
+
+  async getProjectsForCompanyPage(companyId: string | null, offset: number = 0): Promise<{ data: Project[]; count: number }> {
+    if (!companyId) return { data: [], count: 0 }
+
     // During Firebase -> MySQL migration, some users/companies may still have Firebase-style IDs.
     // Backend company-scoped routes reject those. Fall back to non-param endpoints.
     const endpointBase = companyId.startsWith('-') ? '/projects' : `/projects/company/${companyId}`
+    const queryParams = new URLSearchParams()
+    queryParams.append('limit', String(ADMIN_PROJECTS_PAGE_SIZE))
+    queryParams.append('offset', String(offset))
 
     const response = await apiRequest<{
       success: boolean
       data: Project[]
       count: number
-    }>(endpointBase)
+    }>(`${endpointBase}?${queryParams.toString()}`)
 
     if (!response.success) {
       throw new Error('Failed to get projects for company')
     }
 
-    return response.data.map((project: Project) => ({
+    const data = response.data.map((project: Project) => ({
       ...project,
       startDate: (project as any).startDate ? new Date((project as any).startDate) : undefined,
       endDate: (project as any).endDate ? new Date((project as any).endDate) : undefined,
       createdAt: new Date((project as any).createdAt),
       updatedAt: new Date((project as any).updatedAt)
     }))
+
+    return { data, count: response.count }
   },
 
   // Get clients for company

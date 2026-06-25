@@ -59,7 +59,7 @@ export default function TimeTrackerPage() {
         timeEntryService.getTimeSummary(currentUser.uid),
         timeEntryService.getTimeEntries(currentUser.uid),
         companyId ? clientApiService.getClientsForCompany(companyId) : clientApiService.getClients(),
-        companyId ? projectApiService.getProjectsForCompany(companyId) : projectApiService.getProjects()
+        companyId ? projectApiService.getAllProjectsForCompany(companyId) : projectApiService.getAllProjects()
       ])
       setTimeSummary(summary)
       setClients(clientsData)
