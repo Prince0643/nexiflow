@@ -74,6 +74,34 @@ const ADMIN_RUNNING_POLL_INTERVAL_MS = 60000
 const ADMIN_RUNNING_IDLE_POLL_INTERVAL_MS = 5 * 60 * 1000
 const MAX_ADMIN_RUNNING_POLL_BACKOFF_MS = 5 * 60 * 1000
 
+const getStartOfLocalDay = (date: Date): Date => {
+  const localDate = new Date(date)
+  localDate.setHours(0, 0, 0, 0)
+  return localDate
+}
+
+const getEndOfLocalDay = (date: Date): Date => {
+  const localDate = new Date(date)
+  localDate.setHours(23, 59, 59, 999)
+  return localDate
+}
+
+const parseDateInput = (value: string): Date | null => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return null
+
+  const [, year, month, day] = match
+  const date = new Date(Number(year), Number(month) - 1, Number(day))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const getEntryDate = (entry: TimeEntry): Date | null => {
+  const date = new Date(entry.startTime)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const getLocalDayKey = (date: Date): string => format(date, 'yyyy-MM-dd')
+
 export default function AdminDashboard() {
   const { currentUser, currentCompany } = useMySQLAuth()
   const navigate = useNavigate()
@@ -305,6 +333,36 @@ export default function AdminDashboard() {
       .map((value) => value.trim())
   }
 
+  const getSelectedDateRange = (): { startDate: Date; endDate: Date } | null => {
+    const now = new Date()
+
+    if (dateFilter === 'week') {
+      return {
+        startDate: getStartOfLocalDay(startOfWeek(now)),
+        endDate: getEndOfLocalDay(endOfWeek(now))
+      }
+    }
+
+    if (dateFilter === 'month') {
+      return {
+        startDate: getStartOfLocalDay(startOfMonth(now)),
+        endDate: getEndOfLocalDay(endOfMonth(now))
+      }
+    }
+
+    if (dateFilter === 'custom') {
+      const startDate = customStartDate ? parseDateInput(customStartDate) : null
+      const endDate = customEndDate ? parseDateInput(customEndDate) : null
+
+      return {
+        startDate: getStartOfLocalDay(startDate || now),
+        endDate: getEndOfLocalDay(endDate || now)
+      }
+    }
+
+    return null
+  }
+
   const normalizeUsers = (items: UserType[]): DashboardUser[] => {
     const seen = new Set<string>()
     const result: DashboardUser[] = []
@@ -525,32 +583,17 @@ export default function AdminDashboard() {
     
     // Filter by team (filter users in the team and then filter entries by those users)
     if (selectedTeam) {
-      const teamMembers = users.filter(user => user.teamId === selectedTeam).map(user => user.id)
-      filtered = filtered.filter((entry: TimeEntry) => entry.userId && teamMembers.includes(entry.userId))
+      const teamMembers = new Set(users.filter(user => user.teamId === selectedTeam).flatMap(getUserIdentityValues))
+      filtered = filtered.filter((entry: TimeEntry) => entry.userId && teamMembers.has(entry.userId))
     }
     
     // Filter by date range
-    if (dateFilter !== 'all') {
-      const now = new Date()
-      let startDate: Date
-      let endDate: Date
-      
-      if (dateFilter === 'week') {
-        startDate = startOfWeek(now)
-        endDate = endOfWeek(now)
-      } else if (dateFilter === 'month') {
-        startDate = startOfMonth(now)
-        endDate = endOfMonth(now)
-      } else { // custom
-        startDate = customStartDate ? new Date(customStartDate) : new Date()
-        endDate = customEndDate ? new Date(customEndDate) : new Date()
-        // Add one day to include the end date
-        endDate = addDays(endDate, 1)
-      }
-      
+    const selectedDateRange = getSelectedDateRange()
+    if (selectedDateRange) {
+      const { startDate, endDate } = selectedDateRange
       filtered = filtered.filter((entry: TimeEntry) => {
-        const entryDate = new Date(entry.startTime)
-        return entryDate >= startDate && entryDate <= endDate
+        const entryDate = getEntryDate(entry)
+        return entryDate ? entryDate >= startDate && entryDate <= endDate : false
       })
     }
     
@@ -719,37 +762,33 @@ export default function AdminDashboard() {
 
   const getChartData = () => {
     const filteredEntries = getFilteredTimeEntries()
+    const selectedDateRange = getSelectedDateRange()
     const now = new Date()
-    let startDate: Date
-    let endDate: Date
-    
-    if (dateFilter === 'week') {
-      startDate = startOfWeek(now)
-      endDate = endOfWeek(now)
-    } else if (dateFilter === 'month') {
-      startDate = startOfMonth(now)
-      endDate = endOfMonth(now)
-    } else if (dateFilter === 'custom' && customStartDate && customEndDate) {
-      startDate = new Date(customStartDate)
-      endDate = new Date(customEndDate)
-    } else {
-      // Default to last 7 days
-      startDate = addDays(now, -6)
-      endDate = now
-    }
+    const startDate = selectedDateRange?.startDate || getStartOfLocalDay(addDays(now, -6))
+    const endDate = selectedDateRange?.endDate || getEndOfLocalDay(now)
     
     const days = eachDayOfInterval({ start: startDate, end: endDate })
     
     // Limit to maximum 7 days for better UI
     const limitedDays = days.length > 7 ? days.slice(-7) : days
+    const dailyTotals = new Map<string, number>()
+
+    for (const day of limitedDays) {
+      dailyTotals.set(getLocalDayKey(day), 0)
+    }
+
+    for (const entry of filteredEntries) {
+      const entryDate = getEntryDate(entry)
+      if (!entryDate) continue
+
+      const dayKey = getLocalDayKey(entryDate)
+      if (!dailyTotals.has(dayKey)) continue
+
+      dailyTotals.set(dayKey, (dailyTotals.get(dayKey) || 0) + (entry.duration || 0))
+    }
     
     const data = limitedDays.map(day => {
-      const dayEntries = filteredEntries.filter(entry => {
-        const entryDate = new Date(entry.startTime)
-        return entryDate.toDateString() === day.toDateString()
-      })
-      
-      const duration = dayEntries.reduce((total, entry) => total + (entry.duration || 0), 0)
+      const duration = dailyTotals.get(getLocalDayKey(day)) || 0
       
       return {
         date: format(day, 'MMM dd'),
