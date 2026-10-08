@@ -4383,24 +4383,28 @@ app.post('/api/company-invites/accept', async (req, res) => {
       // Resolve invitee user.
       let inviteeUserId = invite.invitee_user_id || null;
       let inviteeEmail = inviteEmail;
+      // Soft-deleted (is_active = 0) invitees are reactivated on accept below.
+      let inviteeInactive = false;
 
       if (!inviteeUserId && inviteeEmail) {
         const [userRows] = await connection.execute(
-          'SELECT id, email FROM users WHERE email = ? AND is_active = 1 LIMIT 1',
+          'SELECT id, email, is_active FROM users WHERE email = ? ORDER BY is_active DESC LIMIT 1',
           [inviteeEmail]
         );
         if (userRows.length) {
           inviteeUserId = userRows[0].id;
+          inviteeInactive = !userRows[0].is_active;
           inviteeEmail = String(userRows[0].email || inviteeEmail).trim().toLowerCase();
         }
       } else if (inviteeUserId) {
         const [userRows] = await connection.execute(
-          'SELECT id, email FROM users WHERE id = ? AND is_active = 1 LIMIT 1',
+          'SELECT id, email, is_active FROM users WHERE id = ? LIMIT 1',
           [inviteeUserId]
         );
         if (!userRows.length) {
           inviteeUserId = null;
         } else {
+          inviteeInactive = !userRows[0].is_active;
           inviteeEmail = String(userRows[0].email || inviteeEmail).trim().toLowerCase();
         }
       }
@@ -4420,6 +4424,17 @@ app.post('/api/company-invites/accept', async (req, res) => {
       await connection.beginTransaction();
       try {
         const now = new Date();
+
+        if (inviteeInactive) {
+          await connection.execute(
+            `UPDATE users
+             SET is_active = 1,
+                 company_id = ?,
+                 updated_at = ?
+             WHERE id = ?`,
+            [invite.company_id, now, inviteeUserId]
+          );
+        }
 
         // Insert or re-activate membership (best-effort if table exists).
         try {
@@ -6968,9 +6983,106 @@ app.post('/api/admin/users', authenticateToken, async (req, res) => {
       }
 
       const [existingUsers] = await connection.execute(
-        'SELECT id, name, email FROM users WHERE email = ? LIMIT 1',
+        'SELECT id, name, email, is_active, company_id FROM users WHERE email = ? LIMIT 1',
         [value.email]
       );
+
+      // Soft-deleted user re-added: reactivate in place, only for same-company (or company-less) users, so an
+      // admin of another company can never overwrite the password of a user deleted from a different tenant.
+      if (
+        existingUsers.length > 0 &&
+        !existingUsers[0].is_active &&
+        createCompanyId &&
+        (requesterRole === 'root' || !existingUsers[0].company_id || existingUsers[0].company_id === createCompanyId)
+      ) {
+        const existingUser = existingUsers[0];
+        const userId = existingUser.id;
+        const now = new Date();
+        const setPassword = Boolean(value.password);
+
+        if (setPassword) {
+          await connection.execute(
+            'UPDATE users SET password_hash = ?, is_active = 1, company_id = ?, role = ?, name = ?, updated_at = ? WHERE id = ?',
+            [await bcrypt.hash(value.password, 12), createCompanyId, value.role, value.name, now, userId]
+          );
+        } else {
+          await connection.execute(
+            'UPDATE users SET is_active = 1, company_id = ?, role = ?, name = ?, updated_at = ? WHERE id = ?',
+            [createCompanyId, value.role, value.name, now, userId]
+          );
+        }
+        if (typeof value.hourlyRate === 'number') {
+          await connection.execute('UPDATE users SET hourly_rate = ? WHERE id = ?', [value.hourlyRate, userId]);
+        }
+        if (value.timezone) {
+          await connection.execute('UPDATE users SET timezone = ? WHERE id = ?', [value.timezone, userId]);
+        }
+        try {
+          await connection.execute('UPDATE users SET needs_password_setup = ? WHERE id = ?', [setPassword ? 0 : 1, userId]);
+        } catch (e) {
+          console.warn('Failed to set needs_password_setup flag (column may not exist yet):', e?.message || e);
+        }
+
+        try {
+          await connection.execute(
+            `INSERT INTO company_memberships (id, user_id, company_id, role, is_default, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 1, 1, ?, ?)
+             ON DUPLICATE KEY UPDATE is_active = 1, role = VALUES(role), updated_at = VALUES(updated_at)`,
+            [uuidv4(), userId, createCompanyId, value.role, now, now]
+          );
+        } catch (e) {
+          console.warn('Failed to upsert company_memberships on user reactivate:', e?.message || e);
+        }
+
+        let inviteEmailSent = false;
+        if (!setPassword) {
+          try {
+            const { rawToken } = await createPasswordSetupToken(connection, userId);
+            const setPasswordLink = `${getFrontendUrl()}/auth?mode=set-password&token=${rawToken}`;
+            const emailResult = await billingEmailService.sendSetPasswordInviteEmail(
+              { name: value.name, email: existingUser.email },
+              setPasswordLink
+            );
+            inviteEmailSent = Boolean(emailResult?.success);
+            if (!inviteEmailSent) {
+              console.error('Set-password invite email send failed:', emailResult?.error);
+            }
+          } catch (e) {
+            console.error('Failed to create/send password setup token:', e);
+          }
+        }
+
+        const [reactivated] = await connection.execute(
+          'SELECT uid, avatar, timezone, hourly_rate, created_at FROM users WHERE id = ? LIMIT 1',
+          [userId]
+        );
+        const row = reactivated[0] || {};
+        return res.status(201).json({
+          success: true,
+          data: {
+            id: userId,
+            uid: row.uid || userId,
+            name: value.name,
+            email: existingUser.email,
+            role: value.role,
+            companyId: createCompanyId,
+            teamId: null,
+            teamRole: null,
+            avatar: row.avatar || null,
+            timezone: row.timezone,
+            hourlyRate: row.hourly_rate != null ? Number(row.hourly_rate) : null,
+            isActive: true,
+            createdAt: row.created_at || now,
+            updatedAt: now
+          },
+          inviteEmailSent,
+          message: setPassword
+            ? 'User created successfully'
+            : inviteEmailSent
+              ? 'User created and invitation email sent.'
+              : 'User created. Failed to send invitation email.'
+        });
+      }
 
       if (existingUsers.length > 0) {
         // If the email already exists, do not create a second user; invite the existing user to join this company.
