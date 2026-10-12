@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { X, CreditCard } from 'lucide-react'
 
-export type PaymentProvider = 'paymongo' | 'paypal'
+export type PaymentProvider = 'paymongo' | 'paypal' | 'stripe'
 export type UpgradePlan = 'office' | 'enterprise'
 
 interface PaymentProviderPickerModalProps {
@@ -41,7 +41,7 @@ export default function PaymentProviderPickerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose}></div>
-      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
+      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -59,7 +59,7 @@ export default function PaymentProviderPickerModal({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
           <button
             onClick={() => onSelectProvider('paymongo')}
             className={`flex flex-col items-center justify-center px-4 py-4 rounded-lg border-2 transition-all ${
@@ -113,12 +113,42 @@ export default function PaymentProviderPickerModal({
               Redirect to PayPal
             </span>
           </button>
+
+          <button
+            onClick={() => onSelectProvider('stripe')}
+            className={`flex flex-col items-center justify-center px-4 py-4 rounded-lg border-2 transition-all ${
+              selectedProvider === 'stripe'
+                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+                : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
+            }`}
+            type="button"
+          >
+            <CreditCard
+              className={`h-6 w-6 mb-2 ${
+                selectedProvider === 'stripe' ? 'text-indigo-600' : 'text-gray-500'
+              }`}
+            />
+            <span
+              className={`font-semibold ${
+                selectedProvider === 'stripe'
+                  ? 'text-indigo-700 dark:text-indigo-300'
+                  : 'text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              Card (Stripe)
+            </span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
+              International cards, USD
+            </span>
+          </button>
         </div>
 
         <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-5">
           {selectedProvider === 'paypal'
             ? 'You will be redirected to PayPal to complete your payment.'
-            : selectedProvider === 'paymongo'
+            : selectedProvider === 'stripe'
+              ? 'You will be redirected to Stripe to pay by card in USD.'
+              : selectedProvider === 'paymongo'
               ? 'Pay via NexiPay (QRPH, cards, e-wallets, bank transfers).'
               : 'Select a provider to continue.'}
         </p>

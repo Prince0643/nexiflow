@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import StripeReturnBanner from '../components/billing/StripeReturnBanner'
 import { 
   Save, 
   Lock, 
@@ -542,6 +543,7 @@ export default function Settings() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <StripeReturnBanner />
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">Settings</h1>

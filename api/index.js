@@ -23,6 +23,8 @@ const billingEmailService = require('./services/billingEmailService');
 const { isStartTimerIntent, isStopTimerIntent } = require('./aiTimerIntent.cjs');
 const { sanitizeAIReply } = require('./aiReplyFormatting.cjs');
 const paypal = require('@paypal/checkout-server-sdk');
+const Stripe = require('stripe');
+const { finalizeStripeSession, handleStripeEvent } = require('./stripeBilling.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -411,7 +413,8 @@ const createApiLimiter = (max, skip) => rateLimit({
 });
 const mentionReadLimiter = createApiLimiter(600, (req) => req.method !== 'GET');
 const taskLiveReadLimiter = createApiLimiter(900, (req) => req.method !== 'GET');
-const limiter = createApiLimiter(300);
+// Stripe webhooks are signature-verified and must never be throttled
+const limiter = createApiLimiter(300, (req) => req.originalUrl.startsWith('/api/billing/stripe-webhook'));
 const aiChatLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: isDev ? 300 : 30,
@@ -449,6 +452,16 @@ const getPayPalClient = () => {
   const environment = paypalEnvironment();
   if (!environment) return null;
   return new paypal.core.PayPalHttpClient(environment);
+};
+
+let stripeClient = null;
+const getStripeClient = () => {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    console.warn('Stripe credentials not configured. Stripe payments will be disabled.');
+    return null;
+  }
+  if (!stripeClient) stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-06-30.basil' });
+  return stripeClient;
 };
 
 const mapTaskRow = (row) => ({
@@ -10428,6 +10441,173 @@ app.post('/api/billing/paypal-webhook', express.raw({ type: 'application/json' }
   } catch (error) {
     console.error('PayPal webhook error:', error);
     return res.status(200).json({ received: true, error: error.message });
+  }
+});
+
+// ============================================
+// STRIPE PAYMENT ENDPOINTS (one-time hosted Checkout)
+// ============================================
+
+app.post('/api/billing/create-stripe-checkout', authenticateCheckoutOrUser, async (req, res) => {
+  try {
+    const { plan, cancelUrl } = req.body;
+    const companyId = req.user.companyId;
+    const userId = req.user.uid;
+
+    if (!companyId) {
+      return res.status(400).json({ error: 'User must belong to a company' });
+    }
+    if (!plan || !['office', 'enterprise'].includes(plan)) {
+      return res.status(400).json({ error: 'Invalid plan. Must be office or enterprise' });
+    }
+    if (req.user.role !== 'super_admin' && req.user.role !== 'root') {
+      return res.status(403).json({ error: 'Only super admins can upgrade the plan' });
+    }
+
+    const stripe = getStripeClient();
+    if (!stripe) {
+      return res.status(503).json({ error: 'Stripe is not configured' });
+    }
+
+    const connection = await pool.getConnection();
+    let customerEmail = '';
+    let billableUserCount = 1;
+    try {
+      const [userRows] = await connection.execute('SELECT email FROM users WHERE id = ?', [userId]);
+      if (userRows.length > 0) customerEmail = userRows[0].email;
+
+      const [userCountRows] = await connection.execute(
+        'SELECT COUNT(*) as count FROM users WHERE company_id = ? AND is_active = 1',
+        [companyId]
+      );
+      const activeUsers = Number(userCountRows[0]?.count || 0);
+      billableUserCount = Math.max(1, Math.min(getPlanMaxMembers(plan), activeUsers));
+    } finally {
+      connection.release();
+    }
+
+    const pricePerUserCents = (plan === 'office' ? 9 : 12) * 100;
+    const totalAmountCents = pricePerUserCents * billableUserCount;
+    const planLabel = plan === 'office' ? 'Office' : 'Enterprise';
+    const transactionId = uuidv4();
+    const publicBaseUrl = getPublicBaseUrl(req);
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: customerEmail || undefined,
+      client_reference_id: String(companyId),
+      line_items: [{
+        quantity: billableUserCount,
+        price_data: {
+          currency: 'usd',
+          unit_amount: pricePerUserCents,
+          product_data: {
+            name: `NexiFlow ${planLabel} plan – ${billableUserCount} user${billableUserCount !== 1 ? 's' : ''}`
+          }
+        }
+      }],
+      metadata: {
+        companyId: String(companyId),
+        userId: String(userId),
+        plan,
+        userCount: String(billableUserCount),
+        transactionId
+      },
+      success_url: `${publicBaseUrl}/api/billing/stripe-return?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl || `${publicBaseUrl}/upgrade?billing=stripe_cancelled`
+    });
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.execute(
+        `INSERT INTO payment_transactions
+         (id, company_id, checkout_session_id, amount, currency, status, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          transactionId,
+          companyId,
+          session.id,
+          totalAmountCents,
+          'USD',
+          'pending',
+          JSON.stringify({
+            payment_provider: 'stripe',
+            pricing_level: plan,
+            user_count: billableUserCount,
+            type: 'plan_upgrade',
+            additional_seats: null,
+            price_per_user: pricePerUserCents,
+            stripe_session_id: session.id
+          })
+        ]
+      );
+    } finally {
+      conn.release();
+    }
+
+    res.json({
+      success: true,
+      checkoutUrl: session.url,
+      checkoutSessionId: session.id,
+      transactionId
+    });
+  } catch (error) {
+    console.error('Stripe checkout creation error:', error);
+    res.status(500).json({ error: 'Failed to create Stripe checkout: ' + (error.message || 'Unknown error') });
+  }
+});
+
+// Stripe success redirect: verify payment server-side, finalize, then send the user to the SPA.
+app.get('/api/billing/stripe-return', async (req, res) => {
+  const sessionId = req.query?.session_id ? String(req.query.session_id) : null;
+  const publicBaseUrl = getPublicBaseUrl(req);
+  const fail = (reason) => res.redirect(`${publicBaseUrl}/upgrade?billing=stripe_error&reason=${reason}`);
+
+  if (!sessionId) return fail('missing_session');
+  const stripe = getStripeClient();
+  if (!stripe) return fail('stripe_not_configured');
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status !== 'paid') {
+      // Async payment methods: the webhook finalizes later.
+      return res.redirect(`${publicBaseUrl}/settings?billing=stripe_pending`);
+    }
+    const result = await finalizeStripeSession(pool, applyPaidPlanUpgrade, session);
+    if (result.status === 'not_found') return fail('transaction_not_found');
+    return res.redirect(
+      `${publicBaseUrl}/settings?billing=stripe_success&plan=${encodeURIComponent(result.pricingLevel || '')}&orderId=${encodeURIComponent(sessionId)}`
+    );
+  } catch (error) {
+    console.error('Stripe return handler error:', error);
+    return fail('server_error');
+  }
+});
+
+// Uses req.rawBody captured by the global express.json verify hook (no express.raw here).
+app.post('/api/billing/stripe-webhook', async (req, res) => {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripe = getStripeClient();
+  if (!secret || !stripe) {
+    return res.status(500).json({ error: 'Stripe webhook is not configured' });
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.rawBody, req.headers['stripe-signature'], secret);
+  } catch (error) {
+    console.warn('Stripe webhook signature verification failed');
+    return res.status(400).json({ error: 'Invalid signature' });
+  }
+
+  try {
+    const outcome = await handleStripeEvent(pool, applyPaidPlanUpgrade, event);
+    console.log('Stripe webhook handled:', event.type, outcome);
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    // 500 so Stripe retries; finalize is idempotent.
+    console.error('Stripe webhook processing error:', error);
+    return res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 

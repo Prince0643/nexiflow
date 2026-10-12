@@ -191,6 +191,27 @@ export default function SuperAdminSignupForm({ onSwitchToLogin }: SuperAdminSign
     try {
       const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
 
+      if (provider === 'stripe') {
+        const response = await fetch(`${API_BASE_URL}/billing/create-stripe-checkout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ plan })
+        })
+
+        const data = await response.json().catch(() => null)
+        if (response.ok && data?.success && data?.checkoutUrl) {
+          localStorage.removeItem('pendingBillingToken')
+          window.location.href = data.checkoutUrl
+          return
+        }
+
+        setError(data?.error || 'Failed to initiate Stripe checkout. Please try again.')
+        return
+      }
+
       if (provider === 'paypal') {
         const response = await fetch(`${API_BASE_URL}/billing/create-paypal-order`, {
           method: 'POST',

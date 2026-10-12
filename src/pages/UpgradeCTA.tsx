@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useMySQLAuth } from '../contexts/MySQLAuthContext'
 import PaymentProviderPickerModal, { PaymentProvider, UpgradePlan } from '../components/billing/PaymentProviderPickerModal'
+import StripeReturnBanner from '../components/billing/StripeReturnBanner'
 import { useSearchParams } from 'react-router-dom'
 import { 
   Crown, 
@@ -214,7 +215,27 @@ export default function UpgradeCTA() {
     try {
       const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '/api'
       
-      if (provider === 'paypal') {
+      if (provider === 'stripe') {
+        const response = await fetch(`${API_BASE_URL}/billing/create-stripe-checkout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          },
+          body: JSON.stringify({
+            plan,
+            cancelUrl: `${window.location.origin}/upgrade?billing=stripe_cancelled`
+          })
+        })
+
+        const data = await response.json()
+
+        if (data.success && data.checkoutUrl) {
+          window.location.href = data.checkoutUrl
+        } else {
+          alert(data.error || 'Failed to initiate Stripe checkout. Please try again.')
+        }
+      } else if (provider === 'paypal') {
         // PayPal flow
         const response = await fetch(`${API_BASE_URL}/billing/create-paypal-order`, {
           method: 'POST',
@@ -272,6 +293,7 @@ export default function UpgradeCTA() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <StripeReturnBanner />
       <PaymentProviderPickerModal
         isOpen={isProviderModalOpen}
         plan={pendingPlan}
