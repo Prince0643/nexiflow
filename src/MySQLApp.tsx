@@ -54,6 +54,7 @@ import NewInvoice from './pages/NewInvoice'
 import { soundManager } from './utils/soundManager'
 import PublicLayout from './components/PublicLayout'
 import { removeLeadConnectorWidget } from './utils/leadConnectorWidget'
+import KnownIssuesBanner from './components/qa/KnownIssuesBanner'
 
 function ScrollToTop() {
   const { pathname, search, hash } = useLocation()
@@ -114,6 +115,7 @@ function MySQLAppContent() {
         <Header onMenuClick={() => setSidebarOpen(true)} />
         
         <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4 sm:p-6 lg:p-8">
+          <KnownIssuesBanner />
           <Routes>
             {/* Root user routes */}
             {currentUser.role === 'root' ? (
